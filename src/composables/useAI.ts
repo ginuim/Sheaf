@@ -1,4 +1,4 @@
-import { reactive, watch } from "vue";
+import { reactive, watch, ref } from "vue";
 
 const SETTINGS_KEY = "blank.ai-settings";
 
@@ -12,6 +12,28 @@ export interface EditChange {
   from: number;
   to: number;
   insert: string;
+}
+
+export interface DiffLine {
+  type: "added" | "removed" | "normal";
+  text: string;
+}
+
+export interface CompressedDiffLine {
+  type: "added" | "removed" | "normal" | "ellipsis";
+  text: string;
+}
+
+export interface AIHistoryItem {
+  id: string;
+  timestamp: number;
+  instruction: string;
+  status: "loading" | "done" | "no-changes" | "error" | "applied" | "discarded";
+  errorMsg?: string;
+  noChangesHint?: string;
+  originalDoc: string;
+  changes: EditChange[];
+  rawResponse: string;
 }
 
 const DEFAULT_SETTINGS: AISettings = {
@@ -203,6 +225,120 @@ export function explainNoChanges(doc: string, accumulated: string): string {
   return "无法解析 AI 返回格式，请重试";
 }
 
+export function applyChangesToDoc(doc: string, changes: EditChange[]): string {
+  let result = "";
+  let lastIdx = 0;
+  const sorted = [...changes].sort((a, b) => a.from - b.from);
+  for (const change of sorted) {
+    result += doc.slice(lastIdx, change.from) + change.insert;
+    lastIdx = change.to;
+  }
+  result += doc.slice(lastIdx);
+  return result;
+}
+
+export function isFullDocChange(changes: EditChange[], originalDoc: string): boolean {
+  return (
+    changes.length === 1 &&
+    changes[0].from === 0 &&
+    changes[0].to === originalDoc.length
+  );
+}
+
+export function lineDiff(oldStr: string, newStr: string): DiffLine[] {
+  const oldLines = oldStr.split("\n");
+  const newLines = newStr.split("\n");
+  const m = oldLines.length;
+  const n = newLines.length;
+
+  if (m * n > 1000000) {
+    const result: DiffLine[] = [];
+    for (const line of oldLines) {
+      result.push({ type: "removed", text: line });
+    }
+    for (const line of newLines) {
+      result.push({ type: "added", text: line });
+    }
+    return result;
+  }
+
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (oldLines[i - 1] === newLines[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  const result: DiffLine[] = [];
+  let i = m;
+  let j = n;
+
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+      result.unshift({ type: "normal", text: oldLines[i - 1] });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      result.unshift({ type: "added", text: newLines[j - 1] });
+      j--;
+    } else {
+      result.unshift({ type: "removed", text: oldLines[i - 1] });
+      i--;
+    }
+  }
+
+  return result;
+}
+
+export function compressDiff(lines: DiffLine[], contextLines = 2): CompressedDiffLine[] {
+  const result: CompressedDiffLine[] = [];
+  const n = lines.length;
+
+  const shouldShow = new Array<boolean>(n).fill(false);
+  for (let i = 0; i < n; i++) {
+    if (lines[i].type === "added" || lines[i].type === "removed") {
+      shouldShow[i] = true;
+      for (let j = 1; j <= contextLines; j++) {
+        if (i - j >= 0) shouldShow[i - j] = true;
+        if (i + j < n) shouldShow[i + j] = true;
+      }
+    }
+  }
+
+  let inEllipsis = false;
+  for (let i = 0; i < n; i++) {
+    if (shouldShow[i]) {
+      inEllipsis = false;
+      result.push({
+        type: lines[i].type,
+        text: lines[i].text,
+      });
+    } else {
+      if (!inEllipsis) {
+        let count = 0;
+        for (let k = i; k < n; k++) {
+          if (!shouldShow[k]) count++;
+          else break;
+        }
+        result.push({
+          type: "ellipsis",
+          text: `... 省略 ${count} 行相同内容 ...`,
+        });
+        inEllipsis = true;
+      }
+    }
+  }
+
+  return result;
+}
+
+const historyList = ref<AIHistoryItem[]>([]);
+
 export function useAI() {
   const settings = reactive(loadSettings());
 
@@ -275,5 +411,5 @@ export function useAI() {
     return resolveChanges(doc, accumulated);
   }
 
-  return { settings, streamEdit };
+  return { settings, streamEdit, historyList };
 }
