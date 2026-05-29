@@ -6,6 +6,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import AIPanel from "./components/AIPanel.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
 import MarkdownPreview from "./components/MarkdownPreview.vue";
+import ExportPanel from "./components/ExportPanel.vue";
 import OutlinePanel from "./components/OutlinePanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import Toolbar from "./components/Toolbar.vue";
@@ -13,6 +14,7 @@ import type { ViewMode } from "./components/Toolbar.vue";
 import type { EditChange } from "./composables/useAI";
 import { refreshRecentMenu, setupAppMenu } from "./composables/useAppMenu";
 import { exportPdf } from "./composables/usePdfExport";
+import { buildWechatHtml, copyWechatHtml } from "./composables/useWechatExport";
 import { useFile } from "./composables/useFile";
 import { parseOutline, type OutlineItem } from "./composables/useOutline";
 import {
@@ -52,6 +54,7 @@ const baselineContent = ref(DEFAULT_CONTENT);
 const isDirty = computed(() => content.value !== baselineContent.value);
 const viewMode = ref<ViewMode>("split");
 const showOutline = ref(true);
+const showExport = ref(true);
 const editorRef = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 const previewRef = ref<InstanceType<typeof MarkdownPreview> | null>(null);
 const previewPaneRef = ref<HTMLElement | null>(null);
@@ -177,6 +180,21 @@ async function handleExportPdf() {
   }
 }
 
+async function handleCopyWechatHtml() {
+  if (exporting.value) return;
+
+  exporting.value = true;
+  try {
+    const html = buildWechatHtml(content.value, "classic", filePath.value);
+    const result = await copyWechatHtml(html);
+    if (!result.ok) {
+      await message(result.message, { title: "Sheaf", kind: "error" });
+    }
+  } finally {
+    exporting.value = false;
+  }
+}
+
 function applyAIChanges(changes: EditChange[]) {
   editorRef.value?.applyChanges(changes);
 }
@@ -243,6 +261,7 @@ onMounted(async () => {
     onSave: () => void saveFile(content.value),
     onSaveAs: () => void saveFileAs(content.value),
     onExportPdf: () => void handleExportPdf(),
+    onCopyWechatHtml: () => void handleCopyWechatHtml(),
     onOpenSettings: () => {
       showSettings.value = true;
     },
@@ -278,6 +297,7 @@ onUnmounted(() => {
       :is-dark="isDark"
       :exporting="exporting"
       :show-outline="showOutline"
+      :show-export="showExport"
       :show-a-i="showAI"
       @open="openFileWithConfirm"
       @save="saveFile(content)"
@@ -285,6 +305,7 @@ onUnmounted(() => {
       @export-pdf="handleExportPdf"
       @toggle-theme="toggleTheme"
       @toggle-outline="showOutline = !showOutline"
+      @toggle-export="showExport = !showExport"
       @toggle-a-i="showAI = !showAI"
       @update:view-mode="viewMode = $event"
     />
@@ -325,6 +346,12 @@ onUnmounted(() => {
         v-if="showOutline"
         :items="outlineItems"
         @navigate="navigateToHeading"
+      />
+
+      <ExportPanel
+        v-if="showExport"
+        :source="content"
+        :doc-file-path="filePath"
       />
     </div>
   </div>

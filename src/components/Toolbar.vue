@@ -8,6 +8,7 @@ defineProps<{
   isDark: boolean;
   exporting: boolean;
   showOutline: boolean;
+  showExport: boolean;
   showAI: boolean;
 }>();
 
@@ -18,6 +19,7 @@ const emit = defineEmits<{
   exportPdf: [];
   toggleTheme: [];
   toggleOutline: [];
+  toggleExport: [];
   toggleAI: [];
   "update:viewMode": [mode: ViewMode];
 }>();
@@ -65,6 +67,14 @@ const modes: { id: ViewMode; label: string }[] = [
         @click="emit('toggleAI')"
       >
         AI
+      </button>
+      <button
+        class="btn btn-ghost export-toggle"
+        :class="{ active: showExport }"
+        title="导出面板"
+        @click="emit('toggleExport')"
+      >
+        导出
       </button>
       <button
         class="btn btn-ghost outline-toggle"
@@ -205,6 +215,7 @@ const modes: { id: ViewMode; label: string }[] = [
 }
 
 .outline-toggle.active,
+.export-toggle.active,
 .ai-toggle.active {
   color: var(--ink-accent);
   background: var(--ink-accent-soft);
