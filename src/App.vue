@@ -6,7 +6,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import AIPanel from "./components/AIPanel.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
 import MarkdownPreview from "./components/MarkdownPreview.vue";
-import ExportPanel from "./components/ExportPanel.vue";
+import ExportStudio from "./components/ExportStudio.vue";
 import OutlinePanel from "./components/OutlinePanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import Toolbar from "./components/Toolbar.vue";
@@ -348,12 +348,15 @@ onUnmounted(() => {
         @navigate="navigateToHeading"
       />
 
-      <ExportPanel
-        v-if="showExport"
-        :source="content"
-        :doc-file-path="filePath"
-      />
     </div>
+
+    <ExportStudio
+      v-if="showExport"
+      v-model="content"
+      :file-name="fileName"
+      :doc-file-path="filePath"
+      @close="showExport = false"
+    />
   </div>
 </template>
 
