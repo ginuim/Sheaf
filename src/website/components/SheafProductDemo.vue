@@ -18,6 +18,10 @@ const isDark = ref(false);
 
 const outlineItems = computed(() => parseOutline(content.value));
 
+const aiStreamPreview =
+  "1. 「在左侧输入 Markdown，右侧实时预览渲染效果。」→「左侧写 Markdown，右侧即时预览。」\n" +
+  "2. 「> 好的排版让文字呼吸。」→「> 排版留白，文字才透气。」";
+
 function toggleTheme() {
   isDark.value = !isDark.value;
   document.documentElement.dataset.theme = isDark.value ? "dark" : "";
@@ -63,7 +67,7 @@ function toggleTheme() {
         <AIPanelDemo
           v-if="showAI"
           instruction="把第二段改得更简洁，保留引用块"
-          stream-preview="将「左侧编辑…」合并为一句，删除重复说明。"
+          :stream-preview="aiStreamPreview"
           :change-count="2"
         />
         <OutlinePanel
