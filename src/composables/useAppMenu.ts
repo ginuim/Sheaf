@@ -6,6 +6,7 @@ export type AppMenuHandlers = {
   onSave: () => void;
   onSaveAs: () => void;
   onExportPdf: () => void;
+  onCopyWechatHtml: () => void;
   onOpenSettings: () => void;
   onClearRecent: () => void;
 };
@@ -95,6 +96,11 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
         id: "file-export-pdf",
         text: "导出 PDF",
         action: () => handlers!.onExportPdf(),
+      }),
+      await MenuItem.new({
+        id: "file-copy-wechat-html",
+        text: "复制公众号 HTML",
+        action: () => handlers!.onCopyWechatHtml(),
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({

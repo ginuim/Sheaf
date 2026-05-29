@@ -12,6 +12,7 @@ import { parseOutline } from "../../composables/useOutline";
 const content = ref(DEMO_MARKDOWN);
 const viewMode = ref<ViewMode>("split");
 const showOutline = ref(true);
+const showExport = ref(false);
 const showAI = ref(true);
 const isDark = ref(false);
 
@@ -43,9 +44,11 @@ function toggleTheme() {
         :is-dark="isDark"
         :exporting="false"
         :show-outline="showOutline"
+        :show-export="showExport"
         :show-a-i="showAI"
         @toggle-theme="toggleTheme"
         @toggle-outline="showOutline = !showOutline"
+        @toggle-export="showExport = !showExport"
         @toggle-a-i="showAI = !showAI"
         @update:view-mode="viewMode = $event"
       />
