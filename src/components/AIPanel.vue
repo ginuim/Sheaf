@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useAI, type EditChange } from "../composables/useAI";
+import { explainNoChanges, formatEditPreview, useAI, type EditChange } from "../composables/useAI";
 
 const props = defineProps<{
   doc: string;
@@ -19,7 +19,9 @@ const streamText = ref("");
 const status = ref<Status>("idle");
 const errorMsg = ref("");
 const pendingChanges = ref<EditChange[]>([]);
+const noChangesHint = ref("");
 let abortController: AbortController | null = null;
+let lastAccumulated = "";
 
 async function submit() {
   const text = instruction.value.trim();
@@ -27,7 +29,9 @@ async function submit() {
 
   streamText.value = "";
   errorMsg.value = "";
+  noChangesHint.value = "";
   pendingChanges.value = [];
+  lastAccumulated = "";
   status.value = "loading";
 
   abortController = new AbortController();
@@ -37,15 +41,18 @@ async function submit() {
       text,
       props.doc,
       (delta) => {
+        lastAccumulated += delta;
         streamText.value += delta;
       },
       abortController.signal,
     );
 
     if (changes.length === 0) {
+      noChangesHint.value = explainNoChanges(props.doc, lastAccumulated);
       status.value = "no-changes";
     } else {
       pendingChanges.value = changes;
+      streamText.value = formatEditPreview(props.doc, changes);
       status.value = "done";
     }
   } catch (e: unknown) {
@@ -75,7 +82,9 @@ function reset() {
   status.value = "idle";
   streamText.value = "";
   errorMsg.value = "";
+  noChangesHint.value = "";
   pendingChanges.value = [];
+  lastAccumulated = "";
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -124,7 +133,7 @@ function onKeydown(e: KeyboardEvent) {
       </div>
 
       <div v-else-if="status === 'no-changes'" class="ai-result ai-result-muted">
-        <span>无需修改</span>
+        <span class="ai-no-changes-msg">{{ noChangesHint || "无需修改" }}</span>
         <button class="ai-btn ai-btn-ghost" @click="reset">关闭</button>
       </div>
 
@@ -306,6 +315,13 @@ function onKeydown(e: KeyboardEvent) {
 .ai-result-muted {
   background: var(--ink-bg);
   color: var(--ink-text-muted);
+}
+
+.ai-no-changes-msg {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .ai-result-error {
