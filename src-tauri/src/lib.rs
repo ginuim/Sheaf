@@ -38,6 +38,12 @@ fn take_opened_files(state: tauri::State<'_, PendingFiles>) -> Vec<String> {
     state.0.lock().unwrap().drain(..).collect()
 }
 
+#[tauri::command]
+fn open_dropped_files(app: AppHandle, paths: Vec<String>) {
+    let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    handle_opened_files(&app, paths);
+}
+
 #[cfg(any(windows, target_os = "linux"))]
 fn paths_from_args() -> Vec<PathBuf> {
     std::env::args()
@@ -69,7 +75,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![take_opened_files])
+        .invoke_handler(tauri::generate_handler![take_opened_files, open_dropped_files])
         .setup(|app| {
             #[cfg(any(windows, target_os = "linux"))]
             handle_launch_files(app);

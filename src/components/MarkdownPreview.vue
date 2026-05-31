@@ -7,10 +7,25 @@ const props = defineProps<{
   docFilePath?: string | null;
 }>();
 
+const emit = defineEmits<{
+  "open-link": [href: string];
+}>();
+
 const articleRef = ref<HTMLElement | null>(null);
 const html = computed(() =>
   renderMarkdown(props.source, props.docFilePath ?? null),
 );
+
+function onPreviewClick(e: MouseEvent) {
+  const anchor = (e.target as HTMLElement).closest("a");
+  if (!anchor) return;
+
+  const href = anchor.getAttribute("href");
+  if (!href || href.startsWith("#")) return;
+
+  e.preventDefault();
+  emit("open-link", href);
+}
 
 defineExpose({
   articleEl: articleRef,
@@ -18,7 +33,7 @@ defineExpose({
 </script>
 
 <template>
-  <article ref="articleRef" class="preview-article">
+  <article ref="articleRef" class="preview-article" @click="onPreviewClick">
     <div class="preview-content" v-html="html" />
   </article>
 </template>
