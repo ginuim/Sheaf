@@ -57,7 +57,7 @@ const baselineContent = ref(DEFAULT_CONTENT);
 const isDirty = computed(() => content.value !== baselineContent.value);
 const viewMode = ref<ViewMode>("split");
 const showOutline = ref(true);
-const showExport = ref(true);
+const showExport = ref(false);
 const editorRef = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 const previewRef = ref<InstanceType<typeof MarkdownPreview> | null>(null);
 const previewPaneRef = ref<HTMLElement | null>(null);
@@ -492,6 +492,7 @@ onUnmounted(() => {
       v-model="content"
       :file-name="fileName"
       :doc-file-path="filePath"
+      :is-dark="isDark"
       @close="showExport = false"
     />
   </div>

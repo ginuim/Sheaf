@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, nextTick } from "vue";
-import { WECHAT_THEMES, getWechatTheme } from "../lib/wechatThemes";
+import { WECHAT_THEMES } from "../lib/wechatThemes";
 import { buildWechatHtml, copyWechatHtml, copyPlainText } from "../composables/useWechatExport";
 import { renderMarkdown } from "../composables/useMarkdown";
 import MarkdownEditor from "./MarkdownEditor.vue";
@@ -11,6 +11,7 @@ import { writeFile } from "@tauri-apps/plugin-fs";
 const props = defineProps<{
   docFilePath?: string | null;
   fileName: string;
+  isDark: boolean;
 }>();
 
 const modelValue = defineModel<string>({ required: true });
@@ -39,9 +40,9 @@ const renderedHtml = computed(() => {
   return renderMarkdown(modelValue.value, props.docFilePath ?? null);
 });
 
-// 获取微信主题
-const wechatTheme = computed(() => {
-  return getWechatTheme(config.value.wechatTheme);
+// 微信预览和复制导出必须走同一条样式管线，否则预览会退回浏览器默认样式。
+const wechatPreviewHtml = computed(() => {
+  return buildWechatHtml(modelValue.value, config.value.wechatTheme, props.docFilePath ?? null);
 });
 
 // 格式化当前日期为 2026/05/29 样式
@@ -171,13 +172,13 @@ const cardThemes = [
 </script>
 
 <template>
-  <div class="export-studio-overlay">
+  <div class="export-studio-overlay" :class="{ 'is-dark': isDark }">
     <!-- 头部工具栏 -->
     <header class="studio-header">
       <div class="header-left">
         <span class="studio-brand">Sheaf</span>
         <span class="studio-divider">/</span>
-        <span class="studio-title">导出工坊</span>
+        <span class="studio-title">导出</span>
       </div>
       <div class="header-right">
         <button class="exit-btn" @click="emit('close')">
@@ -210,22 +211,17 @@ const cardThemes = [
           <div class="canvas-scroller">
             <!-- 微信排版预览 -->
             <div v-if="config.type === 'wechat'" class="preview-wechat-wrapper">
-              <div class="phone-status-bar">
-                <span class="time">10:00</span>
-                <div class="camera"></div>
-                <span class="battery">99%</span>
+              <div class="wechat-preview-toolbar">
+                <span class="wechat-preview-title">公众号文章预览</span>
+                <span class="wechat-preview-meta">{{ fileName }}</span>
               </div>
               <div class="preview-scroll-pane">
-                <article
-                  class="wechat-article-container"
-                  :style="wechatTheme.styles.section"
-                >
+                <article class="wechat-article-container">
                   <div
                     class="wechat-content"
                     :style="{ fontSize: config.fontSize + 'px' }"
                   >
-                    <!-- 微信由于在微信编辑器会二次样式内联，这里模仿 buildWechatHtml 的样式绑定 -->
-                    <div class="wechat-renderer" v-html="renderedHtml" />
+                    <div class="wechat-renderer" v-html="wechatPreviewHtml" />
                   </div>
                 </article>
               </div>
@@ -459,6 +455,19 @@ const cardThemes = [
 <style scoped>
 /* 全屏遮罩大容器 */
 .export-studio-overlay {
+  --wechat-preview-bg: #ffffff;
+  --wechat-preview-toolbar-bg: #faf9f6;
+  --wechat-preview-paper-bg: #ffffff;
+  --wechat-preview-scroll-bg: linear-gradient(180deg, #ffffff 0%, #fffdfa 100%);
+  --wechat-preview-title: #2a2520;
+  --wechat-preview-muted: #8a8278;
+  --wechat-preview-border: rgba(42, 37, 32, 0.08);
+  --wechat-preview-shadow: 0 18px 60px rgba(42, 37, 32, 0.1), 0 1px 2px rgba(42, 37, 32, 0.04);
+  --wechat-article-text: #2a2520;
+  --wechat-article-muted: #8a8278;
+  --wechat-article-accent: #3d5a4c;
+  --wechat-article-code-bg: rgba(42, 37, 32, 0.06);
+  --wechat-article-border: rgba(42, 37, 32, 0.14);
   position: fixed;
   inset: 0;
   z-index: 9999;
@@ -467,6 +476,22 @@ const cardThemes = [
   flex-direction: column;
   color: var(--ink-text);
   overflow: hidden;
+}
+
+.export-studio-overlay.is-dark {
+  --wechat-preview-bg: var(--ink-surface);
+  --wechat-preview-toolbar-bg: #1f1c1a;
+  --wechat-preview-paper-bg: #11100f;
+  --wechat-preview-scroll-bg: #171513;
+  --wechat-preview-title: var(--ink-text);
+  --wechat-preview-muted: var(--ink-text-muted);
+  --wechat-preview-border: var(--ink-border-strong);
+  --wechat-preview-shadow: 0 18px 60px rgba(0, 0, 0, 0.38), 0 1px 2px rgba(0, 0, 0, 0.22);
+  --wechat-article-text: #d8d2c8;
+  --wechat-article-muted: #9a9288;
+  --wechat-article-accent: #2bbf93;
+  --wechat-article-code-bg: rgba(232, 228, 220, 0.08);
+  --wechat-article-border: rgba(232, 228, 220, 0.14);
 }
 
 /* 头部样式 */
@@ -586,7 +611,7 @@ const cardThemes = [
 /* 中面板：高保真预览画布 */
 .pane-preview-canvas {
   flex: 1;
-  background: var(--ink-bg-soft, #f4f3f0); /* 极简暖色底色 */
+  background: var(--ink-bg-preview);
 }
 
 .canvas-viewport {
@@ -662,44 +687,99 @@ const cardThemes = [
 .preview-wechat-wrapper {
   display: flex;
   flex-direction: column;
-  width: 420px;
-  height: 600px;
-  background: #ffffff;
-  border-radius: 18px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.03);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  width: min(560px, 100%);
+  height: min(720px, 100%);
+  background: var(--wechat-preview-bg);
+  border: 1px solid var(--wechat-preview-border);
+  border-radius: 14px;
+  box-shadow: var(--wechat-preview-shadow);
   overflow: hidden;
   z-index: 10;
 }
 
-.phone-status-bar {
+.wechat-preview-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 18px;
-  font-size: 10px;
-  font-weight: 500;
-  color: #999;
-  background: #faf9f8;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+  gap: 16px;
+  padding: 12px 18px;
+  color: var(--wechat-preview-muted);
+  background: var(--wechat-preview-toolbar-bg);
+  border-bottom: 1px solid var(--wechat-preview-border);
 }
 
-.phone-status-bar .camera {
-  width: 44px;
-  height: 10px;
-  background: #000;
-  border-radius: 10px;
+.wechat-preview-title {
+  color: var(--wechat-preview-title);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.wechat-preview-meta {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .preview-scroll-pane {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
-  background: #ffffff;
+  padding: 34px 42px 46px;
+  background: var(--wechat-preview-scroll-bg);
 }
 
 .wechat-article-container {
-  background: #ffffff;
+  background: var(--wechat-preview-paper-bg);
+}
+
+.wechat-content :deep(section) {
+  font-size: inherit !important;
+}
+
+.export-studio-overlay.is-dark .wechat-content :deep(section),
+.export-studio-overlay.is-dark .wechat-content :deep(h1),
+.export-studio-overlay.is-dark .wechat-content :deep(h2),
+.export-studio-overlay.is-dark .wechat-content :deep(h3),
+.export-studio-overlay.is-dark .wechat-content :deep(h4),
+.export-studio-overlay.is-dark .wechat-content :deep(p),
+.export-studio-overlay.is-dark .wechat-content :deep(li),
+.export-studio-overlay.is-dark .wechat-content :deep(code),
+.export-studio-overlay.is-dark .wechat-content :deep(pre),
+.export-studio-overlay.is-dark .wechat-content :deep(th),
+.export-studio-overlay.is-dark .wechat-content :deep(td),
+.export-studio-overlay.is-dark .wechat-content :deep(strong),
+.export-studio-overlay.is-dark .wechat-content :deep(em) {
+  color: var(--wechat-article-text) !important;
+}
+
+.export-studio-overlay.is-dark .wechat-content :deep(h1),
+.export-studio-overlay.is-dark .wechat-content :deep(hr),
+.export-studio-overlay.is-dark .wechat-content :deep(th),
+.export-studio-overlay.is-dark .wechat-content :deep(td) {
+  border-color: var(--wechat-article-border) !important;
+}
+
+.export-studio-overlay.is-dark .wechat-content :deep(h2),
+.export-studio-overlay.is-dark .wechat-content :deep(a) {
+  color: var(--wechat-article-accent) !important;
+}
+
+.export-studio-overlay.is-dark .wechat-content :deep(blockquote) {
+  color: var(--wechat-article-muted) !important;
+  border-left-color: var(--wechat-article-border) !important;
+}
+
+.export-studio-overlay.is-dark .wechat-content :deep(code),
+.export-studio-overlay.is-dark .wechat-content :deep(pre),
+.export-studio-overlay.is-dark .wechat-content :deep(th) {
+  background-color: var(--wechat-article-code-bg) !important;
+}
+
+.export-studio-overlay.is-dark .wechat-content :deep(pre code) {
+  background: none !important;
 }
 
 /* 小红书卡片 / 长图大预览容器 */
