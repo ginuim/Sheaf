@@ -10,6 +10,7 @@ import MarkdownEditor from "./components/MarkdownEditor.vue";
 import MarkdownPreview from "./components/MarkdownPreview.vue";
 import ExportStudio from "./components/ExportStudio.vue";
 import OutlinePanel from "./components/OutlinePanel.vue";
+import AboutPanel from "./components/AboutPanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
@@ -63,6 +64,7 @@ const previewRef = ref<InstanceType<typeof MarkdownPreview> | null>(null);
 const previewPaneRef = ref<HTMLElement | null>(null);
 const exporting = ref(false);
 const showSettings = ref(false);
+const showAbout = ref(false);
 const showAI = ref(false);
 let scrollSyncing = false;
 
@@ -339,9 +341,15 @@ function navigateToHeading(item: OutlineItem) {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key === "Escape" && showSettings.value) {
-    showSettings.value = false;
-    return;
+  if (e.key === "Escape") {
+    if (showSettings.value) {
+      showSettings.value = false;
+      return;
+    }
+    if (showAbout.value) {
+      showAbout.value = false;
+      return;
+    }
   }
 
   const mod = e.metaKey || e.ctrlKey;
@@ -378,6 +386,9 @@ onMounted(async () => {
     onCopyWechatHtml: () => void handleCopyWechatHtml(),
     onOpenSettings: () => {
       showSettings.value = true;
+    },
+    onOpenAbout: () => {
+      showAbout.value = true;
     },
     onClearRecent: () => {
       clearRecent();
@@ -437,6 +448,7 @@ onUnmounted(() => {
     />
 
     <SettingsPanel :open="showSettings" @close="showSettings = false" />
+    <AboutPanel :open="showAbout" @close="showAbout = false" />
 
     <div class="workspace" :class="`mode-${viewMode}`">
       <button

@@ -8,6 +8,7 @@ export type AppMenuHandlers = {
   onExportPdf: () => void;
   onCopyWechatHtml: () => void;
   onOpenSettings: () => void;
+  onOpenAbout: () => void;
   onClearRecent: () => void;
 };
 
@@ -125,6 +126,17 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
     ],
   });
 
+  const helpSubmenu = await Submenu.new({
+    text: "帮助",
+    items: [
+      await MenuItem.new({
+        id: "help-about",
+        text: "关于 Sheaf…",
+        action: () => handlers!.onOpenAbout(),
+      }),
+    ],
+  });
+
   const isMac = navigator.userAgent.includes("Macintosh");
 
   const menuItems: Submenu[] = [];
@@ -134,8 +146,10 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
       await Submenu.new({
         text: "Sheaf",
         items: [
-          await PredefinedMenuItem.new({
-            item: { About: { name: "Sheaf", version: "0.1.0" } },
+          await MenuItem.new({
+            id: "app-about",
+            text: "关于 Sheaf…",
+            action: () => handlers!.onOpenAbout(),
           }),
           await PredefinedMenuItem.new({ item: "Separator" }),
           await PredefinedMenuItem.new({ item: "Services" }),
@@ -157,7 +171,7 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
     );
   }
 
-  menuItems.push(fileSubmenu, editSubmenu);
+  menuItems.push(fileSubmenu, editSubmenu, helpSubmenu);
 
   const menu = await Menu.new({ items: menuItems });
 
