@@ -3,7 +3,7 @@ import { resolveMediaSrc } from "./resolveMediaSrc";
 import { buildHeadingIds } from "./useOutline";
 
 const md = new MarkdownIt({
-  html: false,
+  html: true,
   linkify: true,
   typographer: true,
   breaks: false,

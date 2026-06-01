@@ -37,6 +37,64 @@ function resolveRelativePath(baseDir: string, relative: string): string {
   return pathname;
 }
 
+function fileUrlToPath(fileUrl: string): string | null {
+  try {
+    const url = new URL(fileUrl);
+    if (url.protocol !== "file:") return null;
+    let pathname = decodeURIComponent(url.pathname);
+    if (/^\/[A-Za-z]:/.test(pathname)) {
+      pathname = pathname.slice(1);
+    }
+    return pathname;
+  } catch {
+    return null;
+  }
+}
+
+export type ResolvedLink =
+  | { type: "external"; href: string }
+  | { type: "local"; path: string };
+
+export type ResolveLinkResult =
+  | ResolvedLink
+  | { type: "error"; message: string };
+
+/** 将 Markdown 链接 href 解析为外部 URL 或本地文件路径 */
+export function resolveLinkHref(
+  docFilePath: string | null,
+  href: string,
+): ResolveLinkResult {
+  const trimmed = href.trim();
+  if (!trimmed) {
+    return { type: "error", message: "链接无效。" };
+  }
+
+  if (trimmed.startsWith("file://")) {
+    const path = fileUrlToPath(trimmed);
+    if (!path) {
+      return { type: "error", message: "无法解析本地链接。" };
+    }
+    return { type: "local", path };
+  }
+
+  if (isExternalSrc(trimmed)) {
+    return { type: "external", href: trimmed };
+  }
+
+  if (isAbsoluteFsPath(trimmed)) {
+    return { type: "local", path: trimmed };
+  }
+
+  if (!docFilePath) {
+    return { type: "error", message: "请先保存文档后再打开相对链接。" };
+  }
+
+  return {
+    type: "local",
+    path: resolveRelativePath(documentDir(docFilePath), trimmed),
+  };
+}
+
 /** 将 Markdown 中的本地图片路径转为 WebView 可加载的 URL */
 export function resolveMediaSrc(
   docFilePath: string | null,

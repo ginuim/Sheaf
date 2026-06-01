@@ -23,14 +23,14 @@ export function useFile(
     }
   }
 
-  async function openFile() {
+  async function openFile(): Promise<boolean> {
     const selected = await open({
       multiple: false,
       filters: [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }],
     });
 
-    if (!selected) return;
-    await loadPath(selected);
+    if (!selected) return false;
+    return loadPath(selected);
   }
 
   async function openFileAtPath(path: string): Promise<boolean> {

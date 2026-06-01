@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, message } from "@tauri-apps/plugin-dialog";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import AIPanel from "./components/AIPanel.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
 import MarkdownPreview from "./components/MarkdownPreview.vue";
-import ExportPanel from "./components/ExportPanel.vue";
+import ExportStudio from "./components/ExportStudio.vue";
 import OutlinePanel from "./components/OutlinePanel.vue";
+import AboutPanel from "./components/AboutPanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
@@ -15,6 +18,7 @@ import type { EditChange } from "./composables/useAI";
 import { refreshRecentMenu, setupAppMenu } from "./composables/useAppMenu";
 import { exportPdf } from "./composables/usePdfExport";
 import { buildWechatHtml, copyWechatHtml } from "./composables/useWechatExport";
+import { resolveLinkHref } from "./composables/resolveMediaSrc";
 import { useFile } from "./composables/useFile";
 import { parseOutline, type OutlineItem } from "./composables/useOutline";
 import {
@@ -54,19 +58,68 @@ const baselineContent = ref(DEFAULT_CONTENT);
 const isDirty = computed(() => content.value !== baselineContent.value);
 const viewMode = ref<ViewMode>("split");
 const showOutline = ref(true);
-const showExport = ref(true);
+const showExport = ref(false);
 const editorRef = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 const previewRef = ref<InstanceType<typeof MarkdownPreview> | null>(null);
 const previewPaneRef = ref<HTMLElement | null>(null);
 const exporting = ref(false);
 const showSettings = ref(false);
+const showAbout = ref(false);
 const showAI = ref(false);
 let scrollSyncing = false;
+
+type DocHistoryEntry = {
+  path: string;
+  scrollRatio: number;
+};
+
+const MAX_DOC_HISTORY = 20;
+const docHistory = ref<DocHistoryEntry[]>([]);
+const canGoBack = computed(() => docHistory.value.length > 0);
 
 const outlineItems = computed(() => parseOutline(content.value));
 
 const { theme, toggleTheme } = useTheme();
 const isDark = computed(() => theme.value === "dark");
+
+function clearDocHistory() {
+  docHistory.value = [];
+}
+
+function getCurrentScrollRatio(): number {
+  const pane = previewPaneRef.value;
+  if (showPreview.value && pane) {
+    const max = pane.scrollHeight - pane.clientHeight;
+    if (max > 0) return pane.scrollTop / max;
+  }
+  return editorRef.value?.getScrollRatio() ?? 0;
+}
+
+function pushDocHistory(path: string, scrollRatio: number) {
+  docHistory.value = [
+    ...docHistory.value.slice(-(MAX_DOC_HISTORY - 1)),
+    { path, scrollRatio },
+  ];
+}
+
+async function restoreScrollRatio(ratio: number) {
+  await nextTick();
+  requestAnimationFrame(() => {
+    scrollSyncing = true;
+
+    editorRef.value?.scrollRatio(ratio);
+
+    const pane = previewPaneRef.value;
+    if (pane) {
+      const max = pane.scrollHeight - pane.clientHeight;
+      pane.scrollTop = max * ratio;
+    }
+
+    requestAnimationFrame(() => {
+      scrollSyncing = false;
+    });
+  });
+}
 
 function onPathOpened(path: string) {
   addRecent(path);
@@ -95,7 +148,10 @@ async function confirmDiscardChanges(): Promise<boolean> {
 
 async function openFileWithConfirm() {
   if (!(await confirmDiscardChanges())) return;
-  await openFile();
+  const opened = await openFile();
+  if (opened) {
+    clearDocHistory();
+  }
 }
 
 async function openRecentFile(path: string) {
@@ -109,11 +165,14 @@ async function openRecentFile(path: string) {
       title: "Sheaf",
       kind: "error",
     });
+    return;
   }
+
+  clearDocHistory();
 }
 
-async function openAssociatedFile(path: string) {
-  if (!(await confirmDiscardChanges())) return;
+async function openAssociatedFile(path: string): Promise<boolean> {
+  if (!(await confirmDiscardChanges())) return false;
 
   const ok = await openFileAtPath(path);
   if (!ok) {
@@ -122,15 +181,69 @@ async function openAssociatedFile(path: string) {
       kind: "error",
     });
   }
+
+  return ok;
+}
+
+async function handleOpenLink(href: string) {
+  const resolved = resolveLinkHref(filePath.value, href);
+  if (resolved.type === "error") {
+    await message(resolved.message, { title: "Sheaf", kind: "warning" });
+    return;
+  }
+
+  if (resolved.type === "external") {
+    if (isTauri()) {
+      await openUrl(resolved.href);
+    } else {
+      window.open(resolved.href, "_blank", "noopener,noreferrer");
+    }
+    return;
+  }
+
+  const currentPath = filePath.value;
+  const currentScrollRatio = getCurrentScrollRatio();
+  const ok = await openAssociatedFile(resolved.path);
+  if (!ok) return;
+
+  if (currentPath && currentPath !== resolved.path) {
+    pushDocHistory(currentPath, currentScrollRatio);
+  }
+  await restoreScrollRatio(0);
+}
+
+async function goBackDocument() {
+  const previous = docHistory.value[docHistory.value.length - 1];
+  if (!previous) return;
+
+  const ok = await openAssociatedFile(previous.path);
+  if (!ok) return;
+
+  docHistory.value = docHistory.value.slice(0, -1);
+  await restoreScrollRatio(previous.scrollRatio);
 }
 
 async function handleOpenedFiles(paths: string[]) {
+  let opened = false;
   for (const path of paths) {
-    await openAssociatedFile(path);
+    opened = (await openAssociatedFile(path)) || opened;
+  }
+  if (opened) {
+    clearDocHistory();
   }
 }
 
+const SUPPORTED_DOC_EXT = new Set(["md", "markdown", "txt"]);
+
+function filterDocPaths(paths: string[]): string[] {
+  return paths.filter((path) => {
+    const ext = path.split(".").pop()?.toLowerCase() ?? "";
+    return SUPPORTED_DOC_EXT.has(ext);
+  });
+}
+
 let unlistenOpened: UnlistenFn | null = null;
+let unlistenDragDrop: UnlistenFn | null = null;
 
 const showEditor = computed(() => viewMode.value !== "preview");
 const showPreview = computed(() => viewMode.value !== "edit");
@@ -228,9 +341,15 @@ function navigateToHeading(item: OutlineItem) {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key === "Escape" && showSettings.value) {
-    showSettings.value = false;
-    return;
+  if (e.key === "Escape") {
+    if (showSettings.value) {
+      showSettings.value = false;
+      return;
+    }
+    if (showAbout.value) {
+      showAbout.value = false;
+      return;
+    }
   }
 
   const mod = e.metaKey || e.ctrlKey;
@@ -243,6 +362,9 @@ function handleKeydown(e: KeyboardEvent) {
   } else if (e.key === "o") {
     e.preventDefault();
     void openFileWithConfirm();
+  } else if (e.key === "[" && canGoBack.value) {
+    e.preventDefault();
+    void goBackDocument();
   } else if (e.key === ",") {
     e.preventDefault();
     showSettings.value = true;
@@ -265,6 +387,9 @@ onMounted(async () => {
     onOpenSettings: () => {
       showSettings.value = true;
     },
+    onOpenAbout: () => {
+      showAbout.value = true;
+    },
     onClearRecent: () => {
       clearRecent();
       void refreshRecentMenu([]);
@@ -280,11 +405,23 @@ onMounted(async () => {
   unlistenOpened = await listen<string[]>("opened", (event) => {
     void handleOpenedFiles(event.payload);
   });
+
+  if (isTauri()) {
+    unlistenDragDrop = await getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type !== "drop") return;
+
+      const paths = filterDocPaths(event.payload.paths);
+      if (paths.length === 0) return;
+
+      void invoke("open_dropped_files", { paths });
+    });
+  }
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown);
   unlistenOpened?.();
+  unlistenDragDrop?.();
 });
 </script>
 
@@ -311,8 +448,19 @@ onUnmounted(() => {
     />
 
     <SettingsPanel :open="showSettings" @close="showSettings = false" />
+    <AboutPanel :open="showAbout" @close="showAbout = false" />
 
     <div class="workspace" :class="`mode-${viewMode}`">
+      <button
+        v-if="canGoBack"
+        class="doc-back"
+        title="返回上一文档 (⌘[)"
+        @click="goBackDocument"
+      >
+        <span class="doc-back-arrow">←</span>
+        <span>返回上一文档</span>
+      </button>
+
       <section v-show="showEditor" class="pane pane-editor">
         <MarkdownEditor
           ref="editorRef"
@@ -333,6 +481,7 @@ onUnmounted(() => {
           ref="previewRef"
           :source="content"
           :doc-file-path="filePath"
+          @open-link="handleOpenLink"
         />
       </section>
 
@@ -348,12 +497,16 @@ onUnmounted(() => {
         @navigate="navigateToHeading"
       />
 
-      <ExportPanel
-        v-if="showExport"
-        :source="content"
-        :doc-file-path="filePath"
-      />
     </div>
+
+    <ExportStudio
+      v-if="showExport"
+      v-model="content"
+      :file-name="fileName"
+      :doc-file-path="filePath"
+      :is-dark="isDark"
+      @close="showExport = false"
+    />
   </div>
 </template>
 
@@ -366,10 +519,44 @@ onUnmounted(() => {
 }
 
 .workspace {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.doc-back {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  color: var(--ink-text);
+  font-size: 13px;
+  line-height: 1;
+  background: color-mix(in srgb, var(--ink-surface) 88%, transparent);
+  border: 1px solid var(--ink-border);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px var(--ink-shadow);
+  transform: translateX(-50%);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.15s;
+}
+
+.doc-back:hover {
+  background: var(--ink-surface);
+  border-color: var(--ink-border-strong);
+  transform: translateX(-50%) translateY(-1px);
+}
+
+.doc-back-arrow {
+  color: var(--ink-text-muted);
 }
 
 .pane {
