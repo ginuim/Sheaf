@@ -81,14 +81,23 @@ jobs:
 
       - name: Verify signature and notarization
         run: |
-          APP_PATH=$(find src-tauri/target -path '*/release/bundle/macos/*.app' | head -1)
-          if [ -z "$APP_PATH" ]; then
-            echo "No .app bundle found"
+          DMG_PATH=$(find src-tauri/target -path '*/release/bundle/dmg/*.dmg' -print -quit)
+          if [ -z "$DMG_PATH" ]; then
+            echo "No DMG found under src-tauri/target"
+            find src-tauri/target -type f -name '*.dmg' 2>/dev/null || true
             exit 1
           fi
-          echo "Checking $APP_PATH"
-          codesign -dv --verbose=2 "$APP_PATH"
-          spctl -a -vv --type execute "$APP_PATH"
+          echo "Checking DMG: $DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+
+          APP_PATH=$(find src-tauri/target -type d -name '*.app' -path '*/release/bundle/*' -print -quit)
+          if [ -n "$APP_PATH" ]; then
+            echo "Checking app bundle: $APP_PATH"
+            codesign -dv --verbose=2 "$APP_PATH"
+            spctl -a -vv --type execute "$APP_PATH"
+          else
+            echo "No .app left on disk (dmg-only bundle); DMG stapler validation passed."
+          fi
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
