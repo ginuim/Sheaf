@@ -88,16 +88,12 @@ jobs:
       - name: Build DMG
         run: pnpm tauri build --target ${{ matrix.target }}
 
-      - name: Locate DMG
+      - name: Collect DMG
         run: |
-          DMG_PATH=$(find src-tauri/target -path '*/release/bundle/dmg/*.dmg' -print -quit)
-          if [ -z "$DMG_PATH" ]; then
-            echo "No DMG found under src-tauri/target"
-            find src-tauri/target -type f -name '*.dmg' 2>/dev/null || true
-            exit 1
-          fi
-          echo "DMG_PATH=$DMG_PATH" >> "$GITHUB_ENV"
-          echo "Found DMG: $DMG_PATH"
+          chmod +x scripts/collect-dmg.sh
+          DMG_PATH=$(bash scripts/collect-dmg.sh "${{ matrix.artifact }}.dmg")
+          echo "DMG_PATH=$GITHUB_WORKSPACE/$DMG_PATH" >> "$GITHUB_ENV"
+          echo "Collected DMG: $DMG_PATH"
 
       - name: Notarize and staple DMG
         run: |
@@ -138,5 +134,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: src-tauri/target/**/release/bundle/dmg/*.dmg
+          path: release/*.dmg
           if-no-files-found: error
