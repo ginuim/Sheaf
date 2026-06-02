@@ -12,6 +12,7 @@ import ExportStudio from "./components/ExportStudio.vue";
 import OutlinePanel from "./components/OutlinePanel.vue";
 import AboutPanel from "./components/AboutPanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
+import StartPage from "./components/StartPage.vue";
 import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
 import type { EditChange } from "./composables/useAI";
@@ -66,6 +67,8 @@ const exporting = ref(false);
 const showSettings = ref(false);
 const showAbout = ref(false);
 const showAI = ref(false);
+const showStartPage = ref(true);
+const recentFiles = ref<string[]>(loadRecent());
 let scrollSyncing = false;
 
 type DocHistoryEntry = {
@@ -122,8 +125,8 @@ async function restoreScrollRatio(ratio: number) {
 }
 
 function onPathOpened(path: string) {
-  addRecent(path);
-  void refreshRecentMenu(loadRecent());
+  recentFiles.value = addRecent(path);
+  void refreshRecentMenu(recentFiles.value);
 }
 
 const { filePath, fileName, openFile, openFileAtPath, newFile, saveFile, saveFileAs } =
@@ -150,6 +153,7 @@ async function newFileWithConfirm() {
   if (!(await confirmDiscardChanges())) return;
   newFile();
   baselineContent.value = "";
+  showStartPage.value = false;
   clearDocHistory();
 }
 
@@ -157,6 +161,7 @@ async function openFileWithConfirm() {
   if (!(await confirmDiscardChanges())) return;
   const opened = await openFile();
   if (opened) {
+    showStartPage.value = false;
     clearDocHistory();
   }
 }
@@ -166,8 +171,8 @@ async function openRecentFile(path: string) {
 
   const ok = await openFileAtPath(path);
   if (!ok) {
-    removeRecent(path);
-    await refreshRecentMenu(loadRecent());
+    recentFiles.value = removeRecent(path);
+    await refreshRecentMenu(recentFiles.value);
     await message("文件不存在或无法读取。", {
       title: "Sheaf",
       kind: "error",
@@ -175,6 +180,7 @@ async function openRecentFile(path: string) {
     return;
   }
 
+  showStartPage.value = false;
   clearDocHistory();
 }
 
@@ -187,6 +193,10 @@ async function openAssociatedFile(path: string): Promise<boolean> {
       title: "Sheaf",
       kind: "error",
     });
+  }
+
+  if (ok) {
+    showStartPage.value = false;
   }
 
   return ok;
@@ -236,8 +246,15 @@ async function handleOpenedFiles(paths: string[]) {
     opened = (await openAssociatedFile(path)) || opened;
   }
   if (opened) {
+    showStartPage.value = false;
     clearDocHistory();
   }
+}
+
+function handleClearRecent() {
+  clearRecent();
+  recentFiles.value = [];
+  void refreshRecentMenu([]);
 }
 
 const SUPPORTED_DOC_EXT = new Set(["md", "markdown", "txt"]);
@@ -401,12 +418,9 @@ onMounted(async () => {
     onOpenAbout: () => {
       showAbout.value = true;
     },
-    onClearRecent: () => {
-      clearRecent();
-      void refreshRecentMenu([]);
-    },
+    onClearRecent: handleClearRecent,
   });
-  await refreshRecentMenu(loadRecent());
+  await refreshRecentMenu(recentFiles.value);
 
   const pending = await invoke<string[]>("take_opened_files");
   if (pending.length > 0) {
@@ -462,7 +476,16 @@ onUnmounted(() => {
     <SettingsPanel :open="showSettings" @close="showSettings = false" />
     <AboutPanel :open="showAbout" @close="showAbout = false" />
 
-    <div class="workspace" :class="`mode-${viewMode}`">
+    <StartPage
+      v-if="showStartPage"
+      :recent-files="recentFiles"
+      @new-doc="newFileWithConfirm"
+      @open="openFileWithConfirm"
+      @open-recent="openRecentFile"
+      @clear-recent="handleClearRecent"
+    />
+
+    <div v-else class="workspace" :class="`mode-${viewMode}`">
       <button
         v-if="canGoBack"
         class="doc-back"
@@ -512,7 +535,7 @@ onUnmounted(() => {
     </div>
 
     <ExportStudio
-      v-if="showExport"
+      v-if="showExport && !showStartPage"
       v-model="content"
       :file-name="fileName"
       :doc-file-path="filePath"
