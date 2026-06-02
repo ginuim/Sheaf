@@ -19,6 +19,10 @@ jobs:
 
     runs-on: macos-latest
 
+    env:
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -42,10 +46,40 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          CERT_ID=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | sed -n 's/.*"\(.*\)"/\1/p')
+          if [ -z "$CERT_ID" ]; then
+            echo "Developer ID Application certificate not found in keychain"
+            security find-identity -v -p codesigning build.keychain
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+
+      - name: Setup App Store Connect API key
+        env:
+          APPLE_API_KEY_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s\n' "$APPLE_API_KEY_PRIVATE_KEY" > "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
       - name: Build DMG
         env:
-          # CI 无证书，关闭 App Store 签名与 provision profile
-          TAURI_CI_CONFIG: '{"bundle":{"macOS":{"signingIdentity":null,"files":{}},"targets":["dmg"]}}'
+          # 使用 Developer ID 签名 + API Key 公证；去掉 App Store 的 provision profile
+          TAURI_CI_CONFIG: '{"bundle":{"macOS":{"signingIdentity":"Developer ID Application: REDACTED (REDACTED)","files":{},"targets":["dmg"]}}}'
         run: pnpm tauri build --config "$TAURI_CI_CONFIG" ${{ matrix.args }}
 
       - name: Upload DMG
