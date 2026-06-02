@@ -457,6 +457,7 @@ onUnmounted(() => {
   <div class="app">
     <Toolbar
       v-if="!showStartPage"
+      class="editor-enter"
       :file-name="fileName"
       :is-dirty="isDirty"
       :view-mode="viewMode"
@@ -490,7 +491,7 @@ onUnmounted(() => {
       @clear-recent="handleClearRecent"
     />
 
-    <div v-else class="workspace" :class="`mode-${viewMode}`">
+    <div v-else class="workspace editor-enter" :class="`mode-${viewMode}`">
       <button
         v-if="canGoBack"
         class="doc-back"
@@ -551,6 +552,20 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+@keyframes editor-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.editor-enter {
+  animation: editor-fade-in 0.32s ease-out both;
+}
+
 .app {
   display: flex;
   flex-direction: column;
@@ -622,5 +637,11 @@ onUnmounted(() => {
 
 .pane-preview {
   overflow: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-enter {
+    animation: none;
+  }
 }
 </style>
