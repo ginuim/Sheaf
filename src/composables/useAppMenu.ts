@@ -1,6 +1,7 @@
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
 
 export type AppMenuHandlers = {
+  onNew: () => void;
   onOpen: () => void;
   onOpenRecent: (path: string) => void;
   onSave: () => void;
@@ -72,6 +73,12 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
   const fileSubmenu = await Submenu.new({
     text: "文件",
     items: [
+      await MenuItem.new({
+        id: "file-new",
+        text: "新建",
+        accelerator: "CmdOrCtrl+N",
+        action: () => handlers!.onNew(),
+      }),
       await MenuItem.new({
         id: "file-open",
         text: "打开…",

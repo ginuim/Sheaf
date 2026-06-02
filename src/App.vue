@@ -51,7 +51,7 @@ console.log(greeting);
 
 ---
 
-用 **打开** 读取本地文件，**保存** 写入磁盘。`;
+用 **新建** 开始空白文档，**打开** 读取本地文件，**保存** 写入磁盘。`;
 
 const content = ref(DEFAULT_CONTENT);
 const baselineContent = ref(DEFAULT_CONTENT);
@@ -126,7 +126,7 @@ function onPathOpened(path: string) {
   void refreshRecentMenu(loadRecent());
 }
 
-const { filePath, fileName, openFile, openFileAtPath, saveFile, saveFileAs } =
+const { filePath, fileName, openFile, openFileAtPath, newFile, saveFile, saveFileAs } =
   useFile(
     (loaded) => {
       content.value = loaded;
@@ -144,6 +144,13 @@ async function confirmDiscardChanges(): Promise<boolean> {
     title: "Sheaf",
     kind: "warning",
   });
+}
+
+async function newFileWithConfirm() {
+  if (!(await confirmDiscardChanges())) return;
+  newFile();
+  baselineContent.value = "";
+  clearDocHistory();
 }
 
 async function openFileWithConfirm() {
@@ -359,6 +366,9 @@ function handleKeydown(e: KeyboardEvent) {
     e.preventDefault();
     if (e.shiftKey) saveFileAs(content.value);
     else saveFile(content.value);
+  } else if (e.key === "n" && !e.shiftKey) {
+    e.preventDefault();
+    void newFileWithConfirm();
   } else if (e.key === "o") {
     e.preventDefault();
     void openFileWithConfirm();
@@ -378,6 +388,7 @@ onMounted(async () => {
   window.addEventListener("keydown", handleKeydown);
 
   await setupAppMenu({
+    onNew: () => void newFileWithConfirm(),
     onOpen: () => void openFileWithConfirm(),
     onOpenRecent: (path) => void openRecentFile(path),
     onSave: () => void saveFile(content.value),
@@ -436,6 +447,7 @@ onUnmounted(() => {
       :show-outline="showOutline"
       :show-export="showExport"
       :show-a-i="showAI"
+      @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @save="saveFile(content)"
       @save-as="saveFileAs(content)"

@@ -37,6 +37,12 @@ export function useFile(
     return loadPath(path);
   }
 
+  function newFile() {
+    filePath.value = null;
+    fileName.value = "未命名";
+    onLoad("");
+  }
+
   async function saveFile(content: string) {
     let target = filePath.value;
 
@@ -73,6 +79,7 @@ export function useFile(
     fileName,
     openFile,
     openFileAtPath,
+    newFile,
     saveFile,
     saveFileAs,
   };

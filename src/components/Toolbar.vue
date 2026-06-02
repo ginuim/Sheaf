@@ -13,6 +13,7 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
+  newDoc: [];
   open: [];
   save: [];
   saveAs: [];
@@ -34,6 +35,9 @@ const modes: { id: ViewMode; label: string }[] = [
 <template>
   <header class="toolbar">
     <div class="toolbar-left">
+      <button class="btn" title="新建文档 (⌘N)" @click="emit('newDoc')">
+        新建
+      </button>
       <button class="btn" title="打开文件 (⌘O)" @click="emit('open')">
         打开
       </button>
