@@ -1,5 +1,8 @@
 <script setup lang="ts">
-defineProps<{
+import { onMounted, ref, watch } from "vue";
+import { getMissingRecent } from "../composables/useRecentFiles";
+
+const props = defineProps<{
   recentFiles: string[];
 }>();
 
@@ -7,8 +10,18 @@ const emit = defineEmits<{
   newDoc: [];
   open: [];
   openRecent: [path: string];
+  removeRecent: [path: string];
   clearRecent: [];
 }>();
+
+const missingPaths = ref<Set<string>>(new Set());
+
+async function refreshMissing() {
+  missingPaths.value = await getMissingRecent(props.recentFiles);
+}
+
+onMounted(refreshMissing);
+watch(() => props.recentFiles, refreshMissing);
 
 function fileName(path: string): string {
   return path.split(/[/\\]/).pop() ?? path;
@@ -59,22 +72,75 @@ function parentPath(path: string): string {
         <div v-if="recentFiles.length === 0" class="empty-recent">
           暂无最近文档
         </div>
-        <button
+        <div
           v-for="path in recentFiles"
           v-else
           :key="path"
-          class="recent-item"
-          @click="emit('openRecent', path)"
+          class="recent-row"
+          :class="{ 'recent-row-missing': missingPaths.has(path) }"
         >
-          <span class="recent-name">{{ fileName(path) }}</span>
-          <span class="recent-path">{{ parentPath(path) }}</span>
-        </button>
+          <button
+            class="recent-item"
+            @click="emit('openRecent', path)"
+          >
+            <span class="recent-name-row">
+              <span class="recent-name">{{ fileName(path) }}</span>
+              <span v-if="missingPaths.has(path)" class="recent-missing-badge">
+                找不到文件
+              </span>
+            </span>
+            <span class="recent-path">{{ parentPath(path) }}</span>
+          </button>
+          <button
+            type="button"
+            class="recent-remove"
+            title="从列表移除"
+            aria-label="从列表移除"
+            @click="emit('removeRecent', path)"
+          >
+            <svg
+              class="recent-remove-icon"
+              viewBox="0 0 16 16"
+              aria-hidden="true"
+            >
+              <circle
+                cx="8"
+                cy="8"
+                r="6.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1"
+              />
+              <line
+                x1="3.5"
+                y1="12.5"
+                x2="12.5"
+                y2="3.5"
+                stroke="currentColor"
+                stroke-width="1"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   </section>
 </template>
 
 <style scoped>
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .start-page {
   flex: 1;
   min-height: 0;
@@ -95,6 +161,31 @@ function parentPath(path: string): string {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: fade-in-up 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.start-main > * {
+  animation: fade-in-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.start-main > *:nth-child(1) {
+  animation-delay: 0.1s;
+}
+
+.start-main > *:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.start-main > *:nth-child(3) {
+  animation-delay: 0.26s;
+}
+
+.start-main > *:nth-child(4) {
+  animation-delay: 0.34s;
+}
+
+.recent-section {
+  animation: fade-in-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.42s both;
 }
 
 .start-main {
@@ -213,11 +304,32 @@ h1 {
   border-radius: 12px;
 }
 
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 10px;
+  border-radius: 12px;
+}
+
+.recent-row:hover {
+  background: var(--ink-accent-soft);
+}
+
+.recent-row-missing {
+  opacity: 0.72;
+}
+
+.recent-row-missing:hover {
+  background: color-mix(in srgb, var(--ink-text-muted) 8%, transparent);
+}
+
 .recent-item {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   gap: 4px;
   padding: 12px;
   color: var(--ink-text);
@@ -225,8 +337,42 @@ h1 {
   border-radius: 12px;
 }
 
-.recent-item:hover {
-  background: var(--ink-accent-soft);
+.recent-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: color-mix(in srgb, var(--ink-text-muted) 26%, transparent);
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  transition:
+    color 0.15s,
+    background 0.15s,
+    transform 0.15s;
+}
+
+.recent-remove:hover {
+  color: color-mix(in srgb, var(--ink-text-muted) 58%, transparent);
+  background: color-mix(in srgb, var(--ink-text-muted) 12%, transparent);
+  transform: scale(1.08);
+}
+
+.recent-remove-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.recent-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .recent-name {
@@ -235,6 +381,18 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.recent-missing-badge {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  color: var(--ink-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--ink-border-strong);
+  border-radius: 999px;
 }
 
 .recent-path {
@@ -249,6 +407,14 @@ h1 {
 @media (max-width: 860px) {
   .start-page {
     padding: 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .start-panel,
+  .start-main > *,
+  .recent-section {
+    animation: none;
   }
 }
 </style>

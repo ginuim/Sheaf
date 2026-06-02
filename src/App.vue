@@ -171,8 +171,6 @@ async function openRecentFile(path: string) {
 
   const ok = await openFileAtPath(path);
   if (!ok) {
-    recentFiles.value = removeRecent(path);
-    await refreshRecentMenu(recentFiles.value);
     await message("文件不存在或无法读取。", {
       title: "Sheaf",
       kind: "error",
@@ -255,6 +253,11 @@ function handleClearRecent() {
   clearRecent();
   recentFiles.value = [];
   void refreshRecentMenu([]);
+}
+
+function handleRemoveRecent(path: string) {
+  recentFiles.value = removeRecent(path);
+  void refreshRecentMenu(recentFiles.value);
 }
 
 const SUPPORTED_DOC_EXT = new Set(["md", "markdown", "txt"]);
@@ -453,6 +456,7 @@ onUnmounted(() => {
 <template>
   <div class="app">
     <Toolbar
+      v-if="!showStartPage"
       :file-name="fileName"
       :is-dirty="isDirty"
       :view-mode="viewMode"
@@ -482,6 +486,7 @@ onUnmounted(() => {
       @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @open-recent="openRecentFile"
+      @remove-recent="handleRemoveRecent"
       @clear-recent="handleClearRecent"
     />
 
