@@ -32,15 +32,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["dmg"],
     "category": "Productivity",
     "macOS": {
       "entitlements": "./Entitlements.plist",
       "infoPlist": "./Info.plist",
-      "signingIdentity": "3rd Party Mac Developer Application: REDACTED (REDACTED)",
-      "files": {
-        "embedded.provisionprofile": "./blank_app_profile.provisionprofile"
-      }
+      "signingIdentity": "Developer ID Application: REDACTED (REDACTED)",
+      "providerShortName": "REDACTED"
     },
     "icon": [
       "icons/32x32.png",
