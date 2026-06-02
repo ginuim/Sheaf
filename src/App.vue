@@ -18,7 +18,7 @@ import type { ViewMode } from "./components/Toolbar.vue";
 import type { EditChange } from "./composables/useAI";
 import { refreshRecentMenu, setupAppMenu } from "./composables/useAppMenu";
 import { exportPdf } from "./composables/usePdfExport";
-import { buildWechatHtml, copyWechatHtml } from "./composables/useWechatExport";
+import { buildWechatHtmlForCopy, copyWechatHtml } from "./composables/useWechatExport";
 import { resolveLinkHref } from "./composables/resolveMediaSrc";
 import { useFile } from "./composables/useFile";
 import { parseOutline, type OutlineItem } from "./composables/useOutline";
@@ -325,7 +325,12 @@ async function handleCopyWechatHtml() {
 
   exporting.value = true;
   try {
-    const html = buildWechatHtml(content.value, "classic", filePath.value);
+    const html = await buildWechatHtmlForCopy(
+      content.value,
+      "classic",
+      filePath.value,
+      isDark.value,
+    );
     const result = await copyWechatHtml(html);
     if (!result.ok) {
       await message(result.message, { title: "Sheaf", kind: "error" });

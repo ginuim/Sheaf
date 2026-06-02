@@ -1,4 +1,5 @@
 import { renderMarkdown } from "./useMarkdown";
+import { renderMermaidIn } from "./useMermaid";
 
 const PRINT_CSS = `
   @media print {
@@ -94,6 +95,15 @@ const PRINT_CSS = `
   }
 
   #__blank-print-root img { max-width: 100%; }
+  #__blank-print-root .mermaid,
+  #__blank-print-root .katex-display {
+    overflow-x: auto;
+    text-align: center;
+  }
+  #__blank-print-root .mermaid svg {
+    max-width: 100%;
+    height: auto;
+  }
 
   #__blank-print-root table { width: 100%; border-collapse: collapse; font-size: 0.95em; }
   #__blank-print-root th,
@@ -130,6 +140,7 @@ export async function exportPdf(
 ) {
   ensurePrintNodes();
   printRoot!.innerHTML = renderMarkdown(source, docFilePath);
+  await renderMermaidIn(printRoot!, false);
 
   await document.fonts.ready;
 

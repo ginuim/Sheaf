@@ -1,5 +1,7 @@
 import { renderMarkdown } from "../composables/useMarkdown";
+import { renderMermaidIn } from "../composables/useMermaid";
 import { getWechatTheme, type WechatThemeId } from "./wechatThemes";
+import { toPng } from "html-to-image";
 
 const STYLED_TAGS = [
   "h1",
@@ -142,6 +144,142 @@ function adaptHtmlForWechatPaste(root: HTMLElement) {
   wrapInlineChildren(root, "p");
 }
 
+function createCaptureHost(html: string): HTMLDivElement {
+  const host = document.createElement("div");
+  host.innerHTML = html;
+  host.style.position = "fixed";
+  host.style.left = "-10000px";
+  host.style.top = "0";
+  host.style.width = "677px";
+  host.style.padding = "0";
+  host.style.background = "transparent";
+  host.style.pointerEvents = "none";
+  document.body.appendChild(host);
+  return host;
+}
+
+function getImageStyle(styles: Record<string, string>): string {
+  return [
+    styles.img,
+    "background: transparent;",
+    "vertical-align: middle;",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function getInlineImageStyle(): string {
+  return [
+    "display: inline-block;",
+    "max-width: 100%;",
+    "height: 1.2em;",
+    "margin: 0 2px;",
+    "border-radius: 0;",
+    "background: transparent;",
+    "vertical-align: -0.25em;",
+  ].join(" ");
+}
+
+function replaceWithImage(
+  target: HTMLElement,
+  src: string,
+  styles: Record<string, string>,
+  inline = false,
+) {
+  const img = document.createElement("img");
+  img.src = src;
+  img.alt =
+    target.classList.contains("mermaid")
+      ? "Mermaid diagram"
+      : target.textContent?.trim() || "Formula";
+  img.setAttribute("style", inline ? getInlineImageStyle() : getImageStyle(styles));
+  target.replaceWith(img);
+}
+
+type CaptureTarget = {
+  el: HTMLElement;
+  inline: boolean;
+};
+
+function getCaptureTargets(root: HTMLElement): CaptureTarget[] {
+  const blockTargets = Array.from(
+    root.querySelectorAll<HTMLElement>(".mermaid, .katex-display"),
+  ).map((el) => ({ el, inline: false }));
+
+  const inlineMathTargets = Array.from(
+    root.querySelectorAll<HTMLElement>(".katex"),
+  )
+    .filter((el) => !el.closest(".katex-display"))
+    .map((el) => ({ el, inline: true }));
+
+  return [...blockTargets, ...inlineMathTargets];
+}
+
+/** 跳过远程字体内联，避免 Google Fonts 跨域 stylesheet 触发 SecurityError */
+const PNG_CAPTURE_BASE = {
+  cacheBust: true,
+  backgroundColor: "transparent",
+  skipFonts: true,
+} as const;
+
+function getCaptureOptions(inline: boolean) {
+  return inline
+    ? { ...PNG_CAPTURE_BASE, pixelRatio: 3 }
+    : { ...PNG_CAPTURE_BASE, pixelRatio: 2 };
+}
+
+function prepareInlineCapture(target: HTMLElement): () => void {
+  const previous = target.style.transform;
+  target.style.transform = "scale(2)";
+  target.style.transformOrigin = "left center";
+  return () => {
+    target.style.transform = previous;
+  };
+}
+
+async function captureTargetAsPng(target: CaptureTarget): Promise<string> {
+  const restore = target.inline ? prepareInlineCapture(target.el) : () => {};
+  try {
+    return await toPng(
+      target.el,
+      getCaptureOptions(target.inline),
+    );
+  } finally {
+    restore();
+  }
+}
+
+function replaceCaptureTargetWithImage(
+  target: CaptureTarget,
+  dataUrl: string,
+  styles: Record<string, string>,
+) {
+  replaceWithImage(
+    target.el,
+    dataUrl,
+    styles,
+    target.inline,
+  );
+}
+
+async function replaceSpecialBlocksWithImages(
+  root: HTMLElement,
+  styles: Record<string, string>,
+  isDark: boolean,
+) {
+  await renderMermaidIn(root, isDark);
+  await document.fonts.ready;
+
+  for (const target of getCaptureTargets(root)) {
+    try {
+      const dataUrl = await captureTargetAsPng(target);
+      replaceCaptureTargetWithImage(target, dataUrl, styles);
+    } catch (error) {
+      console.error("Wechat image render error:", error);
+    }
+  }
+}
+
 /** Markdown → 公众号兼容的内联样式 HTML */
 export function markdownToWechatHtml(
   source: string,
@@ -154,6 +292,23 @@ export function markdownToWechatHtml(
   applyInlineStyles(wrapper, theme.styles);
   adaptHtmlForWechatPaste(wrapper);
   return `<section style="${theme.styles.section}">${wrapper.innerHTML}</section>`;
+}
+
+/** Markdown → 公众号 HTML，并把 Mermaid 与块级公式转成图片 */
+export async function markdownToWechatHtmlWithImages(
+  source: string,
+  themeId: WechatThemeId,
+  docFilePath: string | null = null,
+  isDark = false,
+): Promise<string> {
+  const theme = getWechatTheme(themeId);
+  const host = createCaptureHost(markdownToWechatHtml(source, themeId, docFilePath));
+  try {
+    await replaceSpecialBlocksWithImages(host, theme.styles, isDark);
+    return host.innerHTML;
+  } finally {
+    host.remove();
+  }
 }
 
 /** 从 HTML 提取纯文本（复制备用） */
