@@ -79,7 +79,7 @@ jobs:
       - name: Build DMG
         run: pnpm tauri build ${{ matrix.args }}
 
-      - name: Verify signature and notarization
+      - name: Locate DMG
         run: |
           DMG_PATH=$(find src-tauri/target -path '*/release/bundle/dmg/*.dmg' -print -quit)
           if [ -z "$DMG_PATH" ]; then
@@ -87,6 +87,21 @@ jobs:
             find src-tauri/target -type f -name '*.dmg' 2>/dev/null || true
             exit 1
           fi
+          echo "DMG_PATH=$DMG_PATH" >> "$GITHUB_ENV"
+          echo "Found DMG: $DMG_PATH"
+
+      - name: Notarize and staple DMG
+        run: |
+          echo "Notarizing DMG: $DMG_PATH"
+          xcrun notarytool submit "$DMG_PATH" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+          xcrun stapler staple "$DMG_PATH"
+
+      - name: Verify signature and notarization
+        run: |
           echo "Checking DMG: $DMG_PATH"
           xcrun stapler validate "$DMG_PATH"
 
