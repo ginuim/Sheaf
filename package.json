@@ -10,7 +10,10 @@
     "build:website": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "preview:website": "vite preview --open /website/",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:mac": "tauri build && bash scripts/collect-dmg.sh",
+    "build:mac:arm64": "tauri build --target aarch64-apple-darwin && bash scripts/collect-dmg.sh Sheaf-macos-arm64.dmg",
+    "build:mac:x64": "tauri build --target x86_64-apple-darwin && bash scripts/collect-dmg.sh Sheaf-macos-x64.dmg"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",
