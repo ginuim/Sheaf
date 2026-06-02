@@ -73,11 +73,22 @@ jobs:
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
           KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY}.p8"
-          printf '%s\n' "$APPLE_API_KEY_PRIVATE_KEY" > "$KEY_PATH"
+          printf '%s' "$APPLE_API_KEY_PRIVATE_KEY" > "$KEY_PATH"
           echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
 
       - name: Build DMG
         run: pnpm tauri build ${{ matrix.args }}
+
+      - name: Verify signature and notarization
+        run: |
+          APP_PATH=$(find src-tauri/target -path '*/release/bundle/macos/*.app' | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app bundle found"
+            exit 1
+          fi
+          echo "Checking $APP_PATH"
+          codesign -dv --verbose=2 "$APP_PATH"
+          spctl -a -vv --type execute "$APP_PATH"
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4

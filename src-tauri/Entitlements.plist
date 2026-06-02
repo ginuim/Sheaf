@@ -4,15 +4,17 @@
 <dict>
     <key>com.apple.security.app-sandbox</key>
     <true/>
-    <!-- Mac App Store only:
-    <key>com.apple.application-identifier</key>
-    <string>REDACTED.com.reaidea.blank</string>
-    -->
     <key>com.apple.developer.team-identifier</key>
     <string>REDACTED</string>
     <key>com.apple.security.files.user-selected.read-write</key>
     <true/>
     <key>com.apple.security.print</key>
+    <true/>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
     <true/>
 </dict>
 </plist>
