@@ -12,10 +12,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - args: --target aarch64-apple-darwin
-            arch: aarch64
-          - args: --target x86_64-apple-darwin
-            arch: x86_64
+          - target: aarch64-apple-darwin
+            artifact: Sheaf-macos-arm64-Apple-Silicon
+            expected_arch: arm64
+          - target: x86_64-apple-darwin
+            artifact: Sheaf-macos-x64-Intel
+            expected_arch: x86_64
 
     runs-on: macos-latest
 
@@ -77,7 +79,7 @@ jobs:
           echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
 
       - name: Build DMG
-        run: pnpm tauri build ${{ matrix.args }}
+        run: pnpm tauri build --target ${{ matrix.target }}
 
       - name: Locate DMG
         run: |
@@ -108,6 +110,17 @@ jobs:
           APP_PATH=$(find src-tauri/target -type d -name '*.app' -path '*/release/bundle/*' -print -quit)
           if [ -n "$APP_PATH" ]; then
             echo "Checking app bundle: $APP_PATH"
+            APP_EXECUTABLE=$(find "$APP_PATH/Contents/MacOS" -type f -perm +111 -print -quit)
+            if [ -z "$APP_EXECUTABLE" ]; then
+              echo "No executable found in app bundle"
+              exit 1
+            fi
+            ARCHS=$(lipo -archs "$APP_EXECUTABLE")
+            echo "App executable architectures: $ARCHS"
+            if [ "$ARCHS" != "${{ matrix.expected_arch }}" ]; then
+              echo "Expected ${{ matrix.expected_arch }} app, got: $ARCHS"
+              exit 1
+            fi
             codesign -dv --verbose=2 "$APP_PATH"
             spctl -a -vv --type execute "$APP_PATH"
           else
@@ -117,6 +130,6 @@ jobs:
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: Sheaf-macos-${{ matrix.arch }}
+          name: ${{ matrix.artifact }}
           path: src-tauri/target/**/release/bundle/dmg/*.dmg
           if-no-files-found: error
