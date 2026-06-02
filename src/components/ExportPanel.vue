@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import {
   buildWechatHtml,
+  buildWechatHtmlForCopy,
   copyPlainText,
   copyWechatHtml,
 } from "../composables/useWechatExport";
+import { renderMermaidIn } from "../composables/useMermaid";
 import { WECHAT_THEMES, type WechatThemeId } from "../lib/wechatThemes";
 
 const props = defineProps<{
@@ -15,6 +17,7 @@ const props = defineProps<{
 const selectedTheme = ref<WechatThemeId>("classic");
 const copying = ref(false);
 const toast = ref<{ type: "success" | "error"; text: string } | null>(null);
+const previewRef = ref<HTMLElement | null>(null);
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 const previewHtml = computed(() =>
@@ -33,11 +36,30 @@ function showToast(type: "success" | "error", text: string) {
   }, 2800);
 }
 
+async function renderPreviewMermaid() {
+  await nextTick();
+  if (previewRef.value) await renderMermaidIn(previewRef.value);
+}
+
+onMounted(() => {
+  void renderPreviewMermaid();
+});
+
+watch(previewHtml, () => {
+  void renderPreviewMermaid();
+});
+
 async function handleCopyHtml() {
   if (copying.value) return;
   copying.value = true;
   try {
-    const result = await copyWechatHtml(previewHtml.value);
+    const html = await buildWechatHtmlForCopy(
+      props.source,
+      selectedTheme.value,
+      props.docFilePath ?? null,
+      document.documentElement.dataset.theme === "dark",
+    );
+    const result = await copyWechatHtml(html);
     if (result.ok) {
       showToast("success", "已复制 HTML，可粘贴到公众号编辑器");
     } else {
@@ -92,7 +114,7 @@ async function handleCopyPlain() {
       <section class="export-section export-preview-section">
         <h3 class="section-label">预览</h3>
         <div class="preview-frame">
-          <div class="wechat-preview" v-html="previewHtml" />
+          <div ref="previewRef" class="wechat-preview" v-html="previewHtml" />
         </div>
       </section>
 
@@ -230,6 +252,22 @@ async function handleCopyPlain() {
 
 .wechat-preview :deep(img) {
   max-width: 100%;
+}
+
+.wechat-preview :deep(.mermaid),
+.wechat-preview :deep(.katex-display) {
+  overflow-x: auto;
+  text-align: center;
+}
+
+.wechat-preview :deep(.mermaid) {
+  margin: 18px 0;
+  background: transparent;
+}
+
+.wechat-preview :deep(.mermaid svg) {
+  max-width: 100%;
+  height: auto;
 }
 
 .export-actions {

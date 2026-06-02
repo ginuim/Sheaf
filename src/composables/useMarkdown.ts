@@ -1,4 +1,5 @@
 import MarkdownIt from "markdown-it";
+import markdownItKatex from "markdown-it-katex";
 import { resolveMediaSrc } from "./resolveMediaSrc";
 import { buildHeadingIds } from "./useOutline";
 
@@ -8,6 +9,25 @@ const md = new MarkdownIt({
   typographer: true,
   breaks: false,
 });
+
+md.use(markdownItKatex, {
+  throwOnError: false,
+  errorColor: "#b42318",
+});
+
+const defaultFence =
+  md.renderer.rules.fence ??
+  ((tokens, idx, options, _env, self) =>
+    self.renderToken(tokens, idx, options));
+
+md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+  const token = tokens[idx];
+  const language = token.info.trim().split(/\s+/)[0]?.toLowerCase();
+  if (language !== "mermaid") return defaultFence(tokens, idx, options, env, self);
+
+  const content = md.utils.escapeHtml(token.content.trim());
+  return `<div class="mermaid" data-mermaid-source="${content}">${content}</div>\n`;
+};
 
 const defaultHeadingOpen =
   md.renderer.rules.heading_open ??

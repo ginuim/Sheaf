@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { renderMermaidIn } from "../composables/useMermaid";
 import { renderMarkdown } from "../composables/useMarkdown";
 
 const props = defineProps<{
@@ -15,6 +16,19 @@ const articleRef = ref<HTMLElement | null>(null);
 const html = computed(() =>
   renderMarkdown(props.source, props.docFilePath ?? null),
 );
+
+async function renderDynamicBlocks() {
+  await nextTick();
+  if (articleRef.value) await renderMermaidIn(articleRef.value);
+}
+
+onMounted(() => {
+  void renderDynamicBlocks();
+});
+
+watch(html, () => {
+  void renderDynamicBlocks();
+});
 
 function onPreviewClick(e: MouseEvent) {
   const anchor = (e.target as HTMLElement).closest("a");

@@ -217,6 +217,30 @@ button {
   border-radius: 6px;
 }
 
+.preview-content .mermaid,
+.preview-content .katex-display {
+  overflow-x: auto;
+  text-align: center;
+}
+
+.preview-content .mermaid {
+  margin: 1.5em 0;
+  background: transparent;
+}
+
+.preview-content .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.preview-content .mermaid-error {
+  padding: 1em;
+  text-align: left;
+  white-space: pre-wrap;
+  background: var(--ink-code-bg);
+  border-radius: 8px;
+}
+
 .preview-content table {
   width: 100%;
   border-collapse: collapse;

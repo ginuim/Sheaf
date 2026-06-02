@@ -1,8 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, nextTick } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { WECHAT_THEMES } from "../lib/wechatThemes";
-import { buildWechatHtml, copyWechatHtml, copyPlainText } from "../composables/useWechatExport";
+import {
+  buildWechatHtml,
+  buildWechatHtmlForCopy,
+  copyWechatHtml,
+  copyPlainText,
+} from "../composables/useWechatExport";
 import { renderMarkdown } from "../composables/useMarkdown";
+import { renderMermaidIn } from "../composables/useMermaid";
 import MarkdownEditor from "./MarkdownEditor.vue";
 import { toPng } from "html-to-image";
 import { save, message } from "@tauri-apps/plugin-dialog";
@@ -34,6 +40,8 @@ const config = ref({
 const exporting = ref(false);
 const exportingImage = ref(false);
 const exportCaptureRef = ref<HTMLElement | null>(null);
+const wechatRendererRef = ref<HTMLElement | null>(null);
+const cardContentRef = ref<HTMLElement | null>(null);
 
 // 渲染 Markdown (微信和大图片预览使用)
 const renderedHtml = computed(() => {
@@ -59,6 +67,37 @@ const authorInitial = computed(() => {
   return config.value.author ? config.value.author.charAt(0).toUpperCase() : "S";
 });
 
+const shouldRenderMermaidAsDark = computed(() => {
+  return props.isDark || config.value.cardTheme === "dark";
+});
+
+async function renderVisibleMermaid() {
+  await nextTick();
+  if (wechatRendererRef.value) {
+    await renderMermaidIn(wechatRendererRef.value, props.isDark);
+  }
+  if (cardContentRef.value) {
+    await renderMermaidIn(cardContentRef.value, shouldRenderMermaidAsDark.value);
+  }
+}
+
+onMounted(() => {
+  void renderVisibleMermaid();
+});
+
+watch(
+  [
+    renderedHtml,
+    wechatPreviewHtml,
+    () => config.value.type,
+    () => config.value.cardTheme,
+    () => props.isDark,
+  ],
+  () => {
+    void renderVisibleMermaid();
+  },
+);
+
 // 将 dataUrl 转换为 Uint8Array
 function dataUrlToBytes(dataUrl: string): Uint8Array {
   const base64 = dataUrl.split(",")[1];
@@ -76,7 +115,12 @@ async function handleCopyWechatHtml() {
   if (exporting.value) return;
   exporting.value = true;
   try {
-    const html = buildWechatHtml(modelValue.value, config.value.wechatTheme, props.docFilePath ?? null);
+    const html = await buildWechatHtmlForCopy(
+      modelValue.value,
+      config.value.wechatTheme,
+      props.docFilePath ?? null,
+      props.isDark,
+    );
     const result = await copyWechatHtml(html);
     if (result.ok) {
       await message("已复制微信公众号格式 HTML！请在微信公众号编辑器直接粘贴。", { title: "Sheaf 导出", kind: "info" });
@@ -123,13 +167,16 @@ async function handleDownloadImage() {
     el.scrollTop = 0;
 
     // 稍微等待一帧
+    await renderVisibleMermaid();
     await nextTick();
+    await document.fonts.ready;
 
     // 渲染 DOM 节点为 PNG 二进制流
     const dataUrl = await toPng(el, {
       cacheBust: true,
       pixelRatio: 2, // 2倍高保真超清
       backgroundColor: "transparent",
+      skipFonts: true,
       style: {
         transform: "scale(1)",
         transformOrigin: "top left",
@@ -221,7 +268,11 @@ const cardThemes = [
                     class="wechat-content"
                     :style="{ fontSize: config.fontSize + 'px' }"
                   >
-                    <div class="wechat-renderer" v-html="wechatPreviewHtml" />
+                    <div
+                      ref="wechatRendererRef"
+                      class="wechat-renderer"
+                      v-html="wechatPreviewHtml"
+                    />
                   </div>
                 </article>
               </div>
@@ -249,6 +300,7 @@ const cardThemes = [
 
                 <!-- 正文区域 -->
                 <main
+                  ref="cardContentRef"
                   class="card-main-content"
                   :style="{ fontSize: config.fontSize + 'px' }"
                   v-html="renderedHtml"
@@ -780,6 +832,35 @@ const cardThemes = [
 
 .export-studio-overlay.is-dark .wechat-content :deep(pre code) {
   background: none !important;
+}
+
+.wechat-content :deep(.mermaid),
+.wechat-content :deep(.katex-display),
+.card-main-content :deep(.mermaid),
+.card-main-content :deep(.katex-display) {
+  overflow-x: auto;
+  text-align: center;
+}
+
+.wechat-content :deep(.mermaid),
+.card-main-content :deep(.mermaid) {
+  margin: 20px 0;
+  background: transparent;
+}
+
+.wechat-content :deep(.mermaid svg),
+.card-main-content :deep(.mermaid svg) {
+  max-width: 100%;
+  height: auto;
+}
+
+.wechat-content :deep(.mermaid-error),
+.card-main-content :deep(.mermaid-error) {
+  padding: 1em;
+  text-align: left;
+  white-space: pre-wrap;
+  background: var(--wechat-article-code-bg);
+  border-radius: 8px;
 }
 
 /* 小红书卡片 / 长图大预览容器 */

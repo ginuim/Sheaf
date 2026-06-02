@@ -75,6 +75,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![take_opened_files, open_dropped_files])
         .setup(|app| {
             #[cfg(any(windows, target_os = "linux"))]
