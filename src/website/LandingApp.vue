@@ -1,10 +1,25 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { onUnmounted, ref, watch } from "vue";
 import SheafProductDemo from "./components/SheafProductDemo.vue";
 import type { DemoScenarioId } from "./components/SheafProductDemo.vue";
 
 const downloadHref = "#download";
 const demoRef = ref<InstanceType<typeof SheafProductDemo> | null>(null);
+const demoIsDark = ref(false);
+
+function applyLandingTheme(isDark: boolean) {
+  if (isDark) {
+    document.documentElement.dataset.theme = "dark";
+  } else {
+    delete document.documentElement.dataset.theme;
+  }
+}
+
+watch(demoIsDark, applyLandingTheme, { immediate: true });
+
+onUnmounted(() => {
+  delete document.documentElement.dataset.theme;
+});
 
 const demoScenarios: { id: DemoScenarioId; label: string }[] = [
   { id: "outline", label: "大纲导航" },
@@ -16,8 +31,6 @@ const demoScenarios: { id: DemoScenarioId; label: string }[] = [
 function runDemoScenario(id: DemoScenarioId) {
   demoRef.value?.runScenario(id);
 }
-
-const demoIsDark = computed(() => demoRef.value?.isDark ?? false);
 
 function toggleDemoTheme() {
   demoRef.value?.runThemeToggle();
@@ -45,7 +58,7 @@ const features = [
 </script>
 
 <template>
-  <div class="landing">
+  <div class="landing" :data-theme="demoIsDark ? 'dark' : undefined">
     <header class="landing-nav">
       <a class="landing-brand" href="/website/">
         <span class="landing-brand-mark">S</span>
@@ -77,7 +90,7 @@ const features = [
     </section>
 
     <section id="demo" class="landing-demo-wrap" aria-label="产品演示">
-      <SheafProductDemo ref="demoRef" />
+      <SheafProductDemo ref="demoRef" v-model:dark="demoIsDark" />
       <div class="landing-demo-controls" role="group" aria-label="演示控制">
         <button
           v-for="item in demoScenarios"
@@ -166,7 +179,7 @@ const features = [
         <div>
           <h4>联系</h4>
           <ul>
-            <li><a href="mailto:hello@example.com">hello@example.com</a></li>
+            <li><a href="mailto:webmaster@reaidea.com">webmaster@reaidea.com</a></li>
           </ul>
         </div>
       </div>
