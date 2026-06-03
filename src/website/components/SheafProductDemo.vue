@@ -50,7 +50,7 @@ function runScenario(id: DemoScenarioId) {
   }
 }
 
-defineExpose({ runScenario });
+defineExpose({ runScenario, toggleTheme, isDark });
 </script>
 
 <template>
