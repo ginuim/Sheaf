@@ -3,6 +3,7 @@ defineProps<{
   instruction?: string;
   streamPreview?: string;
   changeCount?: number;
+  applied?: boolean;
 }>();
 </script>
 
@@ -10,19 +11,26 @@ defineProps<{
   <aside class="ai-panel">
     <header class="ai-header">AI 编辑</header>
     <div class="ai-body">
-      <div class="ai-input ai-input-static">
-        {{ instruction ?? "把第二段改得更简洁，保留引用块" }}
+      <div class="ai-input ai-input-static" :class="{ empty: !instruction }">
+        {{ instruction || "输入你想怎样改这段文字..." }}
+        <span v-if="instruction" class="ai-caret" aria-hidden="true" />
       </div>
       <div class="ai-actions">
-        <span class="ai-btn ai-btn-primary ai-btn-static">发送</span>
+        <span
+          class="ai-btn ai-btn-primary ai-btn-static"
+          :class="{ active: instruction }"
+        >发送</span>
       </div>
       <div v-if="streamPreview" class="ai-stream">
         <div class="ai-stream-text">{{ streamPreview }}</div>
       </div>
-      <div class="ai-result ai-result-ok">
-        <span>找到 {{ changeCount ?? 2 }} 处修改</span>
+      <div v-if="streamPreview || applied" class="ai-result ai-result-ok">
+        <span>{{ applied ? "已应用到正文" : `找到 ${changeCount ?? 2} 处修改` }}</span>
         <div class="ai-result-actions">
-          <span class="ai-btn ai-btn-apply ai-btn-static">应用</span>
+          <span
+            class="ai-btn ai-btn-apply ai-btn-static"
+            :class="{ applied }"
+          >{{ applied ? "已应用" : "应用" }}</span>
           <span class="ai-btn ai-btn-ghost ai-btn-static">取消</span>
         </div>
       </div>
@@ -70,6 +78,20 @@ defineProps<{
   color: var(--ink-text);
 }
 
+.ai-input-static.empty {
+  color: var(--ink-text-muted);
+}
+
+.ai-caret {
+  display: inline-block;
+  width: 1px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--ink-accent);
+  animation: ai-caret-blink 1s steps(2, start) infinite;
+}
+
 .ai-actions {
   display: flex;
 }
@@ -89,6 +111,15 @@ defineProps<{
 .ai-btn-apply {
   background: var(--ink-accent);
   color: #fff;
+}
+
+.ai-btn-primary:not(.active) {
+  opacity: 0.55;
+}
+
+.ai-btn-apply.applied {
+  background: var(--ink-text);
+  color: var(--ink-bg);
 }
 
 .ai-btn-ghost {
@@ -128,5 +159,11 @@ defineProps<{
 .ai-result-actions {
   display: flex;
   gap: 4px;
+}
+
+@keyframes ai-caret-blink {
+  50% {
+    opacity: 0;
+  }
 }
 </style>
