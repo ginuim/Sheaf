@@ -247,14 +247,6 @@ const demoScenarios: Record<DemoScenarioId, DemoScenario> = {
         },
       },
       {
-        target: ".view-btn:nth-child(1)",
-        click: true,
-        caption: "回到分屏实时预览",
-        action: () => {
-          viewMode.value = "split";
-        },
-      },
-      {
         target: ".view-btn:nth-child(3)",
         click: true,
         caption: "切到沉浸预览模式",
