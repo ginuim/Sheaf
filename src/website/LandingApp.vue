@@ -1,7 +1,21 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import SheafProductDemo from "./components/SheafProductDemo.vue";
+import type { DemoScenarioId } from "./components/SheafProductDemo.vue";
 
 const downloadHref = "#download";
+const demoRef = ref<InstanceType<typeof SheafProductDemo> | null>(null);
+
+const demoScenarios: { id: DemoScenarioId; label: string }[] = [
+  { id: "outline", label: "大纲导航" },
+  { id: "preview", label: "预览模式" },
+  { id: "ai", label: "AI 改写" },
+  { id: "export", label: "导出到社交媒体" },
+];
+
+function runDemoScenario(id: DemoScenarioId) {
+  demoRef.value?.runScenario(id);
+}
 const features = [
   {
     title: "分屏实时预览",
@@ -57,8 +71,17 @@ const features = [
     </section>
 
     <section id="demo" class="landing-demo-wrap" aria-label="产品演示">
-      <div class="landing-demo-bg">
-        <SheafProductDemo />
+      <SheafProductDemo ref="demoRef" />
+      <div class="landing-demo-scenarios" role="group" aria-label="演示场景">
+        <button
+          v-for="item in demoScenarios"
+          :key="item.id"
+          type="button"
+          class="landing-demo-scenario-btn"
+          @click="runDemoScenario(item.id)"
+        >
+          {{ item.label }}
+        </button>
       </div>
     </section>
 

@@ -11,6 +11,7 @@ import {
 import { renderMarkdown } from "../composables/useMarkdown";
 import { renderMermaidIn } from "../composables/useMermaid";
 import MarkdownEditor from "./MarkdownEditor.vue";
+import { isTauri } from "@tauri-apps/api/core";
 import { toPng } from "html-to-image";
 import { save, message } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
@@ -19,7 +20,27 @@ const props = defineProps<{
   docFilePath?: string | null;
   fileName: string;
   isDark: boolean;
+  /** 嵌入演示框等非全屏容器时使用 */
+  embedded?: boolean;
 }>();
+
+async function studioMessage(
+  text: string,
+  kind: "info" | "error" = "info",
+) {
+  if (!isTauri()) return;
+  await message(text, { title: "Sheaf 导出", kind });
+}
+
+function downloadDataUrl(dataUrl: string, fileName: string) {
+  const anchor = document.createElement("a");
+  anchor.href = dataUrl;
+  anchor.download = fileName;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
 
 const modelValue = defineModel<string>({ required: true });
 
@@ -124,9 +145,11 @@ async function handleCopyWechatHtml() {
     );
     const result = await copyWechatHtml(html);
     if (result.ok) {
-      await message("已复制微信公众号格式 HTML！请在微信公众号编辑器直接粘贴。", { title: "Sheaf 导出", kind: "info" });
+      await studioMessage(
+        "已复制微信公众号格式 HTML！请在微信公众号编辑器直接粘贴。",
+      );
     } else {
-      await message(result.message, { title: "Sheaf 导出", kind: "error" });
+      await studioMessage(result.message, "error");
     }
   } finally {
     exporting.value = false;
@@ -140,9 +163,9 @@ async function handleCopyPlain() {
   try {
     const result = await copyPlainText(modelValue.value);
     if (result.ok) {
-      await message("已复制 Markdown 纯文本至剪贴板。", { title: "Sheaf 导出", kind: "info" });
+      await studioMessage("已复制 Markdown 纯文本至剪贴板。");
     } else {
-      await message(result.message, { title: "Sheaf 导出", kind: "error" });
+      await studioMessage(result.message, "error");
     }
   } finally {
     exporting.value = false;
@@ -154,7 +177,7 @@ async function handleDownloadImage() {
   if (exportingImage.value) return;
   const el = exportCaptureRef.value;
   if (!el) {
-    await message("未找到预览节点，请重试。", { title: "Sheaf 导出", kind: "error" });
+    await studioMessage("未找到预览节点，请重试。", "error");
     return;
   }
 
@@ -189,23 +212,23 @@ async function handleDownloadImage() {
     // 还原滚动位置
     el.scrollTop = originalScrollTop;
 
-    // 弹出本地保存文件框
-    const selectedPath = await save({
-      title: "保存图片至本地",
-      defaultPath: `${props.fileName || "untitled"}_${config.value.type}.png`,
-      filters: [{ name: "PNG Image", extensions: ["png"] }],
-    });
+    const pngName = `${props.fileName || "untitled"}_${config.value.type}.png`;
 
-    if (!selectedPath) {
-      return; // 用户取消
+    if (isTauri()) {
+      const selectedPath = await save({
+        title: "保存图片至本地",
+        defaultPath: pngName,
+        filters: [{ name: "PNG Image", extensions: ["png"] }],
+      });
+      if (!selectedPath) return;
+      await writeFile(selectedPath, dataUrlToBytes(dataUrl));
+      await studioMessage("图片保存成功！");
+    } else {
+      downloadDataUrl(dataUrl, pngName);
     }
-
-    const bytes = dataUrlToBytes(dataUrl);
-    await writeFile(selectedPath, bytes);
-    await message("图片保存成功！", { title: "Sheaf 导出", kind: "info" });
   } catch (error: any) {
     console.error("Export image error:", error);
-    await message(error?.message || "图片导出失败，请重试。", { title: "Sheaf 导出", kind: "error" });
+    await studioMessage(error?.message || "图片导出失败，请重试。", "error");
   } finally {
     exportingImage.value = false;
   }
@@ -220,7 +243,10 @@ const cardThemes = [
 </script>
 
 <template>
-  <div class="export-studio-overlay" :class="{ 'is-dark': isDark }">
+  <div
+    class="export-studio-overlay"
+    :class="{ 'is-dark': isDark, 'is-embedded': embedded }"
+  >
     <!-- 头部工具栏 -->
     <header class="studio-header">
       <div class="header-left">
@@ -530,6 +556,12 @@ const cardThemes = [
   flex-direction: column;
   color: var(--ink-text);
   overflow: hidden;
+}
+
+.export-studio-overlay.is-embedded {
+  position: absolute;
+  inset: 0;
+  z-index: 200;
 }
 
 .export-studio-overlay.is-dark {

@@ -176,18 +176,43 @@ body,
 }
 
 .landing-demo-wrap {
-  max-width: calc(var(--landing-max) + 4rem);
+  max-width: calc(var(--landing-max) + 10rem);
   margin: 0 auto;
   padding: 0 var(--landing-pad) clamp(4rem, 10vw, 6rem);
 }
 
-.landing-demo-bg {
-  padding: clamp(1.5rem, 4vw, 2.5rem);
-  border-radius: 20px;
-  background:
-    radial-gradient(ellipse 80% 60% at 50% 0%, var(--ink-accent-soft), transparent),
-    var(--ink-surface);
+.landing-demo-scenarios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: center;
+  margin-top: 1.25rem;
+}
+
+.landing-demo-scenario-btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
   border: 1px solid var(--ink-border);
+  background: var(--ink-surface);
+  color: var(--ink-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.landing-demo-scenario-btn:hover {
+  color: var(--ink-text);
+  border-color: var(--ink-border-strong);
+  background: var(--ink-bg);
+}
+
+.landing-demo-scenario-btn:focus-visible {
+  outline: 2px solid var(--ink-accent);
+  outline-offset: 2px;
 }
 
 .landing-logos {
