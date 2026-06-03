@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import SheafProductDemo from "./components/SheafProductDemo.vue";
 import type { DemoScenarioId } from "./components/SheafProductDemo.vue";
 
@@ -15,6 +15,12 @@ const demoScenarios: { id: DemoScenarioId; label: string }[] = [
 
 function runDemoScenario(id: DemoScenarioId) {
   demoRef.value?.runScenario(id);
+}
+
+const demoIsDark = computed(() => demoRef.value?.isDark ?? false);
+
+function toggleDemoTheme() {
+  demoRef.value?.toggleTheme();
 }
 const features = [
   {
@@ -72,7 +78,7 @@ const features = [
 
     <section id="demo" class="landing-demo-wrap" aria-label="产品演示">
       <SheafProductDemo ref="demoRef" />
-      <div class="landing-demo-scenarios" role="group" aria-label="演示场景">
+      <div class="landing-demo-controls" role="group" aria-label="演示控制">
         <button
           v-for="item in demoScenarios"
           :key="item.id"
@@ -81,6 +87,15 @@ const features = [
           @click="runDemoScenario(item.id)"
         >
           {{ item.label }}
+        </button>
+        <button
+          type="button"
+          class="landing-demo-scenario-btn landing-demo-theme-btn"
+          :class="{ active: demoIsDark }"
+          :aria-pressed="demoIsDark"
+          @click="toggleDemoTheme"
+        >
+          {{ demoIsDark ? "浅色模式" : "暗黑模式" }}
         </button>
       </div>
     </section>
