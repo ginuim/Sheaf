@@ -95,8 +95,19 @@ const PRINT_CSS = `
   }
 
   #__blank-print-root img { max-width: 100%; }
-  #__blank-print-root .mermaid,
-  #__blank-print-root .katex-display {
+  #__blank-print-root .math-block {
+    margin: 1.25em 0;
+    text-align: center;
+    overflow: visible;
+  }
+
+  #__blank-print-root .math-block .katex-display {
+    margin: 0;
+    overflow: visible;
+  }
+
+  #__blank-print-root .mermaid {
+    margin: 1.5em 0;
     overflow-x: auto;
     text-align: center;
   }

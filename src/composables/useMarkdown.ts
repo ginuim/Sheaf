@@ -1,7 +1,13 @@
 import MarkdownIt from "markdown-it";
 import markdownItKatex from "markdown-it-katex";
+import katex from "katex";
 import { resolveMediaSrc } from "./resolveMediaSrc";
 import { buildHeadingIds } from "./useOutline";
+
+const KATEX_OPTIONS = {
+  throwOnError: false,
+  errorColor: "#b42318",
+} as const;
 
 const md = new MarkdownIt({
   html: true,
@@ -10,10 +16,21 @@ const md = new MarkdownIt({
   breaks: false,
 });
 
-md.use(markdownItKatex, {
-  throwOnError: false,
-  errorColor: "#b42318",
-});
+md.use(markdownItKatex, KATEX_OPTIONS);
+
+// markdown-it-katex 会把块级公式包进 <p>，在 preview 的大 line-height 下会被裁切。
+md.renderer.rules.math_block = (tokens, idx) => {
+  const content = tokens[idx].content.trim();
+  try {
+    const html = katex.renderToString(content, {
+      ...KATEX_OPTIONS,
+      displayMode: true,
+    });
+    return `<div class="math-block">${html}</div>\n`;
+  } catch {
+    return `<pre class="math-block-error">${md.utils.escapeHtml(content)}</pre>\n`;
+  }
+};
 
 const defaultFence =
   md.renderer.rules.fence ??

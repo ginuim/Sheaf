@@ -254,14 +254,21 @@ async function handleCopyPlain() {
   max-width: 100%;
 }
 
-.wechat-preview :deep(.mermaid),
-.wechat-preview :deep(.katex-display) {
-  overflow-x: auto;
+.wechat-preview :deep(.math-block) {
+  margin: 18px 0;
   text-align: center;
+  overflow: visible;
+}
+
+.wechat-preview :deep(.math-block .katex-display) {
+  margin: 0;
+  overflow: visible;
 }
 
 .wechat-preview :deep(.mermaid) {
   margin: 18px 0;
+  overflow-x: auto;
+  text-align: center;
   background: transparent;
 }
 
