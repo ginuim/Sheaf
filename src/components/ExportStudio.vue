@@ -834,17 +834,24 @@ const cardThemes = [
   background: none !important;
 }
 
-.wechat-content :deep(.mermaid),
-.wechat-content :deep(.katex-display),
-.card-main-content :deep(.mermaid),
-.card-main-content :deep(.katex-display) {
-  overflow-x: auto;
+.wechat-content :deep(.math-block),
+.card-main-content :deep(.math-block) {
+  margin: 20px 0;
   text-align: center;
+  overflow: visible;
+}
+
+.wechat-content :deep(.math-block .katex-display),
+.card-main-content :deep(.math-block .katex-display) {
+  margin: 0;
+  overflow: visible;
 }
 
 .wechat-content :deep(.mermaid),
 .card-main-content :deep(.mermaid) {
   margin: 20px 0;
+  overflow-x: auto;
+  text-align: center;
   background: transparent;
 }
 
