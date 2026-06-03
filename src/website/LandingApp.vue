@@ -20,7 +20,7 @@ function runDemoScenario(id: DemoScenarioId) {
 const demoIsDark = computed(() => demoRef.value?.isDark ?? false);
 
 function toggleDemoTheme() {
-  demoRef.value?.toggleTheme();
+  demoRef.value?.runThemeToggle();
 }
 const features = [
   {

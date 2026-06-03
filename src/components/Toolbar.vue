@@ -155,7 +155,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
         <ListTree :size="iconSize" aria-hidden="true" />
       </button>
       <button
-        class="btn btn-icon"
+        class="btn btn-icon theme-toggle"
         :title="isDark ? '切换浅色模式' : '切换暗色模式'"
         :aria-label="isDark ? '切换浅色模式' : '切换暗色模式'"
         @click="emit('toggleTheme')"
