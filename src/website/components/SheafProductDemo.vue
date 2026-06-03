@@ -396,6 +396,8 @@ async function runScenario(id: DemoScenarioId) {
 async function runThemeToggle() {
   const runId = animationRunId + 1;
   animationRunId = runId;
+  showExport.value = false;
+  await nextTick();
   demoCaption.value = isDark.value ? "模拟点击切回浅色模式" : "模拟点击切到暗黑模式";
   await playSteps(
     [
