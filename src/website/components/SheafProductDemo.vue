@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import AIPanelDemo from "./AIPanelDemo.vue";
+import ExportStudio from "../../components/ExportStudio.vue";
 import MarkdownEditor from "../../components/MarkdownEditor.vue";
 import MarkdownPreview from "../../components/MarkdownPreview.vue";
 import OutlinePanel from "../../components/OutlinePanel.vue";
@@ -8,6 +9,8 @@ import Toolbar from "../../components/Toolbar.vue";
 import type { ViewMode } from "../../components/Toolbar.vue";
 import { DEMO_MARKDOWN } from "../../shared/demoContent";
 import { parseOutline } from "../../composables/useOutline";
+
+export type DemoScenarioId = "outline" | "preview" | "ai" | "export";
 
 const content = ref(DEMO_MARKDOWN);
 const viewMode = ref<ViewMode>("split");
@@ -26,6 +29,28 @@ function toggleTheme() {
   isDark.value = !isDark.value;
   document.documentElement.dataset.theme = isDark.value ? "dark" : "";
 }
+
+function runScenario(id: DemoScenarioId) {
+  switch (id) {
+    case "outline":
+      showExport.value = false;
+      showOutline.value = !showOutline.value;
+      break;
+    case "preview":
+      showExport.value = false;
+      viewMode.value = viewMode.value === "preview" ? "split" : "preview";
+      break;
+    case "ai":
+      showExport.value = false;
+      showAI.value = true;
+      break;
+    case "export":
+      showExport.value = true;
+      break;
+  }
+}
+
+defineExpose({ runScenario });
 </script>
 
 <template>
@@ -76,12 +101,21 @@ function toggleTheme() {
           @navigate="() => {}"
         />
       </div>
+      <ExportStudio
+        v-if="showExport"
+        v-model="content"
+        file-name="写作示例.md"
+        :is-dark="isDark"
+        embedded
+        @close="showExport = false"
+      />
     </div>
   </div>
 </template>
 
 <style scoped>
 .sheaf-demo {
+  position: relative;
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--ink-border-strong);
@@ -127,9 +161,10 @@ function toggleTheme() {
 }
 
 .demo-app {
+  position: relative;
   display: flex;
   flex-direction: column;
-  height: 420px;
+  height: 600px;
 }
 
 .demo-app :deep(.toolbar) {
