@@ -5,6 +5,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import AppToast from "./components/AppToast.vue";
 import AIPanel from "./components/AIPanel.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
 import MarkdownPreview from "./components/MarkdownPreview.vue";
@@ -17,7 +18,8 @@ import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
 import type { EditChange } from "./composables/useAI";
 import { refreshRecentMenu, setupAppMenu } from "./composables/useAppMenu";
-import { exportPdf } from "./composables/usePdfExport";
+import { exportPdf, type ExportPdfStage } from "./composables/usePdfExport";
+import { useAppToast } from "./composables/useAppToast";
 import { buildWechatHtmlForCopy, copyWechatHtml } from "./composables/useWechatExport";
 import { resolveLinkHref } from "./composables/resolveMediaSrc";
 import { useFile } from "./composables/useFile";
@@ -64,6 +66,12 @@ const editorRef = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 const previewRef = ref<InstanceType<typeof MarkdownPreview> | null>(null);
 const previewPaneRef = ref<HTMLElement | null>(null);
 const exporting = ref(false);
+const exportingPdf = ref(false);
+const exportPdfStage = ref<ExportPdfStage>("rendering");
+const { showToast } = useAppToast();
+const exportPdfLoadingText = computed(() =>
+  exportPdfStage.value === "rendering" ? "正在渲染文档…" : "正在生成 PDF…",
+);
 const showSettings = ref(false);
 const showAbout = ref(false);
 const showAI = ref(false);
@@ -310,18 +318,34 @@ function onPreviewScroll(e: Event) {
 }
 
 async function handleExportPdf() {
-  if (exporting.value) return;
+  if (exportingPdf.value) return;
 
-  exporting.value = true;
+  exportingPdf.value = true;
+  exportPdfStage.value = "rendering";
   try {
-    await exportPdf(content.value, fileName.value, filePath.value);
+    const result = await exportPdf(content.value, fileName.value, filePath.value, {
+      onStage: (stage) => {
+        exportPdfStage.value = stage;
+      },
+    });
+
+    if (result.status === "success") {
+      if (isTauri()) {
+        showToast("success", `PDF 已导出：${result.fileName}`);
+      } else {
+        showToast("info", "已打开打印对话框，请选择「存储为 PDF」");
+      }
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "导出 PDF 失败。";
+    showToast("error", msg);
   } finally {
-    exporting.value = false;
+    exportingPdf.value = false;
   }
 }
 
 async function handleCopyWechatHtml() {
-  if (exporting.value) return;
+  if (exporting.value || exportingPdf.value) return;
 
   exporting.value = true;
   try {
@@ -477,18 +501,17 @@ onUnmounted(() => {
       :is-dirty="isDirty"
       :view-mode="viewMode"
       :is-dark="isDark"
-      :exporting="exporting"
+      :exporting="exportingPdf"
       :show-outline="showOutline"
       :show-export="showExport"
       :show-a-i="showAI"
       @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @save="saveFile(content)"
-      @save-as="saveFileAs(content)"
       @export-pdf="handleExportPdf"
       @toggle-theme="toggleTheme"
       @toggle-outline="showOutline = !showOutline"
-      @toggle-export="showExport = !showExport"
+      @open-export="showExport = true"
       @toggle-a-i="showAI = !showAI"
       @update:view-mode="viewMode = $event"
     />
@@ -563,6 +586,22 @@ onUnmounted(() => {
       :is-dark="isDark"
       @close="showExport = false"
     />
+
+    <Teleport to="body">
+      <div
+        v-if="exportingPdf"
+        class="export-pdf-overlay"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <div class="export-pdf-card">
+          <span class="export-pdf-spinner" aria-hidden="true" />
+          <p class="export-pdf-text">{{ exportPdfLoadingText }}</p>
+        </div>
+      </div>
+    </Teleport>
+
+    <AppToast />
   </div>
 </template>
 
@@ -657,6 +696,55 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) {
   .editor-enter {
     animation: none;
+  }
+
+  .export-pdf-spinner {
+    animation: none;
+    border-top-color: var(--ink-accent);
+  }
+}
+
+.export-pdf-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--ink-bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.export-pdf-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  min-width: 220px;
+  padding: 22px 28px;
+  border-radius: 12px;
+  border: 1px solid var(--ink-border-strong);
+  background: var(--ink-surface);
+  box-shadow: 0 16px 40px var(--ink-shadow);
+}
+
+.export-pdf-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--ink-border-strong);
+  border-top-color: var(--ink-accent);
+  border-radius: 50%;
+  animation: export-pdf-spin 0.8s linear infinite;
+}
+
+.export-pdf-text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-text-muted);
+}
+
+@keyframes export-pdf-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>

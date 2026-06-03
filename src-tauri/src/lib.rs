@@ -1,6 +1,9 @@
+mod pdf_export;
+
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use pdf_export::export_pdf_file;
 use tauri::{AppHandle, Emitter, Manager};
 
 struct PendingFiles(Mutex<Vec<String>>);
@@ -76,7 +79,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .invoke_handler(tauri::generate_handler![take_opened_files, open_dropped_files])
+        .invoke_handler(tauri::generate_handler![
+            take_opened_files,
+            open_dropped_files,
+            export_pdf_file
+        ])
         .setup(|app| {
             #[cfg(any(windows, target_os = "linux"))]
             handle_launch_files(app);

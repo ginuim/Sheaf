@@ -1,159 +1,144 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
+import {
+  buildMarkdownHtmlDocument,
+  exportDocumentFileName,
+} from "./documentExport";
 import { renderMarkdown } from "./useMarkdown";
 import { renderMermaidIn } from "./useMermaid";
+import { resolveMediaSrcForExport } from "./resolveMediaSrc";
 
-const PRINT_CSS = `
-  @media print {
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: #ffffff;
+export type ExportPdfStage = "rendering" | "exporting";
+
+export type ExportPdfResult =
+  | { status: "success"; fileName: string; savedPath?: string }
+  | { status: "canceled" };
+
+export type ExportPdfOptions = {
+  onStage?: (stage: ExportPdfStage) => void;
+};
+
+async function renderExportBodyHtml(
+  source: string,
+  docFilePath: string | null,
+): Promise<string> {
+  const container = document.createElement("div");
+  container.style.display = "none";
+  document.body.appendChild(container);
+
+  try {
+    container.innerHTML = renderMarkdown(source, docFilePath, {
+      resolveMedia: resolveMediaSrcForExport,
+    });
+    await renderMermaidIn(container, false);
+    await document.fonts.ready;
+    return container.innerHTML;
+  } finally {
+    container.remove();
+  }
+}
+
+async function exportPdfViaBrowserPrint(html: string, fileName: string) {
+  const frame = document.createElement("iframe");
+  frame.title = fileName;
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "1px";
+  frame.style.height = "1px";
+  frame.style.border = "0";
+  frame.style.opacity = "0";
+  frame.style.pointerEvents = "none";
+  frame.setAttribute("aria-hidden", "true");
+  frame.srcdoc = html;
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const resolveReady = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(loadTimeout);
+      resolve();
+    };
+
+    frame.addEventListener("load", resolveReady, { once: true });
+    document.body.appendChild(frame);
+    const loadTimeout = window.setTimeout(resolveReady, 700);
+  });
+
+  const printWindow = frame.contentWindow;
+  if (!printWindow || typeof printWindow.print !== "function") {
+    frame.remove();
+    throw new Error("当前环境无法打印 PDF，请使用桌面版应用导出。");
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    let cleanupTimeout: number | null = null;
+    const cleanup = () => {
+      printWindow.removeEventListener("afterprint", onDone);
+      window.removeEventListener("afterprint", onDone);
+      if (cleanupTimeout !== null) window.clearTimeout(cleanupTimeout);
+      frame.remove();
+    };
+    const onDone = () => {
+      cleanup();
+      resolve();
+    };
+
+    try {
+      printWindow.addEventListener("afterprint", onDone, { once: true });
+      window.addEventListener("afterprint", onDone, { once: true });
+      cleanupTimeout = window.setTimeout(onDone, 60_000);
+      printWindow.focus();
+      printWindow.print();
+    } catch (error) {
+      cleanup();
+      reject(error);
     }
-
-    body > *:not(#__blank-print-root) {
-      display: none !important;
-    }
-
-    #__blank-print-root {
-      display: block !important;
-    }
-  }
-
-  #__blank-print-root {
-    display: none;
-    font-family: "Source Serif 4", "Songti SC", "STSong", "SimSun", Georgia, serif;
-    font-size: 17px;
-    line-height: 1.85;
-    color: #2a2520;
-    background: #ffffff;
-    padding: 2.5rem 3rem 4rem;
-    max-width: 42rem;
-    margin: 0 auto;
-    box-sizing: border-box;
-  }
-
-  #__blank-print-root * {
-    box-sizing: border-box;
-  }
-
-  #__blank-print-root > * + * { margin-top: 1.25em; }
-
-  #__blank-print-root h1,
-  #__blank-print-root h2,
-  #__blank-print-root h3,
-  #__blank-print-root h4 {
-    font-weight: 600;
-    line-height: 1.3;
-    letter-spacing: -0.02em;
-    color: #2a2520;
-  }
-
-  #__blank-print-root h1 {
-    font-size: 2rem;
-    margin-top: 0;
-    padding-bottom: 0.4em;
-    border-bottom: 1px solid rgba(42,37,32,0.14);
-  }
-
-  #__blank-print-root h2 { font-size: 1.5rem; margin-top: 2em; }
-  #__blank-print-root h3 { font-size: 1.2rem; }
-  #__blank-print-root p { margin: 0; }
-  #__blank-print-root a { color: #3d5a4c; }
-  #__blank-print-root ul, #__blank-print-root ol { padding-left: 1.5em; }
-  #__blank-print-root li + li { margin-top: 0.35em; }
-
-  #__blank-print-root blockquote {
-    margin: 0;
-    padding: 0.25em 0 0.25em 1.25em;
-    border-left: 3px solid #c4b8a8;
-    color: #8a8278;
-    font-style: italic;
-  }
-
-  #__blank-print-root code {
-    font-family: "IBM Plex Mono", "Menlo", monospace;
-    font-size: 0.88em;
-    background: rgba(42,37,32,0.06);
-    padding: 0.15em 0.4em;
-    border-radius: 4px;
-  }
-
-  #__blank-print-root pre {
-    background: rgba(42,37,32,0.06);
-    border-radius: 8px;
-    padding: 1.25em 1.5em;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  #__blank-print-root pre code { background: none; padding: 0; font-size: 0.85em; }
-
-  #__blank-print-root hr {
-    border: none;
-    border-top: 1px solid rgba(42,37,32,0.14);
-    margin: 2em 0;
-  }
-
-  #__blank-print-root img { max-width: 100%; }
-  #__blank-print-root .math-block {
-    margin: 1.25em 0;
-    text-align: center;
-    overflow: visible;
-  }
-
-  #__blank-print-root .math-block .katex-display {
-    margin: 0;
-    overflow: visible;
-  }
-
-  #__blank-print-root .mermaid {
-    margin: 1.5em 0;
-    overflow-x: auto;
-    text-align: center;
-  }
-  #__blank-print-root .mermaid svg {
-    max-width: 100%;
-    height: auto;
-  }
-
-  #__blank-print-root table { width: 100%; border-collapse: collapse; font-size: 0.95em; }
-  #__blank-print-root th,
-  #__blank-print-root td {
-    border: 1px solid rgba(42,37,32,0.14);
-    padding: 0.5em 0.75em;
-    text-align: left;
-  }
-  #__blank-print-root th { background: rgba(42,37,32,0.05); font-weight: 500; }
-`;
-
-let printStyle: HTMLStyleElement | null = null;
-let printRoot: HTMLDivElement | null = null;
-
-function ensurePrintNodes() {
-  if (!printStyle) {
-    printStyle = document.createElement("style");
-    printStyle.id = "__blank-print-style";
-    document.head.appendChild(printStyle);
-  }
-  printStyle.textContent = PRINT_CSS;
-
-  if (!printRoot) {
-    printRoot = document.createElement("div");
-    printRoot.id = "__blank-print-root";
-    document.body.appendChild(printRoot);
-  }
+  });
 }
 
 export async function exportPdf(
   source: string,
-  _fileName: string,
+  fileName: string,
   docFilePath: string | null = null,
-) {
-  ensurePrintNodes();
-  printRoot!.innerHTML = renderMarkdown(source, docFilePath);
-  await renderMermaidIn(printRoot!, false);
+  options: ExportPdfOptions = {},
+): Promise<ExportPdfResult> {
+  options.onStage?.("rendering");
 
-  await document.fonts.ready;
+  const bodyHtml = await renderExportBodyHtml(source, docFilePath);
+  const html = buildMarkdownHtmlDocument({
+    bodyHtml,
+    title: fileName,
+  });
 
-  window.print();
+  options.onStage?.("exporting");
+
+  if (isTauri()) {
+    const suggestedName = exportDocumentFileName(fileName);
+    const targetPath = await save({
+      defaultPath: suggestedName,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+
+    if (!targetPath) {
+      return { status: "canceled" };
+    }
+
+    await invoke("export_pdf_file", {
+      path: targetPath,
+      html,
+    });
+
+    const savedName = targetPath.split(/[/\\]/u).pop() ?? suggestedName;
+    return {
+      status: "success",
+      fileName: savedName,
+      savedPath: targetPath,
+    };
+  }
+
+  const exportedName = exportDocumentFileName(fileName);
+  await exportPdfViaBrowserPrint(html, exportedName);
+  return { status: "success", fileName: exportedName };
 }
