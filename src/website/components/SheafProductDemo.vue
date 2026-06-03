@@ -25,12 +25,21 @@ type DemoScenario = {
   steps: DemoStep[];
 };
 
+const DEMO_TIMING = {
+  stepPause: 720,
+  clickPulse: 280,
+  beforeScroll: 680,
+  beforeStream: 520,
+  typeChar: 38,
+  typeStreamChar: 16,
+} as const;
+
 const content = ref(DEMO_MARKDOWN);
 const viewMode = ref<ViewMode>("split");
 const showOutline = ref(true);
 const showExport = ref(false);
 const showAI = ref(true);
-const isDark = ref(false);
+const isDark = defineModel<boolean>("dark", { default: false });
 const demoRoot = ref<HTMLElement | null>(null);
 const fakeCursor = ref<DemoPoint>({ x: 64, y: 18 });
 const fakeCursorVisible = ref(false);
@@ -68,7 +77,6 @@ const aiAppliedMarkdown = DEMO_MARKDOWN.replace(
 
 function setTheme(nextIsDark: boolean) {
   isDark.value = nextIsDark;
-  document.documentElement.dataset.theme = isDark.value ? "dark" : "";
 }
 
 function toggleTheme() {
@@ -257,7 +265,7 @@ const demoScenarios: Record<DemoScenarioId, DemoScenario> = {
       {
         target: ".pane-preview",
         caption: "预览区独立滚动查看全文",
-        wait: 420,
+        wait: DEMO_TIMING.beforeScroll,
         action: () => scrollPreview(0.68),
       },
     ],
@@ -278,7 +286,8 @@ const demoScenarios: Record<DemoScenarioId, DemoScenario> = {
         target: ".ai-input",
         click: true,
         caption: "输入改写要求",
-        action: (runId) => typeText(aiInstruction, aiInstructionFull, runId, 24),
+        action: (runId) =>
+          typeText(aiInstruction, aiInstructionFull, runId, DEMO_TIMING.typeChar),
       },
       {
         target: ".ai-btn-primary",
@@ -288,8 +297,9 @@ const demoScenarios: Record<DemoScenarioId, DemoScenario> = {
       {
         target: ".ai-stream",
         caption: "模拟返回可审阅的修改",
-        wait: 320,
-        action: (runId) => typeText(aiStreamPreview, aiStreamPreviewFull, runId, 10),
+        wait: DEMO_TIMING.beforeStream,
+        action: (runId) =>
+          typeText(aiStreamPreview, aiStreamPreviewFull, runId, DEMO_TIMING.typeStreamChar),
       },
       {
         target: ".ai-btn-apply",
@@ -362,14 +372,14 @@ async function playSteps(steps: DemoStep[], runId: number) {
       demoCaption.value = step.caption;
     }
     fakeCursor.value = await getTargetPoint(step);
-    const shouldContinue = await waitFor(step.wait ?? 460, runId);
+    const shouldContinue = await waitFor(step.wait ?? DEMO_TIMING.stepPause, runId);
     if (!shouldContinue) {
       break;
     }
 
     if (step.click) {
       fakeCursorClicking.value = true;
-      const clickDone = await waitFor(180, runId);
+      const clickDone = await waitFor(DEMO_TIMING.clickPulse, runId);
       fakeCursorClicking.value = false;
       if (!clickDone) {
         break;
@@ -396,15 +406,16 @@ async function runScenario(id: DemoScenarioId) {
 async function runThemeToggle() {
   const runId = animationRunId + 1;
   animationRunId = runId;
+  const targetDark = !isDark.value;
   showExport.value = false;
   await nextTick();
-  demoCaption.value = isDark.value ? "模拟点击切回浅色模式" : "模拟点击切到暗黑模式";
+  demoCaption.value = targetDark ? "模拟点击切到暗黑模式" : "模拟点击切回浅色模式";
   await playSteps(
     [
       {
         target: ".theme-toggle",
         click: true,
-        action: () => toggleTheme(),
+        action: () => setTheme(targetDark),
       },
     ],
     runId,
@@ -682,9 +693,9 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
   opacity: 0;
   transform: translate(0, 0);
   transition:
-    left 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
-    top 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 0.16s ease;
+    left 0.68s cubic-bezier(0.22, 0.03, 0.26, 1),
+    top 0.68s cubic-bezier(0.22, 0.03, 0.26, 1),
+    opacity 0.2s ease;
 }
 
 .demo-fake-cursor.visible {
@@ -732,7 +743,7 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
 }
 
 .demo-fake-cursor.clicking .demo-fake-cursor-pulse {
-  animation: demo-click-pulse 0.18s ease-out;
+  animation: demo-click-pulse 0.28s ease-out;
 }
 
 @keyframes demo-click-pulse {
