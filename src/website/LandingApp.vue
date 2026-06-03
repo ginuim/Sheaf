@@ -171,8 +171,16 @@ const features = [
         </div>
       </div>
       <div class="landing-footer-bottom">
-        <span>© {{ new Date().getFullYear() }} Sheaf</span>
-        <span>本地 Markdown 编辑器</span>
+        <p class="landing-copyright">
+          © {{ new Date().getFullYear() }}
+          <a
+            class="landing-studio-link"
+            href="https://reaidea.com"
+            target="_blank"
+            rel="noopener noreferrer"
+          >Reaidea Studio</a> 版权所有。
+        </p>
+        <p class="landing-footer-meta">Sheaf · 本地 Markdown 编辑器</p>
       </div>
     </footer>
   </div>

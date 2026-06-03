@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onUnmounted, ref } from "vue";
 import AIPanelDemo from "./AIPanelDemo.vue";
 import ExportStudio from "../../components/ExportStudio.vue";
 import MarkdownEditor from "../../components/MarkdownEditor.vue";
@@ -11,6 +11,12 @@ import { DEMO_MARKDOWN } from "../../shared/demoContent";
 import { parseOutline } from "../../composables/useOutline";
 
 export type DemoScenarioId = "outline" | "preview" | "ai" | "export";
+type DemoPoint = { x: number; y: number };
+type DemoStep = DemoPoint & {
+  wait?: number;
+  click?: boolean;
+  action?: () => void;
+};
 
 const content = ref(DEMO_MARKDOWN);
 const viewMode = ref<ViewMode>("split");
@@ -18,6 +24,16 @@ const showOutline = ref(true);
 const showExport = ref(false);
 const showAI = ref(true);
 const isDark = ref(false);
+const demoRoot = ref<HTMLElement | null>(null);
+const fakeCursor = ref<DemoPoint>({ x: 60, y: 16 });
+const fakeCursorVisible = ref(false);
+const fakeCursorClicking = ref(false);
+const isDemoHovered = ref(false);
+const isDemoAnimating = ref(false);
+
+let animationRunId = 0;
+let activeTimer: ReturnType<typeof setTimeout> | null = null;
+let resolveActiveTimer: ((keepGoing: boolean) => void) | null = null;
 
 const outlineItems = computed(() => parseOutline(content.value));
 
@@ -30,34 +46,158 @@ function toggleTheme() {
   document.documentElement.dataset.theme = isDark.value ? "dark" : "";
 }
 
-function runScenario(id: DemoScenarioId) {
-  switch (id) {
-    case "outline":
-      showExport.value = false;
-      showOutline.value = !showOutline.value;
+function clearActiveTimer(keepGoing = false) {
+  if (activeTimer) {
+    clearTimeout(activeTimer);
+    activeTimer = null;
+  }
+  resolveActiveTimer?.(keepGoing);
+  resolveActiveTimer = null;
+}
+
+function waitFor(ms: number, runId: number) {
+  clearActiveTimer(false);
+  return new Promise<boolean>((resolve) => {
+    resolveActiveTimer = resolve;
+    activeTimer = setTimeout(() => {
+      activeTimer = null;
+      resolveActiveTimer = null;
+      resolve(animationRunId === runId && !isDemoHovered.value);
+    }, ms);
+  });
+}
+
+function stopDemoAnimation() {
+  animationRunId += 1;
+  isDemoAnimating.value = false;
+  fakeCursorClicking.value = false;
+  clearActiveTimer(false);
+}
+
+function resetScenarioState() {
+  showExport.value = false;
+  viewMode.value = "split";
+  showAI.value = false;
+  showOutline.value = false;
+}
+
+function getScenarioSteps(id: DemoScenarioId): DemoStep[] {
+  const steps: Record<DemoScenarioId, DemoStep[]> = {
+    outline: [
+      { x: 74, y: 12 },
+      { x: 74, y: 12, click: true, action: () => (showOutline.value = true) },
+      { x: 89, y: 34, wait: 720 },
+      { x: 82, y: 55, wait: 520 },
+    ],
+    preview: [
+      { x: 93, y: 12 },
+      { x: 93, y: 12, click: true, action: () => (viewMode.value = "preview") },
+      { x: 50, y: 36, wait: 620 },
+      { x: 56, y: 64, wait: 560 },
+    ],
+    ai: [
+      { x: 63, y: 12 },
+      { x: 63, y: 12, click: true, action: () => (showAI.value = true) },
+      { x: 82, y: 33, wait: 620 },
+      { x: 83, y: 52, wait: 560 },
+      { x: 76, y: 72, click: true, wait: 420 },
+    ],
+    export: [
+      { x: 69, y: 12 },
+      { x: 69, y: 12, click: true, action: () => (showExport.value = true) },
+      { x: 49, y: 33, wait: 620 },
+      { x: 58, y: 59, wait: 560 },
+    ],
+  };
+
+  return steps[id];
+}
+
+async function runScenario(id: DemoScenarioId) {
+  const runId = animationRunId + 1;
+  animationRunId = runId;
+  resetScenarioState();
+  fakeCursorVisible.value = true;
+  fakeCursorClicking.value = false;
+  isDemoAnimating.value = true;
+
+  for (const step of getScenarioSteps(id)) {
+    if (animationRunId !== runId || isDemoHovered.value) {
       break;
-    case "preview":
-      showExport.value = false;
-      viewMode.value = viewMode.value === "preview" ? "split" : "preview";
+    }
+
+    fakeCursor.value = { x: step.x, y: step.y };
+    const shouldContinue = await waitFor(step.wait ?? 460, runId);
+    if (!shouldContinue) {
       break;
-    case "ai":
-      showExport.value = false;
-      showAI.value = true;
-      break;
-    case "export":
-      showExport.value = true;
-      break;
+    }
+
+    step.action?.();
+    if (step.click) {
+      fakeCursorClicking.value = true;
+      const clickDone = await waitFor(180, runId);
+      fakeCursorClicking.value = false;
+      if (!clickDone) {
+        break;
+      }
+    }
+  }
+
+  if (animationRunId === runId && !isDemoHovered.value) {
+    isDemoAnimating.value = false;
   }
 }
+
+function updateCursorFromPointer(event: PointerEvent) {
+  const rect = demoRoot.value?.getBoundingClientRect();
+  if (!rect) {
+    return;
+  }
+
+  fakeCursor.value = {
+    x: Math.min(100, Math.max(0, ((event.clientX - rect.left) / rect.width) * 100)),
+    y: Math.min(100, Math.max(0, ((event.clientY - rect.top) / rect.height) * 100)),
+  };
+}
+
+function onDemoPointerEnter(event: PointerEvent) {
+  isDemoHovered.value = true;
+  fakeCursorVisible.value = true;
+  stopDemoAnimation();
+  updateCursorFromPointer(event);
+}
+
+function onDemoPointerMove(event: PointerEvent) {
+  if (!isDemoHovered.value) {
+    return;
+  }
+  updateCursorFromPointer(event);
+}
+
+function onDemoPointerLeave() {
+  isDemoHovered.value = false;
+  fakeCursorClicking.value = false;
+}
+
+onUnmounted(() => {
+  stopDemoAnimation();
+});
 
 defineExpose({ runScenario, toggleTheme, isDark });
 </script>
 
 <template>
   <div
+    ref="demoRoot"
     class="sheaf-demo"
-    :class="{ 'is-dark': isDark }"
+    :class="{
+      'is-dark': isDark,
+      'is-demo-animating': isDemoAnimating,
+    }"
     :data-theme="isDark ? 'dark' : undefined"
+    @pointerenter="onDemoPointerEnter"
+    @pointermove="onDemoPointerMove"
+    @pointerleave="onDemoPointerLeave"
   >
     <div class="demo-chrome">
       <span class="chrome-dot" />
@@ -109,6 +249,19 @@ defineExpose({ runScenario, toggleTheme, isDark });
         embedded
         @close="showExport = false"
       />
+    </div>
+    <div
+      class="demo-fake-cursor"
+      :class="{
+        visible: fakeCursorVisible,
+        clicking: fakeCursorClicking,
+        'user-led': isDemoHovered,
+      }"
+      :style="{ left: `${fakeCursor.x}%`, top: `${fakeCursor.y}%` }"
+      aria-hidden="true"
+    >
+      <span class="demo-fake-cursor-shape" />
+      <span class="demo-fake-cursor-pulse" />
     </div>
   </div>
 </template>
@@ -171,6 +324,10 @@ defineExpose({ runScenario, toggleTheme, isDark });
   -webkit-app-region: unset;
 }
 
+.is-demo-animating .demo-app {
+  pointer-events: none;
+}
+
 .demo-workspace {
   display: flex;
   flex: 1;
@@ -197,5 +354,90 @@ defineExpose({ runScenario, toggleTheme, isDark });
   width: 1px;
   background: var(--ink-border-strong);
   flex-shrink: 0;
+}
+
+.demo-fake-cursor {
+  position: absolute;
+  z-index: 250;
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-2px, -2px);
+  transition:
+    left 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
+    top 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.16s ease;
+}
+
+.demo-fake-cursor.visible {
+  opacity: 1;
+}
+
+.demo-fake-cursor.user-led {
+  transition:
+    opacity 0.16s ease,
+    transform 0.12s ease;
+}
+
+.demo-fake-cursor-shape {
+  position: absolute;
+  inset: 0;
+  display: block;
+  filter: drop-shadow(0 5px 10px rgba(42, 37, 32, 0.22));
+}
+
+.demo-fake-cursor-shape::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-top: 16px solid var(--ink-text);
+  border-right: 10px solid transparent;
+}
+
+.demo-fake-cursor-shape::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 0;
+  height: 0;
+  border-top: 9px solid var(--ink-bg);
+  border-right: 6px solid transparent;
+  opacity: 0.9;
+}
+
+.demo-fake-cursor-pulse {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink-accent);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.4);
+}
+
+.demo-fake-cursor.clicking {
+  transform: translate(-2px, -2px) scale(0.94);
+}
+
+.demo-fake-cursor.clicking .demo-fake-cursor-pulse {
+  animation: demo-click-pulse 0.18s ease-out;
+}
+
+@keyframes demo-click-pulse {
+  from {
+    opacity: 0.7;
+    transform: translate(-50%, -50%) scale(0.4);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(3.2);
+  }
 }
 </style>
