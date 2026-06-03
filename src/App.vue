@@ -374,6 +374,10 @@ function navigateToHeading(item: OutlineItem) {
 
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") {
+    if (!showStartPage.value && editorRef.value?.isSearchOpen()) {
+      editorRef.value.closeSearch();
+      return;
+    }
     if (showSettings.value) {
       showSettings.value = false;
       return;
@@ -386,6 +390,12 @@ function handleKeydown(e: KeyboardEvent) {
 
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
+
+  if (e.key === "f" && !e.shiftKey && !showStartPage.value) {
+    e.preventDefault();
+    editorRef.value?.openSearch();
+    return;
+  }
 
   if (e.key === "s") {
     e.preventDefault();
