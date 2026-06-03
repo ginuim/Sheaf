@@ -95,6 +95,39 @@ export function resolveLinkHref(
   };
 }
 
+function encodeFileUrlPath(path: string) {
+  return path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment).replace(/%3A/giu, ":"))
+    .join("/");
+}
+
+function fileUrlFromPath(path: string) {
+  const normalized = path.replace(/\\/gu, "/");
+  const absolutePath = /^[a-zA-Z]:\//u.test(normalized)
+    ? `/${normalized}`
+    : normalized.startsWith("/")
+      ? normalized
+      : `/${normalized}`;
+
+  return `file://${encodeFileUrlPath(absolutePath)}`;
+}
+
+/** Headless Chrome 导出 PDF 时使用 file:// 路径加载本地图片 */
+export function resolveMediaSrcForExport(
+  docFilePath: string | null,
+  src: string,
+): string {
+  if (!docFilePath || !src.trim()) return src;
+  if (isExternalSrc(src)) return src;
+
+  const absolute = isAbsoluteFsPath(src)
+    ? src
+    : resolveRelativePath(documentDir(docFilePath), src);
+
+  return fileUrlFromPath(absolute);
+}
+
 /** 将 Markdown 中的本地图片路径转为 WebView 可加载的 URL */
 export function resolveMediaSrc(
   docFilePath: string | null,

@@ -23,7 +23,7 @@ import {
   type Panel,
 } from "@codemirror/view";
 import { editorHighlightStyle } from "../lib/editorHighlightStyle";
-import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
 const props = defineProps<{
   modelValue: string;
@@ -39,20 +39,58 @@ const searchInputRef = ref<HTMLInputElement | null>(null);
 const searchOpen = ref(false);
 const searchText = ref("");
 const caseSensitive = ref(false);
+const matchTotal = ref(0);
+const matchCurrent = ref(0);
 let view: EditorView | null = null;
 let syncing = false;
+
+function buildSearchQuery() {
+  return new SearchQuery({
+    search: searchText.value,
+    caseSensitive: caseSensitive.value,
+    literal: true,
+  });
+}
+
+function refreshMatchCount() {
+  if (!view || !searchText.value) {
+    matchTotal.value = 0;
+    matchCurrent.value = 0;
+    return;
+  }
+
+  const query = buildSearchQuery();
+  if (!query.valid) {
+    matchTotal.value = 0;
+    matchCurrent.value = 0;
+    return;
+  }
+
+  const matches: Array<{ from: number; to: number }> = [];
+  const cursor = query.getCursor(view.state, 0, view.state.doc.length);
+  for (let result = cursor.next(); !result.done; result = cursor.next()) {
+    matches.push(result.value);
+  }
+
+  matchTotal.value = matches.length;
+
+  const { from, to } = view.state.selection.main;
+  const index = matches.findIndex((m) => m.from === from && m.to === to);
+  matchCurrent.value = index >= 0 ? index + 1 : 0;
+}
+
+const searchCountText = computed(() => {
+  if (matchTotal.value === 0) return "无匹配";
+  const current = matchCurrent.value > 0 ? matchCurrent.value : 0;
+  return `${current} / ${matchTotal.value}`;
+});
 
 function applySearchQuery() {
   if (!view) return;
   view.dispatch({
-    effects: setSearchQuery.of(
-      new SearchQuery({
-        search: searchText.value,
-        caseSensitive: caseSensitive.value,
-        literal: true,
-      }),
-    ),
+    effects: setSearchQuery.of(buildSearchQuery()),
   });
+  refreshMatchCount();
 }
 
 function openSearch() {
@@ -69,13 +107,18 @@ function openSearch() {
   void nextTick(() => {
     searchInputRef.value?.focus();
     searchInputRef.value?.select();
-    if (view && searchText.value) findNext(view);
+    if (view && searchText.value) {
+      findNext(view);
+      refreshMatchCount();
+    }
   });
 }
 
 function closeSearch() {
   searchOpen.value = false;
   searchText.value = "";
+  matchTotal.value = 0;
+  matchCurrent.value = 0;
   if (!view) return;
   closeSearchPanel(view);
   view.dispatch({
@@ -97,11 +140,15 @@ function ensureSearchPanelActive() {
 }
 
 function runFindNext() {
-  if (view) findNext(view);
+  if (!view) return;
+  findNext(view);
+  refreshMatchCount();
 }
 
 function runFindPrevious() {
-  if (view) findPrevious(view);
+  if (!view) return;
+  findPrevious(view);
+  refreshMatchCount();
 }
 
 function onSearchKeydown(e: KeyboardEvent) {
@@ -217,6 +264,12 @@ onMounted(() => {
           if (update.docChanged && !syncing) {
             emit("update:modelValue", update.state.doc.toString());
           }
+          if (
+            searchOpen.value &&
+            (update.docChanged || update.selectionSet)
+          ) {
+            refreshMatchCount();
+          }
         }),
       ],
     }),
@@ -295,6 +348,9 @@ defineExpose({
         spellcheck="false"
         @keydown="onSearchKeydown"
       />
+      <span class="search-count" aria-live="polite">
+        {{ searchCountText }}
+      </span>
       <label class="search-option">
         <input v-model="caseSensitive" type="checkbox" />
         <span>区分大小写</span>
@@ -370,6 +426,16 @@ defineExpose({
 .search-input:focus {
   outline: none;
   border-color: var(--ink-accent);
+}
+
+.search-count {
+  flex-shrink: 0;
+  width: 4.25rem;
+  color: var(--ink-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .search-option {

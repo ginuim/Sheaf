@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { Undo2 } from "@lucide/vue";
 import { WECHAT_THEMES } from "../lib/wechatThemes";
 import {
   buildWechatHtml,
@@ -228,8 +229,9 @@ const cardThemes = [
         <span class="studio-title">导出</span>
       </div>
       <div class="header-right">
-        <button class="exit-btn" @click="emit('close')">
-          <span>✕ 返回编辑</span>
+        <button class="exit-btn" title="返回编辑" @click="emit('close')">
+          <Undo2 :size="14" aria-hidden="true" />
+          <span>返回编辑</span>
         </button>
       </div>
     </header>
@@ -238,12 +240,12 @@ const cardThemes = [
     <div class="studio-body">
       <!-- 左栏：Markdown 事实源 -->
       <section class="studio-pane pane-editor-source">
-        <header class="pane-header">
+        <!-- <header class="pane-header">
           <div class="pane-title-group">
             <h2 class="pane-title">Markdown 事实源</h2>
             <p class="pane-subtitle">在此处修改文字会同步回主文件，并实时渲染卡片</p>
           </div>
-        </header>
+        </header> -->
         <div class="editor-wrap">
           <MarkdownEditor v-model="modelValue" />
         </div>
@@ -251,9 +253,9 @@ const cardThemes = [
 
       <!-- 中栏：高保真预览区域 -->
       <section class="studio-pane pane-preview-canvas">
-        <header class="pane-header">
+        <!-- <header class="pane-header">
           <h2 class="pane-title">实时卡片渲染</h2>
-        </header>
+        </header> -->
         <div class="canvas-viewport" :class="[`type-${config.type}`]">
           <div class="canvas-scroller">
             <!-- 微信排版预览 -->
@@ -333,9 +335,9 @@ const cardThemes = [
 
       <!-- 右栏：配置控制台 -->
       <section class="studio-pane pane-controls">
-        <header class="pane-header">
+        <!-- <header class="pane-header">
           <h2 class="pane-title">版面配置</h2>
-        </header>
+        </header> -->
 
         <div class="controls-scroller">
           <!-- 1. 导出类型切换 -->
@@ -583,6 +585,9 @@ const cardThemes = [
 }
 
 .exit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: var(--ink-border-strong);
   border: none;
   color: var(--ink-text);

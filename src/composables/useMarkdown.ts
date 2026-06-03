@@ -67,18 +67,27 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
   const src = token.attrGet("src");
   if (src && env.docFilePath) {
-    token.attrSet("src", resolveMediaSrc(env.docFilePath, src));
+    const resolveMedia = typeof env.resolveMedia === "function"
+      ? env.resolveMedia
+      : resolveMediaSrc;
+    token.attrSet("src", resolveMedia(env.docFilePath, src));
   }
   return defaultImageRender(tokens, idx, options, env, self);
+};
+
+export type RenderMarkdownOptions = {
+  resolveMedia?: (docFilePath: string | null, src: string) => string;
 };
 
 export function renderMarkdown(
   source: string,
   docFilePath: string | null = null,
+  options: RenderMarkdownOptions = {},
 ): string {
   const items = buildHeadingIds(source);
   return md.render(source, {
     headingIds: items.map((item) => item.id),
     docFilePath,
+    resolveMedia: options.resolveMedia,
   });
 }

@@ -52,7 +52,7 @@ function toggleTheme() {
         :show-a-i="showAI"
         @toggle-theme="toggleTheme"
         @toggle-outline="showOutline = !showOutline"
-        @toggle-export="showExport = !showExport"
+        @open-export="showExport = true"
         @toggle-a-i="showAI = !showAI"
         @update:view-mode="viewMode = $event"
       />
