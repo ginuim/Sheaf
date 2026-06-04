@@ -24,6 +24,7 @@ const { streamEdit, historyList } = useAI();
 const instruction = ref("");
 const listRef = ref<HTMLElement | null>(null);
 let activeAbortController: AbortController | null = null;
+let imeComposing = false;
 
 const isLoading = computed(() => historyList.value.some((item: AIHistoryItem) => item.status === "loading"));
 
@@ -120,11 +121,21 @@ function stop() {
   activeAbortController?.abort();
 }
 
+function onCompositionStart() {
+  imeComposing = true;
+}
+
+function onCompositionEnd() {
+  imeComposing = false;
+}
+
 function onKeydown(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-    e.preventDefault();
-    void submit();
-  }
+  if (e.key !== "Enter") return;
+  if (e.isComposing || imeComposing || e.keyCode === 229) return;
+  if (e.shiftKey) return;
+
+  e.preventDefault();
+  void submit();
 }
 
 function formatTime(timestamp: number): string {
@@ -277,8 +288,10 @@ onMounted(() => {
       <textarea
         v-model="instruction"
         class="ai-input"
-        placeholder="描述你想做的修改…&#10;⌘↵ 发送"
+        placeholder="描述你想做的修改…&#10;↵ 发送，⇧↵ 换行"
         :disabled="isLoading"
+        @compositionstart="onCompositionStart"
+        @compositionend="onCompositionEnd"
         @keydown="onKeydown"
       />
       <div class="ai-actions">
