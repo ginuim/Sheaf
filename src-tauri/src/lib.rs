@@ -1,9 +1,11 @@
 mod pdf_export;
+mod web_fetch;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use pdf_export::export_pdf_file;
+use web_fetch::fetch_url;
 use tauri::{AppHandle, Emitter, Manager};
 
 struct PendingFiles(Mutex<Vec<String>>);
@@ -82,7 +84,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             take_opened_files,
             open_dropped_files,
-            export_pdf_file
+            export_pdf_file,
+            fetch_url
         ])
         .setup(|app| {
             #[cfg(any(windows, target_os = "linux"))]

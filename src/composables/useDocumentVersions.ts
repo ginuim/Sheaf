@@ -63,6 +63,29 @@ function saveSnapshots(documentKey: string, versions: DocumentVersion[]) {
   localStorage.setItem(versionsStorageKey(documentKey), JSON.stringify(versions.slice(0, MAX_VERSIONS)));
 }
 
+export function migrateDocumentVersionsKey(fromKey: string, toKey: string) {
+  const from = fromKey.trim();
+  const to = toKey.trim();
+  if (!from || !to || from === to) return;
+
+  const fromItems = loadSnapshots(from);
+  if (fromItems.length === 0) {
+    localStorage.removeItem(versionsStorageKey(from));
+    return;
+  }
+
+  const existing = loadSnapshots(to);
+  const merged = new Map<string, DocumentVersion>();
+  for (const version of [...fromItems, ...existing]) {
+    merged.set(version.id, version);
+  }
+  saveSnapshots(
+    to,
+    [...merged.values()].sort((left, right) => right.timestamp - left.timestamp),
+  );
+  localStorage.removeItem(versionsStorageKey(from));
+}
+
 export function getHistoryItemResultDoc(item: AIHistoryItem) {
   if (item.resultDoc) return item.resultDoc;
   if (item.changes.length === 0) return item.originalDoc;
