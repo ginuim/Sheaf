@@ -116,6 +116,29 @@ const activeHint = computed(
                 spellcheck="false"
               />
             </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">网页搜索</span>
+                <span class="setting-desc">
+                  无需 API Key（Bing RSS / DuckDuckGo / Wikipedia）。桌面版可抓取正文；纯浏览器模式多为摘要。
+                </span>
+              </div>
+              <label class="toggle">
+                <input v-model="aiSettings.webSearchEnabled" type="checkbox" />
+                <span>启用</span>
+              </label>
+            </div>
+            <div v-if="aiSettings.webSearchEnabled" class="setting-row setting-row-col">
+              <span class="setting-name">每次搜索条数</span>
+              <input
+                v-model.number="aiSettings.webSearchMaxResults"
+                class="setting-input setting-input-narrow"
+                type="number"
+                min="1"
+                max="8"
+                step="1"
+              />
+            </div>
           </section>
         </div>
       </div>
@@ -291,5 +314,23 @@ const activeHint = computed(
 
 .setting-input:focus {
   border-color: var(--ink-accent);
+}
+
+.setting-input-narrow {
+  width: 72px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-text-muted);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.toggle input {
+  accent-color: var(--ink-accent);
 }
 </style>

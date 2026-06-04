@@ -10,15 +10,22 @@ import {
   summarizeItemDiff,
   isBlankDocument,
   isBlankToAiEdit,
+  buildAgentHistoryFromItems,
+  type AgentActivity,
+  type AIHistoryMode,
   type EditChange,
-  type AIHistoryItem
+  type AIHistoryItem,
 } from "../composables/useAI";
 import { useDocumentVersions, type DocumentVersion } from "../composables/useDocumentVersions";
 import AIVersionViewer from "./AIVersionViewer.vue";
+import AgentActivityList from "./AgentActivityList.vue";
 
 const props = defineProps<{
   doc: string;
   documentKey?: string | null;
+  documentPath?: string | null;
+  workspacePaths?: string[];
+  readWorkspaceFile?: (path: string) => Promise<string>;
 }>();
 
 const emit = defineEmits<{
@@ -27,9 +34,19 @@ const emit = defineEmits<{
 }>();
 
 const resolvedDocumentKey = computed(() => props.documentKey?.trim() || "__untitled__");
-const { streamEdit, historyList } = useAI(() => resolvedDocumentKey.value);
+const {
+  streamEdit,
+  runAgent,
+  historyList,
+  activeConversationId,
+  conversationSummaries,
+  startNewConversation,
+  switchConversation,
+  clearAllConversations,
+} = useAI(() => resolvedDocumentKey.value);
 const documentVersions = useDocumentVersions(() => resolvedDocumentKey.value);
 
+const aiMode = ref<AIHistoryMode>("agent");
 const instruction = ref("");
 const listRef = ref<HTMLElement | null>(null);
 const expandedDiffId = ref<string | null>(null);
@@ -41,19 +58,47 @@ let imeComposing = false;
 const isLoading = computed(() => historyList.value.some((item: AIHistoryItem) => item.status === "loading"));
 
 const visibleHistoryList = computed(() =>
-  historyList.value.filter((item) => !shouldHideHistoryItem(item))
+  historyList.value.filter(
+    (item) =>
+      (item.conversationId ?? "legacy") === activeConversationId.value &&
+      !shouldHideHistoryItem(item),
+  ),
+);
+
+const pastConversationSummaries = computed(() =>
+  conversationSummaries.value.filter((conversation) => conversation.id !== activeConversationId.value),
 );
 
 const documentVersionList = computed(() => documentVersions.listVersions(historyList.value));
 
-function shouldHideHistoryItem(item: AIHistoryItem) {
-  if (isBlankToAiEdit(item)) return true;
-  return isBlankDocument(item.originalDoc) && item.status === "loading";
+function shouldHideHistoryItem(_item: AIHistoryItem) {
+  return false;
+}
+
+function finalizeSuccessfulEdit(target: AIHistoryItem) {
+  if (isBlankToAiEdit(target)) {
+    applyItemChanges(target);
+    return;
+  }
+  target.status = "done";
+  expandedDiffId.value = target.id;
 }
 
 function scrollToBottom() {
   if (listRef.value) {
     listRef.value.scrollTop = listRef.value.scrollHeight;
+  }
+}
+
+function upsertAgentActivity(item: AIHistoryItem, activity: AgentActivity) {
+  if (!item.agentActivities) {
+    item.agentActivities = [];
+  }
+  const index = item.agentActivities.findIndex((entry) => entry.id === activity.id);
+  if (index >= 0) {
+    item.agentActivities[index] = activity;
+  } else {
+    item.agentActivities.push(activity);
   }
 }
 
@@ -67,9 +112,12 @@ async function submit() {
     timestamp: Date.now(),
     instruction: text,
     status: "loading",
+    mode: aiMode.value,
+    conversationId: activeConversationId.value,
     originalDoc: props.doc,
     changes: [],
-    rawResponse: ""
+    rawResponse: "",
+    agentActivities: aiMode.value === "agent" ? [] : undefined,
   };
 
   historyList.value.push(newItem);
@@ -80,32 +128,75 @@ async function submit() {
   scrollToBottom();
 
   try {
-    const changes = await streamEdit(
-      newItem.instruction,
-      newItem.originalDoc,
-      (delta) => {
-        const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
-        if (target) {
-          target.rawResponse += delta;
-          nextTick(scrollToBottom);
-        }
-      },
-      activeAbortController.signal
-    );
+    if (aiMode.value === "agent") {
+      const readWorkspaceFile =
+        props.readWorkspaceFile ??
+        (async () => {
+          throw new Error("读取其他笔记仅在桌面版可用");
+        });
 
-    const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
-    if (target) {
-      if (changes.length === 0) {
-        target.noChangesHint = explainNoChanges(target.originalDoc, target.rawResponse);
-        target.status = "no-changes";
-      } else {
-        target.changes = changes;
-        target.resultDoc = applyChangesToDoc(target.originalDoc, changes);
-        target.status = "done";
-        if (isBlankToAiEdit(target)) {
-          deleteItem(id);
+      const result = await runAgent(text, props.doc, {
+        documentPath: props.documentPath ?? props.documentKey ?? null,
+        workspacePaths: props.workspacePaths ?? [],
+        readWorkspaceFile,
+        history: buildAgentHistoryFromItems(historyList.value, id, activeConversationId.value),
+        signal: activeAbortController.signal,
+        onTextDelta: (assistantText) => {
+          const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
+          if (!target) return;
+          target.rawResponse = assistantText;
+          target.assistantText = assistantText;
+          nextTick(scrollToBottom);
+        },
+        onActivity: (activity) => {
+          const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
+          if (!target) return;
+          upsertAgentActivity(target, activity);
+          nextTick(scrollToBottom);
+        },
+      });
+
+      const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
+      if (target) {
+        target.assistantText = result.assistantText;
+        target.rawResponse = result.assistantText || target.rawResponse;
+        target.agentActivities = result.activities;
+
+        if (result.changes.length > 0) {
+          target.changes = result.changes;
+          target.resultDoc = applyChangesToDoc(target.originalDoc, result.changes);
+          finalizeSuccessfulEdit(target);
+        } else if (result.assistantText) {
+          target.status = "no-changes";
+          target.noChangesHint = undefined;
         } else {
-          expandedDiffId.value = id;
+          target.noChangesHint = "Agent 未返回可应用的内容";
+          target.status = "no-changes";
+        }
+      }
+    } else {
+      const changes = await streamEdit(
+        newItem.instruction,
+        newItem.originalDoc,
+        (delta) => {
+          const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
+          if (target) {
+            target.rawResponse += delta;
+            nextTick(scrollToBottom);
+          }
+        },
+        activeAbortController.signal,
+      );
+
+      const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
+      if (target) {
+        if (changes.length === 0) {
+          target.noChangesHint = explainNoChanges(target.originalDoc, target.rawResponse);
+          target.status = "no-changes";
+        } else {
+          target.changes = changes;
+          target.resultDoc = applyChangesToDoc(target.originalDoc, changes);
+          finalizeSuccessfulEdit(target);
         }
       }
     }
@@ -143,21 +234,29 @@ function discardItem(item: AIHistoryItem) {
   if (expandedDiffId.value === item.id) expandedDiffId.value = null;
 }
 
-function deleteItem(id: string) {
-  const idx = historyList.value.findIndex((item: AIHistoryItem) => item.id === id);
-  if (idx !== -1) {
-    historyList.value.splice(idx, 1);
-  }
-  documentVersions.removeVersionsForHistoryItem(id);
-  if (expandedDiffId.value === id) expandedDiffId.value = null;
-  if (viewingVersionId.value?.startsWith(`${id}:`)) viewingVersionId.value = null;
+function handleStartNewConversation() {
+  if (isLoading.value) return;
+  startNewConversation();
+  expandedDiffId.value = null;
+  viewingVersionId.value = null;
+  panelMode.value = "edits";
 }
 
 function clearHistory() {
-  historyList.value = [];
+  if (isLoading.value) return;
+  clearAllConversations();
   documentVersions.clearSnapshots();
   expandedDiffId.value = null;
   viewingVersionId.value = null;
+}
+
+function selectConversation(conversationId: string) {
+  if (isLoading.value || conversationId === activeConversationId.value) return;
+  switchConversation(conversationId);
+  expandedDiffId.value = null;
+  viewingVersionId.value = null;
+  panelMode.value = "edits";
+  nextTick(scrollToBottom);
 }
 
 function openVersion(version: DocumentVersion) {
@@ -202,6 +301,16 @@ function onKeydown(e: KeyboardEvent) {
 
   e.preventDefault();
   void submit();
+}
+
+function formatShortTime(timestamp: number): string {
+  const d = new Date(timestamp);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function conversationTurnLabel(count: number) {
+  return count === 0 ? "暂无轮次" : `${count} 轮`;
 }
 
 function formatTime(timestamp: number): string {
@@ -250,15 +359,48 @@ onMounted(() => {
 <template>
   <aside class="ai-panel">
     <header class="ai-header">
-      <span>AI 编辑</span>
-      <button
-        v-if="visibleHistoryList.length > 0 || documentVersionList.length > 0"
-        class="ai-clear-btn"
-        title="清空修改记录与版本快照"
-        @click="clearHistory"
-      >
-        清空
-      </button>
+      <span>AI</span>
+      <div class="ai-mode-toggle">
+        <button
+          type="button"
+          class="ai-mode-btn"
+          :class="{ active: aiMode === 'agent' }"
+          :disabled="isLoading"
+          @click="aiMode = 'agent'"
+        >
+          Agent
+        </button>
+        <button
+          type="button"
+          class="ai-mode-btn"
+          :class="{ active: aiMode === 'quick' }"
+          :disabled="isLoading"
+          @click="aiMode = 'quick'"
+        >
+          快速
+        </button>
+      </div>
+      <div class="ai-header-actions">
+        <button
+          type="button"
+          class="ai-header-btn"
+          title="开始新的 AI 对话"
+          :disabled="isLoading"
+          @click="handleStartNewConversation"
+        >
+          新对话
+        </button>
+        <button
+          v-if="historyList.length > 0 || documentVersionList.length > 0"
+          type="button"
+          class="ai-header-btn"
+          title="清空对话记录与版本快照"
+          :disabled="isLoading"
+          @click="clearHistory"
+        >
+          清空全部
+        </button>
+      </div>
     </header>
 
     <div class="ai-panel-tabs">
@@ -268,7 +410,7 @@ onMounted(() => {
         type="button"
         @click="panelMode = 'edits'"
       >
-        对话 {{ visibleHistoryList.length }}
+        当前对话 {{ visibleHistoryList.length }}
       </button>
       <button
         class="panel-tab-btn"
@@ -285,6 +427,18 @@ onMounted(() => {
         <div v-if="documentVersionList.length === 0" class="ai-empty">
           <div class="ai-empty-title">暂无历史版本</div>
           <div class="ai-empty-desc">完成 AI 修改或应用变更后，会在此保存可查看、可恢复的文档版本。</div>
+        </div>
+
+        <div v-else class="versions-toolbar">
+          <button
+            type="button"
+            class="ai-header-btn"
+            title="清空版本快照"
+            :disabled="isLoading"
+            @click="documentVersions.clearSnapshots()"
+          >
+            清空版本
+          </button>
         </div>
 
         <button
@@ -304,9 +458,26 @@ onMounted(() => {
       </template>
 
       <template v-else>
+      <section v-if="pastConversationSummaries.length > 0" class="conversation-history">
+        <div class="conversation-history-title">历史对话</div>
+        <button
+          v-for="conversation in pastConversationSummaries"
+          :key="conversation.id"
+          type="button"
+          class="conversation-history-item"
+          :disabled="isLoading"
+          @click="selectConversation(conversation.id)"
+        >
+          <span class="conversation-history-item-title">{{ conversation.title }}</span>
+          <span class="conversation-history-item-meta">
+            {{ conversationTurnLabel(conversation.turnCount) }} · {{ formatShortTime(conversation.updatedAt) }}
+          </span>
+        </button>
+      </section>
+
       <div v-if="visibleHistoryList.length === 0" class="ai-empty">
-        <div class="ai-empty-title">无修改历史</div>
-        <div class="ai-empty-desc">每次对话的修改会保存为卡片，点击可查看 diff，并支持按文档持久化。</div>
+        <div class="ai-empty-title">当前对话暂无记录</div>
+        <div class="ai-empty-desc">在下方输入指令开始对话。之前的对话会保留在「历史对话」列表中，可随时切换查看。</div>
       </div>
 
       <div
@@ -323,14 +494,20 @@ onMounted(() => {
           <div class="card-meta">
             <span class="card-status" :class="`status-tag-${item.status}`">{{ statusLabel(item) }}</span>
             <span class="card-time">{{ formatTime(item.timestamp) }}</span>
-            <button class="card-delete-btn" title="删除记录" @click.stop="deleteItem(item.id)">×</button>
           </div>
         </div>
 
         <div class="card-body">
-          <div v-if="item.status === 'loading'" class="ai-stream">
-            <div class="ai-stream-text">{{ item.rawResponse }}<span class="ai-cursor" /></div>
-            <button class="ai-btn ai-btn-stop" @click="stop">停止</button>
+          <div v-if="item.status === 'loading'" class="ai-loading-box">
+            <span class="ai-loading-text">
+              {{ item.mode === 'agent' ? 'Agent 执行中…' : '正在生成修改…' }}
+            </span>
+            <AgentActivityList
+              v-if="item.agentActivities?.length"
+              :activities="item.agentActivities"
+            />
+            <pre v-else-if="item.mode === 'agent' && item.rawResponse" class="agent-stream-preview">{{ item.rawResponse }}</pre>
+            <button class="ai-btn ai-btn-stop" type="button" @click="stop">停止</button>
           </div>
 
           <div v-else-if="item.status === 'error'" class="ai-error-box">
@@ -339,8 +516,17 @@ onMounted(() => {
           </div>
 
           <div v-else-if="item.status === 'no-changes'" class="ai-muted-box">
-            <span class="muted-label">评估无需修改</span>
-            <div class="muted-msg">{{ item.noChangesHint || "原文已符合要求，未做任何改动。" }}</div>
+            <span class="muted-label">
+              {{ item.assistantText && item.mode === 'agent' ? '回复' : '评估无需修改' }}
+            </span>
+            <div class="muted-msg agent-reply-text">
+              {{ item.assistantText || item.noChangesHint || "原文已符合要求，未做任何改动。" }}
+            </div>
+            <AgentActivityList
+              v-if="item.agentActivities?.length"
+              :activities="item.agentActivities"
+              done
+            />
           </div>
 
           <div v-else-if="item.status === 'discarded'" class="ai-muted-box">
@@ -348,6 +534,12 @@ onMounted(() => {
           </div>
 
           <div v-else-if="item.status === 'done' || item.status === 'applied'" class="ai-diff-box">
+            <AgentActivityList
+              v-if="item.mode === 'agent' && item.agentActivities?.length"
+              :activities="item.agentActivities"
+              done
+            />
+
             <button
               class="diff-toggle"
               type="button"
@@ -444,7 +636,9 @@ onMounted(() => {
       <textarea
         v-model="instruction"
         class="ai-input"
-        placeholder="描述你想做的修改…&#10;↵ 发送，⇧↵ 换行"
+        :placeholder="aiMode === 'agent'
+          ? '提问、查资料或描述修改…\n↵ 发送，⇧↵ 换行'
+          : '描述你想做的修改…\n↵ 发送，⇧↵ 换行'"
         :disabled="isLoading"
         @compositionstart="onCompositionStart"
         @compositionend="onCompositionEnd"
@@ -453,10 +647,13 @@ onMounted(() => {
       <div class="ai-actions">
         <button
           class="ai-btn ai-btn-primary"
-          :disabled="!instruction.trim() || isLoading"
+          :class="{ 'is-loading': isLoading }"
+          :disabled="isLoading || !instruction.trim()"
+          :aria-busy="isLoading"
           @click="submit"
         >
-          发送
+          <span v-if="isLoading" class="ai-send-spinner" aria-hidden="true" />
+          {{ isLoading ? "执行中…" : "发送" }}
         </button>
       </div>
     </div>
@@ -479,6 +676,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   padding: 12px 16px 10px;
   font-size: 12px;
   font-weight: 600;
@@ -488,7 +686,57 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-.ai-clear-btn {
+.ai-mode-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.ai-header-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.ai-mode-btn {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--ink-border);
+  background: var(--ink-bg);
+  color: var(--ink-text-muted);
+  cursor: pointer;
+}
+
+.ai-mode-btn.active {
+  background: var(--ink-accent-soft);
+  color: var(--ink-text);
+  border-color: var(--ink-accent);
+}
+
+.ai-mode-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.agent-stream-preview {
+  margin: 8px 0 0;
+  padding: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: var(--ink-bg);
+  border-radius: 6px;
+  border: 1px solid var(--ink-border);
+}
+
+.agent-reply-text {
+  white-space: pre-wrap;
+}
+
+.ai-header-btn {
   font-size: 11px;
   color: var(--ink-text-muted);
   background: none;
@@ -498,9 +746,73 @@ onMounted(() => {
   border-radius: 4px;
 }
 
-.ai-clear-btn:hover {
+.ai-header-btn:hover:not(:disabled) {
   background: var(--ink-accent-soft);
   color: var(--ink-text);
+}
+
+.ai-header-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.versions-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.conversation-history {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ink-border);
+}
+
+.conversation-history-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-text-muted);
+  margin-bottom: 6px;
+}
+
+.conversation-history-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border: 1px solid var(--ink-border);
+  border-radius: 8px;
+  background: var(--ink-bg);
+  cursor: pointer;
+  text-align: left;
+}
+
+.conversation-history-item:hover:not(:disabled) {
+  border-color: var(--ink-accent);
+  background: var(--ink-accent-soft);
+}
+
+.conversation-history-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.conversation-history-item-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.conversation-history-item-meta {
+  font-size: 10px;
+  color: var(--ink-text-muted);
 }
 
 .ai-panel-tabs {
@@ -706,7 +1018,7 @@ onMounted(() => {
 .status-tag-no-changes,
 .status-tag-discarded {
   color: var(--ink-text-muted);
-  background: var(--ink-surface);
+  background: var(--ink-inset);
 }
 
 .status-tag-error {
@@ -719,62 +1031,27 @@ onMounted(() => {
   color: var(--ink-text-muted);
 }
 
-.card-delete-btn {
-  background: none;
-  border: none;
-  color: var(--ink-text-muted);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  padding: 0 2px;
-  opacity: 0.5;
-  transition: opacity 0.1s;
-}
-
-.card-delete-btn:hover {
-  opacity: 1;
-  color: #e53e3e;
-}
-
 .card-body {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.ai-stream {
+.ai-loading-box {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-}
-
-.ai-stream-text {
-  font-size: 11px;
-  font-family: var(--font-mono, monospace);
-  line-height: 1.5;
-  color: var(--ink-text-muted);
-  background: var(--ink-surface);
-  padding: 6px 8px;
+  padding: 8px;
   border-radius: 6px;
+  background: var(--ink-inset);
   border: 1px solid var(--ink-border);
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 150px;
-  overflow-y: auto;
 }
 
-.ai-cursor {
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  background: var(--ink-accent);
-  vertical-align: text-bottom;
-  margin-left: 1px;
-  animation: blink 1s step-end infinite;
-}
-
-@keyframes blink {
-  50% { opacity: 0; }
+.ai-loading-text {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-text-muted);
 }
 
 .ai-error-box {
@@ -801,7 +1078,7 @@ onMounted(() => {
 }
 
 .ai-muted-box {
-  background: var(--ink-surface);
+  background: var(--ink-inset);
   border: 1px solid var(--ink-border);
   padding: 8px;
   border-radius: 6px;
@@ -836,14 +1113,14 @@ onMounted(() => {
   padding: 6px 8px;
   border: 1px solid var(--ink-border);
   border-radius: 6px;
-  background: var(--ink-surface);
+  background: var(--ink-inset);
   cursor: pointer;
   text-align: left;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .diff-toggle:hover {
-  background: var(--ink-accent-soft);
+  background: var(--ink-inset-hover);
   border-color: var(--ink-border-strong);
 }
 
@@ -879,7 +1156,7 @@ onMounted(() => {
 .diff-container {
   border: 1px solid var(--ink-border);
   border-radius: 6px;
-  background: var(--ink-surface);
+  background: var(--ink-inset);
   overflow: hidden;
 }
 
@@ -888,7 +1165,7 @@ onMounted(() => {
   font-weight: 600;
   color: var(--ink-text-muted);
   padding: 4px 8px;
-  background: var(--ink-bg);
+  background: transparent;
   border-bottom: 1px solid var(--ink-border);
 }
 
@@ -905,8 +1182,7 @@ onMounted(() => {
   font-weight: 600;
   color: var(--ink-text-muted);
   padding: 2px 8px;
-  background: var(--ink-surface);
-  opacity: 0.8;
+  background: transparent;
 }
 
 .diff-lines {
@@ -1002,6 +1278,29 @@ onMounted(() => {
 
 .ai-btn-primary:hover:not(:disabled) {
   opacity: 0.85;
+}
+
+.ai-btn-primary.is-loading:disabled {
+  opacity: 1;
+  cursor: wait;
+}
+
+.ai-send-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: ai-send-spin 0.8s linear infinite;
+  vertical-align: -2px;
+}
+
+@keyframes ai-send-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .ai-btn-stop {

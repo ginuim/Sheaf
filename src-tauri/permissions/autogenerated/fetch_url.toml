@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-fetch-url"
+description = "Enables the fetch_url command without any pre-configured scope."
+commands.allow = ["fetch_url"]
+
+[[permission]]
+identifier = "deny-fetch-url"
+description = "Denies the fetch_url command without any pre-configured scope."
+commands.deny = ["fetch_url"]

@@ -22,6 +22,8 @@
   --ink-selection: rgba(61, 90, 76, 0.18);
   --ink-shadow: rgba(42, 37, 32, 0.08);
   --ink-link-underline: rgba(61, 90, 76, 0.4);
+  --ink-inset: rgba(255, 255, 255, 0.34);
+  --ink-inset-hover: rgba(255, 255, 255, 0.48);
 
   --ink-syntax-meta: #404740;
   --ink-syntax-heading: #2a2520;
@@ -65,6 +67,8 @@
   --ink-selection: rgba(107, 155, 130, 0.25);
   --ink-shadow: rgba(0, 0, 0, 0.35);
   --ink-link-underline: rgba(107, 155, 130, 0.45);
+  --ink-inset: rgba(255, 255, 255, 0.05);
+  --ink-inset-hover: rgba(255, 255, 255, 0.09);
 
   --ink-syntax-meta: #9a9288;
   --ink-syntax-heading: #e8e4dc;

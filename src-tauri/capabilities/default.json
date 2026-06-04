@@ -9,6 +9,7 @@
     "allow-take-opened-files",
     "allow-open-dropped-files",
     "allow-export-pdf-file",
+    "allow-fetch-url",
     "opener:default",
     "dialog:default",
     "fs:default",

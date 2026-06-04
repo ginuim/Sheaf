@@ -5,6 +5,7 @@ fn main() {
                 "take_opened_files",
                 "open_dropped_files",
                 "export_pdf_file",
+                "fetch_url",
             ]),
         ),
     )

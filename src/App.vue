@@ -17,6 +17,8 @@ import StartPage from "./components/StartPage.vue";
 import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
 import type { EditChange } from "./composables/useAI";
+import { migrateAiHistoryKey } from "./composables/useAI";
+import { migrateDocumentVersionsKey } from "./composables/useDocumentVersions";
 import { refreshRecentMenu, setupAppMenu } from "./composables/useAppMenu";
 import { exportPdf, type ExportPdfStage } from "./composables/usePdfExport";
 import { useAppToast } from "./composables/useAppToast";
@@ -100,6 +102,12 @@ const MAX_DOC_HISTORY = 20;
 const docHistory = ref<DocHistoryEntry[]>([]);
 const canGoBack = computed(() => docHistory.value.length > 0);
 
+function createDraftSessionId() {
+  return `draft:${crypto.randomUUID()}`;
+}
+
+const draftSessionId = ref(createDraftSessionId());
+
 const outlineItems = computed(() => parseOutline(content.value));
 
 const { theme, toggleTheme } = useTheme();
@@ -149,6 +157,23 @@ function onPathOpened(path: string) {
   void refreshRecentMenu(recentFiles.value);
 }
 
+const allowedAiReadPaths = computed(() => {
+  const paths = new Set<string>();
+  if (filePath.value) paths.add(filePath.value);
+  for (const path of recentFiles.value) {
+    paths.add(path);
+  }
+  return paths;
+});
+
+async function readAiWorkspaceFile(path: string): Promise<string> {
+  if (!allowedAiReadPaths.value.has(path)) {
+    throw new Error("只能读取当前文件或最近打开列表中的 Markdown");
+  }
+  const { readTextFile } = await import("@tauri-apps/plugin-fs");
+  return readTextFile(path);
+}
+
 const { filePath, fileName, openFile, openFileAtPath, newFile, saveFile, saveFileAs, restoreFileState } =
   useFile(
     (loaded) => {
@@ -163,6 +188,15 @@ const { filePath, fileName, openFile, openFileAtPath, newFile, saveFile, saveFil
       pendingDraft.value = null;
     },
   );
+
+const aiDocumentKey = computed(() => filePath.value ?? draftSessionId.value);
+
+watch(filePath, (nextPath, prevPath) => {
+  if (nextPath && !prevPath) {
+    migrateAiHistoryKey(draftSessionId.value, nextPath);
+    migrateDocumentVersionsKey(draftSessionId.value, nextPath);
+  }
+});
 
 function persistDraftSnapshot() {
   if (showStartPage.value) return;
@@ -226,6 +260,7 @@ async function confirmDiscardChanges(): Promise<boolean> {
 async function newFileWithConfirm() {
   if (!(await confirmDiscardChanges())) return;
   newFile();
+  draftSessionId.value = createDraftSessionId();
   baselineContent.value = "";
   showStartPage.value = false;
   clearDocHistory();
@@ -640,7 +675,10 @@ onUnmounted(() => {
       <AIPanel
         v-if="showAI"
         :doc="content"
-        :document-key="filePath || fileName || null"
+        :document-key="aiDocumentKey"
+        :document-path="filePath"
+        :workspace-paths="recentFiles"
+        :read-workspace-file="readAiWorkspaceFile"
         @apply="applyAIChanges"
         @restore="restoreDocumentVersion"
       />

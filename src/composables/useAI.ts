@@ -1,4 +1,6 @@
-import { reactive, watch, ref } from "vue";
+import { reactive, watch, ref, computed } from "vue";
+import { runSheafAgent } from "../agent/run-agent";
+import type { AgentActivity, AgentHistoryMessage } from "../agent/types";
 
 const SETTINGS_KEY = "blank.ai-settings";
 
@@ -6,6 +8,8 @@ export interface AISettings {
   baseUrl: string;
   apiKey: string;
   model: string;
+  webSearchEnabled: boolean;
+  webSearchMaxResults: number;
 }
 
 export interface EditChange {
@@ -28,35 +32,68 @@ export function isBlankDocument(content: string) {
   return content.trim().length === 0;
 }
 
-/** 从空白文档到首次 AI 填内容的记录，无需展示 */
+/** 从空白文档到首次 AI 填内容的记录，应自动应用到编辑器。 */
 export function isBlankToAiEdit(item: { originalDoc: string; changes: EditChange[] }) {
   return isBlankDocument(item.originalDoc) && item.changes.length > 0;
 }
+
+export type AIHistoryMode = "quick" | "agent";
 
 export interface AIHistoryItem {
   id: string;
   timestamp: number;
   instruction: string;
   status: "loading" | "done" | "no-changes" | "error" | "applied" | "discarded";
+  mode?: AIHistoryMode;
+  conversationId?: string;
   errorMsg?: string;
   noChangesHint?: string;
   originalDoc: string;
   resultDoc?: string;
   changes: EditChange[];
   rawResponse: string;
+  assistantText?: string;
+  agentActivities?: AgentActivity[];
 }
+
+export type AIConversationSummary = {
+  id: string;
+  title: string;
+  updatedAt: number;
+  turnCount: number;
+};
 
 const DEFAULT_SETTINGS: AISettings = {
   baseUrl: "https://api.openai.com/v1",
   apiKey: "",
   model: "gpt-4o",
+  webSearchEnabled: true,
+  webSearchMaxResults: 4,
 };
+
+function normalizeSettings(value: unknown): AISettings {
+  const parsed = value && typeof value === "object" ? (value as Partial<AISettings>) : {};
+  const maxResults =
+    typeof parsed.webSearchMaxResults === "number" && parsed.webSearchMaxResults >= 1
+      ? Math.min(8, Math.floor(parsed.webSearchMaxResults))
+      : DEFAULT_SETTINGS.webSearchMaxResults;
+
+  return {
+    ...DEFAULT_SETTINGS,
+    ...parsed,
+    webSearchEnabled:
+      typeof parsed.webSearchEnabled === "boolean"
+        ? parsed.webSearchEnabled
+        : DEFAULT_SETTINGS.webSearchEnabled,
+    webSearchMaxResults: maxResults,
+  };
+}
 
 function loadSettings(): AISettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    return normalizeSettings(JSON.parse(raw));
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -348,9 +385,122 @@ export function compressDiff(lines: DiffLine[], contextLines = 2): CompressedDif
 }
 
 const HISTORY_KEY_PREFIX = "blank.ai-history:";
+const ACTIVE_CONVERSATION_KEY_PREFIX = "blank.ai-active-conversation:";
+const LEGACY_CONVERSATION_ID = "legacy";
 
 function historyStorageKey(documentKey: string) {
   return `${HISTORY_KEY_PREFIX}${documentKey}`;
+}
+
+function activeConversationStorageKey(documentKey: string) {
+  return `${ACTIVE_CONVERSATION_KEY_PREFIX}${documentKey}`;
+}
+
+function createConversationId() {
+  return Math.random().toString(36).slice(2, 11);
+}
+
+function truncateConversationTitle(text: string, max = 28) {
+  const line = text.split("\n").map((part) => part.trim()).find((part) => part.length > 0) ?? "";
+  if (!line) return "新对话";
+  if (line.length <= max) return line;
+  return `${line.slice(0, max - 1)}…`;
+}
+
+function resolveConversationId(item: AIHistoryItem) {
+  return item.conversationId?.trim() || LEGACY_CONVERSATION_ID;
+}
+
+function normalizeHistoryConversationIds(items: AIHistoryItem[]) {
+  return items.map((item) => ({
+    ...item,
+    conversationId: resolveConversationId(item),
+  }));
+}
+
+function conversationIdsInHistory(items: AIHistoryItem[]) {
+  return new Set(items.map(resolveConversationId));
+}
+
+function latestConversationId(items: AIHistoryItem[]) {
+  const latestByConversation = new Map<string, number>();
+  for (const item of items) {
+    const conversationId = resolveConversationId(item);
+    const current = latestByConversation.get(conversationId) ?? 0;
+    if (item.timestamp >= current) {
+      latestByConversation.set(conversationId, item.timestamp);
+    }
+  }
+
+  let latestId = LEGACY_CONVERSATION_ID;
+  let latestTimestamp = 0;
+  for (const [conversationId, timestamp] of latestByConversation) {
+    if (timestamp >= latestTimestamp) {
+      latestTimestamp = timestamp;
+      latestId = conversationId;
+    }
+  }
+  return latestId;
+}
+
+function loadActiveConversationId(documentKey: string, items: AIHistoryItem[]) {
+  try {
+    const stored = localStorage.getItem(activeConversationStorageKey(documentKey))?.trim();
+    if (stored) {
+      if (items.length === 0 || conversationIdsInHistory(items).has(stored)) {
+        return stored;
+      }
+    }
+  } catch {
+    // ignore invalid storage
+  }
+
+  if (items.length === 0) return createConversationId();
+  return latestConversationId(items);
+}
+
+function saveActiveConversationId(documentKey: string, conversationId: string) {
+  localStorage.setItem(activeConversationStorageKey(documentKey), conversationId);
+}
+
+function buildConversationSummaries(
+  items: AIHistoryItem[],
+  activeConversationId: string,
+): AIConversationSummary[] {
+  const groups = new Map<string, AIConversationSummary>();
+
+  for (const item of items) {
+    const conversationId = resolveConversationId(item);
+    const existing = groups.get(conversationId);
+    if (!existing) {
+      groups.set(conversationId, {
+        id: conversationId,
+        title: truncateConversationTitle(item.instruction),
+        updatedAt: item.timestamp,
+        turnCount: 1,
+      });
+      continue;
+    }
+
+    existing.turnCount += 1;
+    if (item.timestamp >= existing.updatedAt) {
+      existing.updatedAt = item.timestamp;
+      if (item.instruction.trim()) {
+        existing.title = truncateConversationTitle(item.instruction);
+      }
+    }
+  }
+
+  if (!groups.has(activeConversationId)) {
+    groups.set(activeConversationId, {
+      id: activeConversationId,
+      title: "新对话",
+      updatedAt: Date.now(),
+      turnCount: 0,
+    });
+  }
+
+  return [...groups.values()].sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
 function isPersistableHistoryItem(item: AIHistoryItem) {
@@ -394,6 +544,23 @@ function normalizeStoredHistoryItem(value: unknown): AIHistoryItem | null {
     resultDoc: typeof item.resultDoc === "string" ? item.resultDoc : undefined,
     changes,
     rawResponse: item.rawResponse,
+    mode: item.mode === "agent" || item.mode === "quick" ? item.mode : undefined,
+    conversationId: typeof item.conversationId === "string" ? item.conversationId : undefined,
+    assistantText: typeof item.assistantText === "string" ? item.assistantText : undefined,
+    agentActivities: Array.isArray(item.agentActivities)
+      ? item.agentActivities
+          .filter(
+            (a): a is AgentActivity =>
+              !!a &&
+              typeof a === "object" &&
+              typeof (a as AgentActivity).id === "string" &&
+              typeof (a as AgentActivity).tool === "string",
+          )
+          .map((activity) => ({
+            ...activity,
+            detail: typeof activity.detail === "string" ? activity.detail : undefined,
+          }))
+      : undefined,
   };
 }
 
@@ -405,17 +572,88 @@ function loadHistoryList(documentKey: string): AIHistoryItem[] {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .map(normalizeStoredHistoryItem)
-      .filter((item): item is AIHistoryItem => item !== null && isPersistableHistoryItem(item))
-      .filter((item) => !isBlankToAiEdit(item));
+      .filter((item): item is AIHistoryItem => item !== null && isPersistableHistoryItem(item));
   } catch {
     return [];
   }
 }
 
 function saveHistoryList(documentKey: string, list: AIHistoryItem[]) {
-  const payload = list.filter(isPersistableHistoryItem).filter((item) => !isBlankToAiEdit(item));
+  const payload = list.filter(isPersistableHistoryItem);
   localStorage.setItem(historyStorageKey(documentKey), JSON.stringify(payload));
 }
+
+export function migrateAiHistoryKey(fromKey: string, toKey: string) {
+  const from = fromKey.trim();
+  const to = toKey.trim();
+  if (!from || !to || from === to) return;
+
+  const fromItems = loadHistoryList(from);
+  if (fromItems.length === 0) {
+    localStorage.removeItem(historyStorageKey(from));
+    return;
+  }
+
+  const existing = loadHistoryList(to);
+  saveHistoryList(to, [...fromItems, ...existing]);
+  localStorage.removeItem(historyStorageKey(from));
+
+  const activeConversationId = localStorage.getItem(activeConversationStorageKey(from));
+  if (activeConversationId) {
+    localStorage.setItem(activeConversationStorageKey(to), activeConversationId);
+    localStorage.removeItem(activeConversationStorageKey(from));
+  }
+}
+
+function formatAgentHistoryEditSummary(changes: EditChange[]): string {
+  const excerpt = changes[0]?.insert.replace(/\s+/g, " ").trim();
+  const preview =
+    excerpt && excerpt.length > 240 ? `${excerpt.slice(0, 240)}...` : excerpt;
+
+  return [
+    "已提交文档修改预览:",
+    `共 ${changes.length} 处`,
+    preview ? `示例: ${preview}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function buildAgentHistoryFromItems(
+  items: AIHistoryItem[],
+  excludeId?: string,
+  conversationId?: string,
+): AgentHistoryMessage[] {
+  const messages: AgentHistoryMessage[] = [];
+
+  for (const item of items) {
+    if (item.id === excludeId) continue;
+    if (conversationId && resolveConversationId(item) !== conversationId) continue;
+    if (item.mode !== "agent") continue;
+    if (item.status === "loading") continue;
+
+    const instruction = item.instruction.trim();
+    if (instruction) {
+      messages.push({ role: "user", text: instruction });
+    }
+
+    const assistantParts: string[] = [];
+    const assistantText = (item.assistantText ?? item.rawResponse).trim();
+    if (assistantText) assistantParts.push(assistantText);
+    if (item.changes.length > 0) {
+      assistantParts.push(formatAgentHistoryEditSummary(item.changes));
+    }
+
+    const assistantContent = assistantParts.join("\n\n").trim();
+    if (assistantContent) {
+      messages.push({ role: "assistant", text: assistantContent });
+    }
+  }
+
+  return messages;
+}
+
+export type { AgentActivity, AgentHistoryMessage } from "../agent/types";
 
 export function summarizeItemDiff(item: AIHistoryItem) {
   if (item.changes.length === 0) {
@@ -436,7 +674,15 @@ export function summarizeItemDiff(item: AIHistoryItem) {
 
 export function useAI(getDocumentKey: () => string = () => "__untitled__") {
   const settings = reactive(loadSettings());
-  const historyList = ref<AIHistoryItem[]>(loadHistoryList(getDocumentKey()));
+  const historyList = ref<AIHistoryItem[]>(
+    normalizeHistoryConversationIds(loadHistoryList(getDocumentKey())),
+  );
+  const activeConversationId = ref(
+    loadActiveConversationId(getDocumentKey(), historyList.value),
+  );
+  const conversationSummaries = computed(() =>
+    buildConversationSummaries(historyList.value, activeConversationId.value),
+  );
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   watch(settings, (s) => saveSettings(s), { deep: true });
@@ -444,9 +690,14 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
   watch(
     () => getDocumentKey(),
     (documentKey) => {
-      historyList.value = loadHistoryList(documentKey);
+      historyList.value = normalizeHistoryConversationIds(loadHistoryList(documentKey));
+      activeConversationId.value = loadActiveConversationId(documentKey, historyList.value);
     },
   );
+
+  watch(activeConversationId, (conversationId) => {
+    saveActiveConversationId(getDocumentKey(), conversationId);
+  });
 
   watch(
     historyList,
@@ -458,6 +709,20 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     },
     { deep: true },
   );
+
+  function startNewConversation() {
+    activeConversationId.value = createConversationId();
+  }
+
+  function switchConversation(conversationId: string) {
+    if (!conversationId.trim()) return;
+    activeConversationId.value = conversationId;
+  }
+
+  function clearAllConversations() {
+    historyList.value = [];
+    activeConversationId.value = createConversationId();
+  }
 
   async function streamEdit(
     instruction: string,
@@ -526,5 +791,52 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     return resolveChanges(doc, accumulated);
   }
 
-  return { settings, streamEdit, historyList };
+  async function runAgent(
+    instruction: string,
+    doc: string,
+    options: {
+      documentPath: string | null;
+      workspacePaths: string[];
+      readWorkspaceFile: (path: string) => Promise<string>;
+      history?: AgentHistoryMessage[];
+      onTextDelta?: (text: string) => void;
+      onActivity?: (activity: AgentActivity) => void;
+      signal: AbortSignal;
+    },
+  ) {
+    if (!settings.apiKey) throw new Error("请先在设置中填写 API Key");
+
+    return runSheafAgent({
+      prompt: instruction,
+      history: options.history,
+      doc,
+      documentPath: options.documentPath,
+      workspacePaths: options.workspacePaths,
+      readWorkspaceFile: options.readWorkspaceFile,
+      settings: {
+        baseUrl: settings.baseUrl,
+        apiKey: settings.apiKey,
+        model: settings.model,
+      },
+      webSearch: {
+        enabled: settings.webSearchEnabled,
+        maxResults: settings.webSearchMaxResults,
+      },
+      signal: options.signal,
+      onTextDelta: options.onTextDelta,
+      onActivity: options.onActivity,
+    });
+  }
+
+  return {
+    settings,
+    streamEdit,
+    runAgent,
+    historyList,
+    activeConversationId,
+    conversationSummaries,
+    startNewConversation,
+    switchConversation,
+    clearAllConversations,
+  };
 }
