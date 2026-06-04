@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { getMissingRecent } from "../composables/useRecentFiles";
+import { formatDraftUpdatedAt, type UnsavedDraft } from "../composables/useDraftRecovery";
 
 const props = defineProps<{
   recentFiles: string[];
+  recoverableDraft?: UnsavedDraft | null;
 }>();
 
 const emit = defineEmits<{
@@ -12,7 +14,15 @@ const emit = defineEmits<{
   openRecent: [path: string];
   removeRecent: [path: string];
   clearRecent: [];
+  recoverDraft: [];
+  discardDraft: [];
 }>();
+
+const recoveryTitle = computed(() => {
+  const draft = props.recoverableDraft;
+  if (!draft) return "";
+  return draft.filePath ? fileName(draft.filePath) : draft.fileName;
+});
 
 const missingPaths = ref<Set<string>>(new Set());
 
@@ -42,6 +52,16 @@ function parentPath(path: string): string {
         <h1>开始写作</h1>
         <p class="intro">
           新建一篇 Markdown，或打开本地文件继续排版和导出。
+        </p>
+
+        <p v-if="recoverableDraft" class="recovery-hint">
+          <span>发现未保存的「{{ recoveryTitle }}」</span>
+          <span class="recovery-time">{{ formatDraftUpdatedAt(recoverableDraft.updatedAt) }}</span>
+          <button class="recovery-link" type="button" @click="emit('recoverDraft')">继续编辑</button>
+          <span class="recovery-sep" aria-hidden="true">·</span>
+          <button class="recovery-link recovery-link-muted" type="button" @click="emit('discardDraft')">
+            放弃
+          </button>
         </p>
 
         <div class="actions">
@@ -216,6 +236,48 @@ h1 {
   margin: 0 auto;
   color: var(--ink-text-muted);
   line-height: 1.7;
+}
+
+.recovery-hint {
+  max-width: 32em;
+  margin: 16px auto 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-text-muted);
+  text-align: center;
+}
+
+.recovery-time::before {
+  content: "·";
+  margin: 0 0.35em;
+}
+
+.recovery-link {
+  margin: 0 0.15em;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink-accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.recovery-link:hover {
+  opacity: 0.85;
+}
+
+.recovery-link-muted {
+  color: var(--ink-text-muted);
+  font-weight: 500;
+}
+
+.recovery-sep {
+  margin: 0 0.2em;
+  color: var(--ink-text-muted);
+  text-decoration: none;
 }
 
 .actions {

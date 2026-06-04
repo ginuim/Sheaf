@@ -4,7 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import AppToast from "./components/AppToast.vue";
 import AIPanel from "./components/AIPanel.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
@@ -31,6 +31,13 @@ import {
   removeRecent,
 } from "./composables/useRecentFiles";
 import { useTheme } from "./composables/useTheme";
+import {
+  clearUnsavedDraft,
+  hasRecoverableDraft,
+  loadUnsavedDraft,
+  saveUnsavedDraft,
+  type UnsavedDraft
+} from "./composables/useDraftRecovery";
 
 const DEFAULT_CONTENT = `# 欢迎使用 Sheaf
 
@@ -60,7 +67,7 @@ const content = ref(DEFAULT_CONTENT);
 const baselineContent = ref(DEFAULT_CONTENT);
 const isDirty = computed(() => content.value !== baselineContent.value);
 const viewMode = ref<ViewMode>("split");
-const showOutline = ref(true);
+const showOutline = ref(parseOutline(DEFAULT_CONTENT).length > 0);
 const showExport = ref(false);
 const editorRef = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 const previewRef = ref<InstanceType<typeof MarkdownPreview> | null>(null);
@@ -77,6 +84,11 @@ const showAbout = ref(false);
 const showAI = ref(false);
 const showStartPage = ref(true);
 const recentFiles = ref<string[]>(loadRecent());
+const pendingDraft = ref<UnsavedDraft | null>(loadUnsavedDraft());
+const recoverableDraft = computed(() =>
+  hasRecoverableDraft(pendingDraft.value) ? pendingDraft.value : null
+);
+let draftPersistTimer: ReturnType<typeof setTimeout> | null = null;
 let scrollSyncing = false;
 
 type DocHistoryEntry = {
@@ -137,17 +149,71 @@ function onPathOpened(path: string) {
   void refreshRecentMenu(recentFiles.value);
 }
 
-const { filePath, fileName, openFile, openFileAtPath, newFile, saveFile, saveFileAs } =
+const { filePath, fileName, openFile, openFileAtPath, newFile, saveFile, saveFileAs, restoreFileState } =
   useFile(
     (loaded) => {
       content.value = loaded;
       baselineContent.value = loaded;
+      showOutline.value = parseOutline(loaded).length > 0;
     },
     onPathOpened,
     () => {
       baselineContent.value = content.value;
+      clearUnsavedDraft();
+      pendingDraft.value = null;
     },
   );
+
+function persistDraftSnapshot() {
+  if (showStartPage.value) return;
+
+  if (!isDirty.value) {
+    clearUnsavedDraft();
+    pendingDraft.value = null;
+    return;
+  }
+
+  const draft: UnsavedDraft = {
+    baselineContent: baselineContent.value,
+    content: content.value,
+    fileName: fileName.value,
+    filePath: filePath.value,
+    updatedAt: Date.now()
+  };
+
+  saveUnsavedDraft(draft);
+  if (showStartPage.value) {
+    pendingDraft.value = draft;
+  }
+}
+
+watch(
+  [content, baselineContent, filePath, fileName],
+  () => {
+    if (draftPersistTimer) clearTimeout(draftPersistTimer);
+    draftPersistTimer = setTimeout(persistDraftSnapshot, 400);
+  }
+);
+
+function recoverUnsavedDraft() {
+  const draft = recoverableDraft.value;
+  if (!draft) return;
+
+  restoreFileState({
+    content: draft.content,
+    fileName: draft.fileName,
+    filePath: draft.filePath
+  });
+  baselineContent.value = draft.baselineContent;
+  showOutline.value = parseOutline(draft.content).length > 0;
+  showStartPage.value = false;
+  clearDocHistory();
+}
+
+function discardUnsavedDraft() {
+  clearUnsavedDraft();
+  pendingDraft.value = null;
+}
 
 async function confirmDiscardChanges(): Promise<boolean> {
   if (!isDirty.value) return true;
@@ -368,6 +434,10 @@ function applyAIChanges(changes: EditChange[]) {
   editorRef.value?.applyChanges(changes);
 }
 
+function restoreDocumentVersion(versionContent: string) {
+  content.value = versionContent;
+}
+
 function navigateToHeading(item: OutlineItem) {
   scrollSyncing = true;
 
@@ -522,11 +592,14 @@ onUnmounted(() => {
     <StartPage
       v-if="showStartPage"
       :recent-files="recentFiles"
+      :recoverable-draft="recoverableDraft"
       @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @open-recent="openRecentFile"
       @remove-recent="handleRemoveRecent"
       @clear-recent="handleClearRecent"
+      @recover-draft="recoverUnsavedDraft"
+      @discard-draft="discardUnsavedDraft"
     />
 
     <div v-else class="workspace editor-enter" :class="`mode-${viewMode}`">
@@ -567,7 +640,9 @@ onUnmounted(() => {
       <AIPanel
         v-if="showAI"
         :doc="content"
+        :document-key="filePath || fileName || null"
         @apply="applyAIChanges"
+        @restore="restoreDocumentVersion"
       />
 
       <OutlinePanel
