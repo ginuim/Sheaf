@@ -200,7 +200,8 @@ const editorTheme = EditorView.theme({
     opacity: "1",
   },
   ".cm-activeLine": {
-    backgroundColor: "var(--ink-accent-soft)",
+    backgroundColor: "color-mix(in srgb, var(--ink-accent-soft) 45%, transparent)",
+    borderRadius: "2px",
   },
   "&.cm-focused .cm-cursor": {
     borderLeftColor: "var(--ink-accent)",
