@@ -74,9 +74,20 @@ export function useFile(
     onSaved?.();
   }
 
+  function restoreFileState(state: {
+    content: string;
+    fileName: string;
+    filePath: string | null;
+  }) {
+    filePath.value = state.filePath;
+    fileName.value = state.fileName;
+    onLoad(state.content);
+  }
+
   return {
     filePath,
     fileName,
+    restoreFileState,
     openFile,
     openFileAtPath,
     newFile,

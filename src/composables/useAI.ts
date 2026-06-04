@@ -24,6 +24,15 @@ export interface CompressedDiffLine {
   text: string;
 }
 
+export function isBlankDocument(content: string) {
+  return content.trim().length === 0;
+}
+
+/** 从空白文档到首次 AI 填内容的记录，无需展示 */
+export function isBlankToAiEdit(item: { originalDoc: string; changes: EditChange[] }) {
+  return isBlankDocument(item.originalDoc) && item.changes.length > 0;
+}
+
 export interface AIHistoryItem {
   id: string;
   timestamp: number;
@@ -32,6 +41,7 @@ export interface AIHistoryItem {
   errorMsg?: string;
   noChangesHint?: string;
   originalDoc: string;
+  resultDoc?: string;
   changes: EditChange[];
   rawResponse: string;
 }
@@ -337,12 +347,117 @@ export function compressDiff(lines: DiffLine[], contextLines = 2): CompressedDif
   return result;
 }
 
-const historyList = ref<AIHistoryItem[]>([]);
+const HISTORY_KEY_PREFIX = "blank.ai-history:";
 
-export function useAI() {
+function historyStorageKey(documentKey: string) {
+  return `${HISTORY_KEY_PREFIX}${documentKey}`;
+}
+
+function isPersistableHistoryItem(item: AIHistoryItem) {
+  return item.status !== "loading";
+}
+
+function normalizeStoredHistoryItem(value: unknown): AIHistoryItem | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Partial<AIHistoryItem>;
+  if (typeof item.id !== "string" || typeof item.timestamp !== "number") return null;
+  if (typeof item.instruction !== "string" || typeof item.originalDoc !== "string") return null;
+  if (typeof item.rawResponse !== "string" || !Array.isArray(item.changes)) return null;
+  if (
+    item.status !== "loading" &&
+    item.status !== "done" &&
+    item.status !== "no-changes" &&
+    item.status !== "error" &&
+    item.status !== "applied" &&
+    item.status !== "discarded"
+  ) {
+    return null;
+  }
+
+  const changes = item.changes.filter(
+    (change): change is EditChange =>
+      !!change &&
+      typeof change === "object" &&
+      typeof change.from === "number" &&
+      typeof change.to === "number" &&
+      typeof change.insert === "string",
+  );
+
+  return {
+    id: item.id,
+    timestamp: item.timestamp,
+    instruction: item.instruction,
+    status: item.status,
+    errorMsg: typeof item.errorMsg === "string" ? item.errorMsg : undefined,
+    noChangesHint: typeof item.noChangesHint === "string" ? item.noChangesHint : undefined,
+    originalDoc: item.originalDoc,
+    resultDoc: typeof item.resultDoc === "string" ? item.resultDoc : undefined,
+    changes,
+    rawResponse: item.rawResponse,
+  };
+}
+
+function loadHistoryList(documentKey: string): AIHistoryItem[] {
+  try {
+    const raw = localStorage.getItem(historyStorageKey(documentKey));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map(normalizeStoredHistoryItem)
+      .filter((item): item is AIHistoryItem => item !== null && isPersistableHistoryItem(item))
+      .filter((item) => !isBlankToAiEdit(item));
+  } catch {
+    return [];
+  }
+}
+
+function saveHistoryList(documentKey: string, list: AIHistoryItem[]) {
+  const payload = list.filter(isPersistableHistoryItem).filter((item) => !isBlankToAiEdit(item));
+  localStorage.setItem(historyStorageKey(documentKey), JSON.stringify(payload));
+}
+
+export function summarizeItemDiff(item: AIHistoryItem) {
+  if (item.changes.length === 0) {
+    return { added: 0, removed: 0, changeCount: 0 };
+  }
+
+  const newDoc = applyChangesToDoc(item.originalDoc, item.changes);
+  let added = 0;
+  let removed = 0;
+
+  for (const line of lineDiff(item.originalDoc, newDoc)) {
+    if (line.type === "added") added += 1;
+    if (line.type === "removed") removed += 1;
+  }
+
+  return { added, removed, changeCount: item.changes.length };
+}
+
+export function useAI(getDocumentKey: () => string = () => "__untitled__") {
   const settings = reactive(loadSettings());
+  const historyList = ref<AIHistoryItem[]>(loadHistoryList(getDocumentKey()));
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   watch(settings, (s) => saveSettings(s), { deep: true });
+
+  watch(
+    () => getDocumentKey(),
+    (documentKey) => {
+      historyList.value = loadHistoryList(documentKey);
+    },
+  );
+
+  watch(
+    historyList,
+    (list) => {
+      if (persistTimer) clearTimeout(persistTimer);
+      persistTimer = setTimeout(() => {
+        saveHistoryList(getDocumentKey(), list);
+      }, 200);
+    },
+    { deep: true },
+  );
 
   async function streamEdit(
     instruction: string,

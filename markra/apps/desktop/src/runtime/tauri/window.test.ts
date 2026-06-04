@@ -1,0 +1,200 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { exit } from "@tauri-apps/plugin-process";
+import {
+  closeNativeWindow,
+  exitNativeApp,
+  listenNativeAppExitRequested,
+  listenNativeWindowCloseRequested,
+  listenNativeSettingsWindowTarget,
+  listNativeEditorWindowRestoreStates,
+  minimizeNativeWindow,
+  openSettingsWindow,
+  setNativeEditorWindowRestoreState,
+  toggleNativeWindowMaximized
+} from "./window";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn()
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn()
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: vi.fn()
+}));
+
+vi.mock("@tauri-apps/plugin-process", () => ({
+  exit: vi.fn()
+}));
+
+const mockedGetCurrentWindow = vi.mocked(getCurrentWindow);
+const mockedInvoke = vi.mocked(invoke);
+const mockedListen = vi.mocked(listen);
+const mockedExit = vi.mocked(exit);
+
+describe("native window actions", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {}
+    });
+    mockedGetCurrentWindow.mockReset();
+    mockedInvoke.mockReset();
+    mockedListen.mockReset();
+    mockedExit.mockReset();
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+  });
+
+  it("closes the current Tauri window", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    mockedGetCurrentWindow.mockReturnValue({ close } as unknown as ReturnType<typeof getCurrentWindow>);
+
+    await closeNativeWindow();
+
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("listens for native window close requests", async () => {
+    const cleanup = vi.fn();
+    const onCloseRequested = vi.fn();
+    const onCloseRequestedNative = vi.fn().mockResolvedValue(cleanup);
+    mockedGetCurrentWindow.mockReturnValue({
+      onCloseRequested: onCloseRequestedNative
+    } as unknown as ReturnType<typeof getCurrentWindow>);
+
+    await expect(listenNativeWindowCloseRequested(onCloseRequested)).resolves.toBe(cleanup);
+    const nativeHandler = onCloseRequestedNative.mock.calls[0]?.[0] as ((event: { preventDefault: () => unknown }) => unknown) | undefined;
+    if (!nativeHandler) throw new Error("close request listener was not registered");
+    const preventDefault = vi.fn();
+    await nativeHandler({ preventDefault });
+
+    expect(onCloseRequestedNative).toHaveBeenCalledWith(expect.any(Function));
+    expect(onCloseRequested).toHaveBeenCalledWith({ preventDefault: expect.any(Function) });
+    const closeRequestEvent = onCloseRequested.mock.calls[0]?.[0] as { preventDefault: () => unknown } | undefined;
+    closeRequestEvent?.preventDefault();
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+  });
+
+  it("listens for native app exit requests", async () => {
+    const cleanup = vi.fn();
+    mockedListen.mockImplementation((_event, callback) => Promise.resolve(cleanup));
+    const onExitRequested = vi.fn();
+
+    await expect(listenNativeAppExitRequested(onExitRequested)).resolves.toBe(cleanup);
+    const onEvent = mockedListen.mock.calls[0]?.[1] as (() => unknown) | undefined;
+    if (!onEvent) throw new Error("app exit request listener was not registered");
+    onEvent();
+
+    expect(mockedListen).toHaveBeenCalledWith("markra://app-exit-requested", expect.any(Function));
+    expect(onExitRequested).toHaveBeenCalledTimes(1);
+  });
+
+  it("confirms and exits the native app", async () => {
+    mockedExit.mockResolvedValue(undefined);
+
+    await exitNativeApp();
+
+    expect(mockedExit).toHaveBeenCalledWith(0);
+  });
+
+  it("minimizes the current Tauri window", async () => {
+    const minimize = vi.fn().mockResolvedValue(undefined);
+    mockedGetCurrentWindow.mockReturnValue({ minimize } as unknown as ReturnType<typeof getCurrentWindow>);
+
+    await minimizeNativeWindow();
+
+    expect(minimize).toHaveBeenCalledTimes(1);
+  });
+
+  it("toggles the current Tauri window maximized state", async () => {
+    const toggleMaximize = vi.fn().mockResolvedValue(undefined);
+    mockedGetCurrentWindow.mockReturnValue({ toggleMaximize } as unknown as ReturnType<typeof getCurrentWindow>);
+
+    await toggleNativeWindowMaximized();
+
+    expect(toggleMaximize).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips native calls outside Tauri", async () => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+
+    await closeNativeWindow();
+    await minimizeNativeWindow();
+    await toggleNativeWindowMaximized();
+
+    expect(mockedGetCurrentWindow).not.toHaveBeenCalled();
+  });
+
+  it("registers the current editor window restore state in Tauri", async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+
+    await setNativeEditorWindowRestoreState({
+      filePath: "/mock-files/notes.md",
+      openFilePaths: ["/mock-files/notes.md"]
+    });
+
+    expect(mockedInvoke).toHaveBeenCalledWith("set_editor_window_restore_state", {
+      filePath: "/mock-files/notes.md",
+      openFilePaths: ["/mock-files/notes.md"]
+    });
+  });
+
+  it("opens the settings window at the requested target", async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+
+    await openSettingsWindow("exportPandocPath");
+
+    expect(mockedInvoke).toHaveBeenCalledWith("open_settings_window", {
+      target: "exportPandocPath"
+    });
+  });
+
+  it("listens for native settings window target events", async () => {
+    const cleanup = vi.fn();
+    mockedListen.mockImplementation((_event, callback) => {
+      return Promise.resolve(cleanup);
+    });
+    const onTarget = vi.fn();
+
+    await expect(listenNativeSettingsWindowTarget(onTarget)).resolves.toBe(cleanup);
+    const onEvent = mockedListen.mock.calls[0]?.[1] as ((event: { payload: { target?: unknown } }) => unknown) | undefined;
+    if (!onEvent) throw new Error("settings target listener was not registered");
+    onEvent({ payload: { target: "exportPandocPath" } });
+    onEvent({ payload: { target: "unknown" } });
+
+    expect(mockedListen).toHaveBeenCalledWith("markra://settings-window-target", expect.any(Function));
+    expect(onTarget).toHaveBeenCalledTimes(1);
+    expect(onTarget).toHaveBeenCalledWith("exportPandocPath");
+  });
+
+  it("lists normalized editor window restore states from Tauri", async () => {
+    mockedInvoke.mockResolvedValue([
+      {
+        filePath: " /mock-files/first.md ",
+        label: "main",
+        openFilePaths: [" /mock-files/first.md ", " "]
+      },
+      {
+        filePath: null,
+        label: "empty",
+        openFilePaths: []
+      }
+    ]);
+
+    await expect(listNativeEditorWindowRestoreStates()).resolves.toEqual([
+      {
+        filePath: "/mock-files/first.md",
+        label: "main",
+        openFilePaths: ["/mock-files/first.md"]
+      }
+    ]);
+    expect(mockedInvoke).toHaveBeenCalledWith("list_editor_window_restore_states");
+  });
+});
