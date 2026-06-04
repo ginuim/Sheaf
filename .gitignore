@@ -24,3 +24,9 @@ release
 *.njsproj
 *.sln
 *.sw?
+
+# Apple signing / internal docs (never commit)
+*.provisionprofile
+*.cer
+docs/superpowers/
+src-tauri/docs/ARCHIVED_MAC_APP_STORE.md
