@@ -1,4 +1,5 @@
 import type { EditChange } from "../composables/useAI";
+import type { AiProviderSettings, ResolvedImageModel } from "../ai-providers/types";
 
 export type WorkspaceNote = {
   path: string;
@@ -36,11 +37,7 @@ export type AgentRunInput = {
   documentPath: string | null;
   workspacePaths: string[];
   readWorkspaceFile: (path: string) => Promise<string>;
-  settings: {
-    baseUrl: string;
-    apiKey: string;
-    model: string;
-  };
+  providerSettings: AiProviderSettings;
   webSearch?: AgentWebSearchSettings;
   maxSteps?: number;
   signal: AbortSignal;
@@ -60,5 +57,6 @@ export type AgentToolRuntime = {
   readWorkspaceFile: (path: string) => Promise<string>;
   pendingChanges: EditChange[] | null;
   webSearch: AgentWebSearchSettings;
+  imageModel: ResolvedImageModel | null;
   onActivity: (activity: AgentActivity) => void;
 };

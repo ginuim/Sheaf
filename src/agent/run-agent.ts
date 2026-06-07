@@ -7,12 +7,14 @@ import {
 import { looksLikeDocumentWriteTask } from "./intent";
 import { buildAgentTurnMessages } from "./messages";
 import { createAgentLanguageModel } from "./model";
+import { resolveImageModel } from "../ai-providers/resolve";
 import { buildWorkspaceNotes, createSheafAgentTools } from "./tools";
 import type { AgentActivity, AgentRunInput, AgentRunResult, AgentToolRuntime } from "./types";
 
 const AGENT_SYSTEM = [
   "你是 Sheaf 的 Markdown 助手，在用户的本地编辑器中运行。",
-  "工具：web_search / fetch_url 查资料；append_content 追加或插入章节；propose_edits 精确替换；get_context 仅在正文被截断时需重读；list_notes / read_note 读其他笔记。",
+  "工具：web_search / fetch_url 查资料；generate_image 按描述生成图片（需已配置生图模型）；append_content 追加或插入章节；propose_edits 精确替换；get_context 仅在正文被截断时需重读；list_notes / read_note 读其他笔记。",
+  "用户要求插图、配图、生成图片时：先 generate_image，再用 append_content 把返回的 Markdown 图片语法插入文档合适位置。",
   "需要最新事实或外部资料时：先 web_search；若摘要不够，再 fetch_url 抓取最相关的 1-2 个链接。",
   "web_search 返回了预报或正文时，必须基于结果回答并标注来源；不要回复「查不到」或让用户自己去网站看。",
   "不要声称已读文件、已改文档或已搜索网页，除非对应工具返回成功。",
@@ -114,6 +116,7 @@ export async function runSheafAgent(input: AgentRunInput): Promise<AgentRunResul
     readWorkspaceFile: input.readWorkspaceFile,
     pendingChanges: null,
     webSearch,
+    imageModel: resolveImageModel(input.providerSettings),
     onActivity: (activity) => {
       const existingIdx = activities.findIndex((a) => a.id === activity.id);
       if (existingIdx >= 0) {
@@ -125,7 +128,7 @@ export async function runSheafAgent(input: AgentRunInput): Promise<AgentRunResul
     },
   };
 
-  const model = createAgentLanguageModel(input.settings);
+  const model = createAgentLanguageModel(input.providerSettings);
   const writeTask = looksLikeDocumentWriteTask(input.prompt);
   const maxSteps = input.maxSteps ?? (writeTask ? 12 : 8);
 

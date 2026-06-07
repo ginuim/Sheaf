@@ -7,6 +7,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import AppToast from "./components/AppToast.vue";
 import AIPanel from "./components/AIPanel.vue";
+import AIVersionViewer from "./components/AIVersionViewer.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
 import MarkdownPreview from "./components/MarkdownPreview.vue";
 import ExportStudio from "./components/ExportStudio.vue";
@@ -18,7 +19,7 @@ import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
 import type { EditChange } from "./composables/useAI";
 import { migrateAiHistoryKey } from "./composables/useAI";
-import { migrateDocumentVersionsKey } from "./composables/useDocumentVersions";
+import { migrateDocumentVersionsKey, useDocumentVersions } from "./composables/useDocumentVersions";
 import { refreshRecentMenu, setupAppMenu } from "./composables/useAppMenu";
 import { exportPdf, type ExportPdfStage } from "./composables/usePdfExport";
 import { useAppToast } from "./composables/useAppToast";
@@ -84,6 +85,8 @@ const exportPdfLoadingText = computed(() =>
 const showSettings = ref(false);
 const showAbout = ref(false);
 const showAI = ref(false);
+const showVersionHistory = ref(false);
+const activeVersionId = ref<string | null>(null);
 const showStartPage = ref(true);
 const recentFiles = ref<string[]>(loadRecent());
 const pendingDraft = ref<UnsavedDraft | null>(loadUnsavedDraft());
@@ -190,6 +193,21 @@ const { filePath, fileName, openFile, openFileAtPath, newFile, saveFile, saveFil
   );
 
 const aiDocumentKey = computed(() => filePath.value ?? draftSessionId.value);
+const documentVersions = useDocumentVersions(() => aiDocumentKey.value);
+const documentVersionList = computed(() => documentVersions.listVersions());
+
+watch(documentVersionList, (versions) => {
+  if (!showVersionHistory.value) return;
+  if (versions.some((version) => version.id === activeVersionId.value)) return;
+
+  const latestVersion = versions[0];
+  if (latestVersion) {
+    activeVersionId.value = latestVersion.id;
+    return;
+  }
+
+  closeVersionHistory();
+});
 
 watch(filePath, (nextPath, prevPath) => {
   if (nextPath && !prevPath) {
@@ -469,8 +487,24 @@ function applyAIChanges(changes: EditChange[]) {
   editorRef.value?.applyChanges(changes);
 }
 
+function openVersionHistory() {
+  const latestVersion = documentVersionList.value[0];
+  if (!latestVersion) {
+    showToast("info", "暂无历史版本");
+    return;
+  }
+  activeVersionId.value = latestVersion.id;
+  showVersionHistory.value = true;
+}
+
+function closeVersionHistory() {
+  showVersionHistory.value = false;
+  activeVersionId.value = null;
+}
+
 function restoreDocumentVersion(versionContent: string) {
   content.value = versionContent;
+  closeVersionHistory();
 }
 
 function navigateToHeading(item: OutlineItem) {
@@ -610,6 +644,8 @@ onUnmounted(() => {
       :show-outline="showOutline"
       :show-export="showExport"
       :show-a-i="showAI"
+      :show-versions="showVersionHistory"
+      :has-versions="documentVersionList.length > 0"
       @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @save="saveFile(content)"
@@ -618,6 +654,7 @@ onUnmounted(() => {
       @toggle-outline="showOutline = !showOutline"
       @open-export="showExport = true"
       @toggle-a-i="showAI = !showAI"
+      @toggle-versions="openVersionHistory"
       @update:view-mode="viewMode = $event"
     />
 
@@ -698,6 +735,16 @@ onUnmounted(() => {
       :doc-file-path="filePath"
       :is-dark="isDark"
       @close="showExport = false"
+    />
+
+    <AIVersionViewer
+      v-if="showVersionHistory && activeVersionId"
+      :versions="documentVersionList"
+      :active-id="activeVersionId"
+      :current-doc="content"
+      @update:active-id="activeVersionId = $event"
+      @close="closeVersionHistory"
+      @restore="restoreDocumentVersion"
     />
 
     <Teleport to="body">

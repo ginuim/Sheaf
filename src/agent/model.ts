@@ -1,6 +1,8 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
+import { resolveAgentModel } from "../ai-providers/resolve";
+import type { AiProviderSettings } from "../ai-providers/types";
 
 export type AgentModelSettings = {
   baseUrl: string;
@@ -16,19 +18,21 @@ function usesAnthropicApi(baseUrl: string): boolean {
   return /anthropic\.com/i.test(baseUrl);
 }
 
-export function createAgentLanguageModel(settings: AgentModelSettings): LanguageModel {
-  const baseURL = normalizedBaseUrl(settings.baseUrl);
-  const apiKey = settings.apiKey.trim();
-  if (!apiKey) {
-    throw new Error("请先在设置中填写 API Key");
+export function createAgentLanguageModel(settings: AiProviderSettings): LanguageModel {
+  const resolved = resolveAgentModel(settings);
+  if (!resolved) {
+    throw new Error("请先在设置中启用服务商并填写 API Key");
   }
 
-  if (usesAnthropicApi(baseURL)) {
+  const baseURL = normalizedBaseUrl(resolved.baseUrl);
+  const apiKey = resolved.apiKey.trim();
+
+  if (resolved.apiStyle === "anthropic" || usesAnthropicApi(baseURL)) {
     const provider = createAnthropic({
       apiKey,
       baseURL: baseURL.endsWith("/v1") ? baseURL : `${baseURL}/v1`,
     });
-    return provider(settings.model);
+    return provider(resolved.model);
   }
 
   const provider = createOpenAICompatible({
@@ -36,5 +40,5 @@ export function createAgentLanguageModel(settings: AgentModelSettings): Language
     baseURL,
     apiKey,
   });
-  return provider(settings.model);
+  return provider(resolved.model);
 }

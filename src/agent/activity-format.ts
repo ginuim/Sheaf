@@ -40,6 +40,8 @@ export function formatToolResultSummary(toolName: string, output: unknown): stri
         : "已提交修改";
     case "append_content":
       return "已追加内容";
+    case "generate_image":
+      return typeof record.src === "string" ? "图片已生成" : "生图完成";
     case "read_note":
       return typeof record.name === "string" ? record.name : "已读取笔记";
     case "list_notes":
@@ -85,6 +87,7 @@ export function formatToolResultDetail(toolName: string, output: unknown): strin
     }
     case "propose_edits":
     case "append_content":
+    case "generate_image":
       return truncate(JSON.stringify(record, null, 2));
     case "list_notes":
       return truncate(JSON.stringify(record.notes ?? record, null, 2));

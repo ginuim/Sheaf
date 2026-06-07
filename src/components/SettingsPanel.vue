@@ -5,6 +5,7 @@ import {
   type ThemePreference,
 } from "../composables/useTheme";
 import { useAI } from "../composables/useAI";
+import AiProviderSettingsPanel from "./AiProviderSettingsPanel.vue";
 
 defineProps<{
   open: boolean;
@@ -86,59 +87,8 @@ const activeHint = computed(
             </div>
           </section>
 
-          <section v-else class="settings-section">
-            <div class="setting-row setting-row-col">
-              <span class="setting-name">API Base URL</span>
-              <input
-                v-model="aiSettings.baseUrl"
-                class="setting-input"
-                placeholder="https://api.openai.com/v1"
-                spellcheck="false"
-              />
-            </div>
-            <div class="setting-row setting-row-col">
-              <span class="setting-name">API Key</span>
-              <input
-                v-model="aiSettings.apiKey"
-                class="setting-input"
-                type="password"
-                placeholder="sk-..."
-                spellcheck="false"
-                autocomplete="off"
-              />
-            </div>
-            <div class="setting-row setting-row-col">
-              <span class="setting-name">模型</span>
-              <input
-                v-model="aiSettings.model"
-                class="setting-input"
-                placeholder="gpt-4o"
-                spellcheck="false"
-              />
-            </div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">网页搜索</span>
-                <span class="setting-desc">
-                  无需 API Key（Bing RSS / DuckDuckGo / Wikipedia）。桌面版可抓取正文；纯浏览器模式多为摘要。
-                </span>
-              </div>
-              <label class="toggle">
-                <input v-model="aiSettings.webSearchEnabled" type="checkbox" />
-                <span>启用</span>
-              </label>
-            </div>
-            <div v-if="aiSettings.webSearchEnabled" class="setting-row setting-row-col">
-              <span class="setting-name">每次搜索条数</span>
-              <input
-                v-model.number="aiSettings.webSearchMaxResults"
-                class="setting-input setting-input-narrow"
-                type="number"
-                min="1"
-                max="8"
-                step="1"
-              />
-            </div>
+          <section v-else class="settings-section ai-settings-section">
+            <AiProviderSettingsPanel v-model="aiSettings" />
           </section>
         </div>
       </div>
@@ -160,8 +110,8 @@ const activeHint = computed(
 }
 
 .settings-window {
-  width: min(560px, calc(100vw - 48px));
-  height: min(420px, calc(100vh - 48px));
+  width: min(760px, calc(100vw - 48px));
+  height: min(560px, calc(100vh - 48px));
   display: flex;
   flex-direction: column;
   background: var(--ink-surface);
@@ -220,6 +170,9 @@ const activeHint = computed(
   flex: 1;
   padding: 24px 28px;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .settings-title {
@@ -233,6 +186,11 @@ const activeHint = computed(
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.ai-settings-section {
+  min-height: 0;
+  flex: 1;
 }
 
 .setting-row {

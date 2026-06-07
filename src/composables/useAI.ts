@@ -1,16 +1,14 @@
 import { reactive, watch, ref, computed } from "vue";
 import { runSheafAgent } from "../agent/run-agent";
 import type { AgentActivity, AgentHistoryMessage } from "../agent/types";
+import { resolveAgentModel } from "../ai-providers/resolve";
+import {
+  loadAiSettings,
+  saveAiSettings,
+  type AiProviderSettings,
+} from "../ai-providers/settings";
 
-const SETTINGS_KEY = "blank.ai-settings";
-
-export interface AISettings {
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  webSearchEnabled: boolean;
-  webSearchMaxResults: number;
-}
+export type AISettings = AiProviderSettings;
 
 export interface EditChange {
   from: number;
@@ -63,44 +61,12 @@ export type AIConversationSummary = {
   turnCount: number;
 };
 
-const DEFAULT_SETTINGS: AISettings = {
-  baseUrl: "https://api.openai.com/v1",
-  apiKey: "",
-  model: "gpt-4o",
-  webSearchEnabled: true,
-  webSearchMaxResults: 4,
-};
-
-function normalizeSettings(value: unknown): AISettings {
-  const parsed = value && typeof value === "object" ? (value as Partial<AISettings>) : {};
-  const maxResults =
-    typeof parsed.webSearchMaxResults === "number" && parsed.webSearchMaxResults >= 1
-      ? Math.min(8, Math.floor(parsed.webSearchMaxResults))
-      : DEFAULT_SETTINGS.webSearchMaxResults;
-
-  return {
-    ...DEFAULT_SETTINGS,
-    ...parsed,
-    webSearchEnabled:
-      typeof parsed.webSearchEnabled === "boolean"
-        ? parsed.webSearchEnabled
-        : DEFAULT_SETTINGS.webSearchEnabled,
-    webSearchMaxResults: maxResults,
-  };
-}
-
 function loadSettings(): AISettings {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return { ...DEFAULT_SETTINGS };
-    return normalizeSettings(JSON.parse(raw));
-  } catch {
-    return { ...DEFAULT_SETTINGS };
-  }
+  return loadAiSettings();
 }
 
 function saveSettings(s: AISettings) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  saveAiSettings(s);
 }
 
 const SYSTEM_PROMPT = `你是 Markdown 文档编辑助手。根据用户指令修改文档，只输出修改内容，不要解释、不要前言后记。
@@ -730,17 +696,18 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     onChunk: (delta: string) => void,
     signal: AbortSignal,
   ): Promise<EditChange[]> {
-    if (!settings.apiKey) throw new Error("请先在设置中填写 API Key");
+    const resolved = resolveAgentModel(settings);
+    if (!resolved) throw new Error("请先在设置中启用服务商并填写 API Key");
 
-    const url = `${settings.baseUrl.replace(/\/$/, "")}/chat/completions`;
+    const url = `${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`;
     const res = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${settings.apiKey}`,
+        Authorization: `Bearer ${resolved.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: settings.model,
+        model: resolved.model,
         stream: true,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
@@ -804,7 +771,9 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
       signal: AbortSignal;
     },
   ) {
-    if (!settings.apiKey) throw new Error("请先在设置中填写 API Key");
+    if (!resolveAgentModel(settings)) {
+      throw new Error("请先在设置中启用服务商并填写 API Key");
+    }
 
     return runSheafAgent({
       prompt: instruction,
@@ -813,11 +782,7 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
       documentPath: options.documentPath,
       workspacePaths: options.workspacePaths,
       readWorkspaceFile: options.readWorkspaceFile,
-      settings: {
-        baseUrl: settings.baseUrl,
-        apiKey: settings.apiKey,
-        model: settings.model,
-      },
+      providerSettings: settings,
       webSearch: {
         enabled: settings.webSearchEnabled,
         maxResults: settings.webSearchMaxResults,
