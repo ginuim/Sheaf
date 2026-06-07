@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
-import { ChevronDown, FilePlus, FolderOpen, ListTree, Save } from "@lucide/vue";
+import { ChevronDown, FilePlus, FolderOpen, History, ListTree, Save } from "@lucide/vue";
 
 export type ViewMode = "split" | "edit" | "preview";
 
@@ -15,6 +15,8 @@ defineProps<{
   showOutline: boolean;
   showExport: boolean;
   showAI: boolean;
+  showVersions: boolean;
+  hasVersions: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -26,6 +28,7 @@ const emit = defineEmits<{
   toggleTheme: [];
   toggleOutline: [];
   toggleAI: [];
+  toggleVersions: [];
   "update:viewMode": [mode: ViewMode];
 }>();
 
@@ -102,6 +105,16 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
     </div>
 
     <div class="toolbar-right">
+      <button
+        class="btn btn-icon btn-ghost versions-toggle"
+        :class="{ active: showVersions }"
+        :disabled="!hasVersions"
+        title="历史版本"
+        aria-label="历史版本"
+        @click="emit('toggleVersions')"
+      >
+        <History :size="iconSize" aria-hidden="true" />
+      </button>
       <button
         class="btn btn-ghost ai-toggle"
         :class="{ active: showAI }"
@@ -290,6 +303,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
 }
 
 .outline-toggle.active,
+.versions-toggle.active,
 .export-toggle.active,
 .ai-toggle.active {
   color: var(--ink-accent);

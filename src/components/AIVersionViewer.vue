@@ -15,7 +15,7 @@ const emit = defineEmits<{
   "update:activeId": [id: string];
 }>();
 
-const viewMode = ref<"content" | "diff">("content");
+const viewMode = ref<"diff" | "preview">("diff");
 
 const activeVersion = computed(
   () => props.versions.find((version) => version.id === props.activeId) ?? null
@@ -28,17 +28,34 @@ const activeIndex = computed(() =>
 const hasPrev = computed(() => activeIndex.value > 0);
 const hasNext = computed(() => activeIndex.value >= 0 && activeIndex.value < props.versions.length - 1);
 
+const previousVersion = computed(() => {
+  if (!activeVersion.value) return null;
+  if (typeof activeVersion.value.previousContent === "string") {
+    return {
+      label: "上一版",
+      content: activeVersion.value.previousContent,
+    };
+  }
+  const olderVersion = props.versions[activeIndex.value + 1];
+  if (!olderVersion) return null;
+  return {
+    label: olderVersion.label,
+    content: olderVersion.content,
+  };
+});
+
 const diffLines = computed<CompressedDiffLine[]>(() => {
-  if (!activeVersion.value) return [];
-  return compressDiff(lineDiff(activeVersion.value.content, props.currentDoc), 2);
+  if (!activeVersion.value || !previousVersion.value) return [];
+  return compressDiff(lineDiff(previousVersion.value.content, activeVersion.value.content), 2);
 });
 
 const charCount = computed(() => activeVersion.value?.content.length ?? 0);
+const diffBaseLabel = computed(() => previousVersion.value?.label ?? "暂无上一版");
 
 watch(
   () => props.activeId,
   () => {
-    viewMode.value = "content";
+    viewMode.value = "diff";
   }
 );
 
@@ -54,10 +71,8 @@ function formatListTime(timestamp: number) {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function kindLabel(kind: DocumentVersion["kind"]) {
-  if (kind === "ai-before") return "修改前";
-  if (kind === "ai-after") return "修改后";
-  return "快照";
+function kindLabel(_kind: DocumentVersion["kind"]) {
+  return "版本";
 }
 
 function selectVersion(id: string) {
@@ -110,7 +125,7 @@ onUnmounted(() => {
   <div v-if="activeVersion" class="version-overlay" @click="handleBackdropClick">
     <div class="version-dialog" role="dialog" aria-modal="true" :aria-label="activeVersion.label">
       <aside v-if="versions.length > 1" class="version-sidebar">
-        <p class="version-sidebar-title">全部版本</p>
+        <p class="version-sidebar-title">历史版本</p>
         <div class="version-sidebar-list">
           <button
             v-for="(item, index) in versions"
@@ -122,7 +137,6 @@ onUnmounted(() => {
           >
             <span class="version-sidebar-index">{{ index + 1 }}</span>
             <span class="version-sidebar-body">
-              <span class="version-sidebar-kind">{{ kindLabel(item.kind) }}</span>
               <span class="version-sidebar-label">{{ item.label }}</span>
               <span class="version-sidebar-meta">{{ formatListTime(item.timestamp) }}</span>
             </span>
@@ -167,25 +181,29 @@ onUnmounted(() => {
         <div class="version-tabs">
           <button
             class="version-tab"
-            :class="{ active: viewMode === 'content' }"
-            type="button"
-            @click="viewMode = 'content'"
-          >
-            版本正文
-          </button>
-          <button
-            class="version-tab"
             :class="{ active: viewMode === 'diff' }"
             type="button"
             @click="viewMode = 'diff'"
           >
-            与当前对比
+            与上一版对比
+          </button>
+          <button
+            class="version-tab"
+            :class="{ active: viewMode === 'preview' }"
+            type="button"
+            @click="viewMode = 'preview'"
+          >
+            预览
           </button>
         </div>
 
         <div class="version-body">
-          <pre v-if="viewMode === 'content'" class="version-content">{{ activeVersion.content }}</pre>
+          <pre v-if="viewMode === 'preview'" class="version-content">{{ activeVersion.content }}</pre>
           <div v-else class="version-diff">
+            <div class="diff-base">基于：{{ diffBaseLabel }}</div>
+            <div v-if="diffLines.length === 0" class="diff-empty">
+              {{ previousVersion ? "与上一版没有内容差异。" : "这是最早的版本，暂无上一版可对比。" }}
+            </div>
             <div
               v-for="(line, idx) in diffLines"
               :key="idx"
@@ -304,12 +322,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-.version-sidebar-kind {
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--ink-accent);
 }
 
 .version-sidebar-label {
@@ -475,6 +487,21 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0;
+}
+
+.diff-base {
+  margin-bottom: 8px;
+  color: var(--ink-text-muted);
+  font-family: var(--font-sans, system-ui);
+  font-size: 11px;
+}
+
+.diff-empty {
+  padding: 18px 0;
+  color: var(--ink-text-muted);
+  font-family: var(--font-sans, system-ui);
+  font-size: 12px;
+  text-align: center;
 }
 
 .diff-line {

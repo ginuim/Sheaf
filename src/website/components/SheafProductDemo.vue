@@ -482,6 +482,8 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
         :show-outline="showOutline"
         :show-export="showExport"
         :show-a-i="showAI"
+        :show-versions="false"
+        :has-versions="false"
         @toggle-theme="toggleTheme"
         @toggle-outline="showOutline = !showOutline"
         @open-export="showExport = true"

@@ -1,7 +1,7 @@
-import { ref, watch } from "vue";
-import { applyChangesToDoc, type AIHistoryItem } from "./useAI";
+import { computed, ref, watch, type Ref } from "vue";
+import { isBlankDocument } from "./useAI";
 
-export type DocumentVersionKind = "ai-before" | "ai-after" | "snapshot";
+export type DocumentVersionKind = "snapshot";
 
 export interface DocumentVersion {
   id: string;
@@ -10,6 +10,7 @@ export interface DocumentVersion {
   content: string;
   kind: DocumentVersionKind;
   historyItemId?: string;
+  previousContent?: string;
 }
 
 const VERSIONS_KEY_PREFIX = "blank.doc-versions:";
@@ -19,28 +20,26 @@ function versionsStorageKey(documentKey: string) {
   return `${VERSIONS_KEY_PREFIX}${documentKey}`;
 }
 
-import { isBlankDocument, isBlankToAiEdit } from "./useAI";
-
-function truncateLabel(text: string, max = 28) {
-  const line = text.split("\n").map((part) => part.trim()).find((part) => part.length > 0) ?? "";
-  if (line.length <= max) return line;
-  return `${line.slice(0, max - 1)}…`;
+function normalizeLabel(label: string) {
+  return label.replace(/^(修改前|修改后|应用前|应用后)\s*·\s*/, "").trim() || "历史版本";
 }
 
 function normalizeVersion(value: unknown): DocumentVersion | null {
   if (!value || typeof value !== "object") return null;
-  const item = value as Partial<DocumentVersion>;
+  const item = value as Partial<Omit<DocumentVersion, "kind">> & { kind?: unknown };
   if (typeof item.id !== "string" || typeof item.timestamp !== "number") return null;
   if (typeof item.label !== "string" || typeof item.content !== "string") return null;
-  if (item.kind !== "ai-before" && item.kind !== "ai-after" && item.kind !== "snapshot") return null;
+  if (item.kind !== "snapshot" && item.kind !== "ai-before" && item.kind !== "ai-after") return null;
+  if (/^(修改前|应用前)\s*·\s*/.test(item.label)) return null;
 
   return {
     id: item.id,
     timestamp: item.timestamp,
-    label: item.label,
+    label: normalizeLabel(item.label),
     content: item.content,
-    kind: item.kind,
-    historyItemId: typeof item.historyItemId === "string" ? item.historyItemId : undefined
+    kind: "snapshot",
+    historyItemId: typeof item.historyItemId === "string" ? item.historyItemId : undefined,
+    previousContent: typeof item.previousContent === "string" ? item.previousContent : undefined
   };
 }
 
@@ -86,115 +85,80 @@ export function migrateDocumentVersionsKey(fromKey: string, toKey: string) {
   localStorage.removeItem(versionsStorageKey(from));
 }
 
-export function getHistoryItemResultDoc(item: AIHistoryItem) {
-  if (item.resultDoc) return item.resultDoc;
-  if (item.changes.length === 0) return item.originalDoc;
-  return applyChangesToDoc(item.originalDoc, item.changes);
-}
+const snapshotRefs = new Map<string, Ref<DocumentVersion[]>>();
+const persistTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-export function versionsFromHistoryItem(item: AIHistoryItem): DocumentVersion[] {
-  if (item.changes.length === 0) return [];
-  if (isBlankToAiEdit(item)) return [];
+function snapshotsForKey(documentKey: string) {
+  let snapshots = snapshotRefs.get(documentKey);
+  if (snapshots) return snapshots;
 
-  const labelBase = truncateLabel(item.instruction);
-  const versions: DocumentVersion[] = [];
-
-  if (!isBlankDocument(item.originalDoc)) {
-    versions.push({
-      id: `${item.id}:before`,
-      timestamp: item.timestamp,
-      label: `修改前 · ${labelBase}`,
-      content: item.originalDoc,
-      kind: "ai-before",
-      historyItemId: item.id
-    });
-  }
-
-  if (item.status === "done" || item.status === "applied") {
-    versions.push({
-      id: `${item.id}:after`,
-      timestamp: item.timestamp + 1,
-      label: `修改后 · ${labelBase}`,
-      content: getHistoryItemResultDoc(item),
-      kind: "ai-after",
-      historyItemId: item.id
-    });
-  }
-
-  return versions;
-}
-
-export function mergeDocumentVersions(
-  snapshots: DocumentVersion[],
-  history: AIHistoryItem[]
-): DocumentVersion[] {
-  const merged = new Map<string, DocumentVersion>();
-
-  for (const item of history) {
-    if (isBlankToAiEdit(item)) continue;
-    for (const version of versionsFromHistoryItem(item)) {
-      merged.set(version.id, version);
-    }
-  }
-
-  for (const snapshot of snapshots) {
-    merged.set(snapshot.id, snapshot);
-  }
-
-  return [...merged.values()].sort((left, right) => right.timestamp - left.timestamp);
-}
-
-export function useDocumentVersions(getDocumentKey: () => string = () => "__untitled__") {
-  const snapshots = ref<DocumentVersion[]>(loadSnapshots(getDocumentKey()));
-  let persistTimer: ReturnType<typeof setTimeout> | null = null;
-
-  watch(
-    () => getDocumentKey(),
-    (documentKey) => {
-      snapshots.value = loadSnapshots(documentKey);
-    }
-  );
+  snapshots = ref(loadSnapshots(documentKey));
+  snapshotRefs.set(documentKey, snapshots);
 
   watch(
     snapshots,
     (list) => {
-      if (persistTimer) clearTimeout(persistTimer);
-      persistTimer = setTimeout(() => {
-        saveSnapshots(getDocumentKey(), list);
-      }, 200);
+      const previousTimer = persistTimers.get(documentKey);
+      if (previousTimer) clearTimeout(previousTimer);
+      persistTimers.set(
+        documentKey,
+        setTimeout(() => {
+          saveSnapshots(documentKey, list);
+          persistTimers.delete(documentKey);
+        }, 200),
+      );
     },
-    { deep: true }
+    { deep: true },
   );
 
-  function addSnapshot(label: string, content: string, timestamp = Date.now()) {
+  return snapshots;
+}
+
+export function useDocumentVersions(getDocumentKey: () => string = () => "__untitled__") {
+  const documentKey = ref(getDocumentKey());
+  const snapshots = computed(() => snapshotsForKey(documentKey.value).value);
+
+  watch(
+    () => getDocumentKey(),
+    (nextKey) => {
+      documentKey.value = nextKey;
+      snapshotsForKey(nextKey);
+    },
+  );
+
+  function addSnapshot(label: string, content: string, previousContent?: string, timestamp = Date.now()) {
     if (isBlankDocument(content)) return;
     const trimmed = content.trim();
     if (!trimmed) return;
 
-    const latest = snapshots.value[0];
-    if (latest?.content === content && latest.label === label) return;
+    const currentSnapshots = snapshotsForKey(documentKey.value);
+    const latest = currentSnapshots.value[0];
+    const normalizedLabel = normalizeLabel(label);
+    if (latest?.content === content && latest.label === normalizedLabel) return;
 
     const version: DocumentVersion = {
       id: `${timestamp}:${Math.random().toString(36).slice(2, 7)}`,
       timestamp,
-      label,
+      label: normalizedLabel,
       content,
-      kind: "snapshot"
+      kind: "snapshot",
+      previousContent,
     };
 
-    snapshots.value = [version, ...snapshots.value].slice(0, MAX_VERSIONS);
+    currentSnapshots.value = [version, ...currentSnapshots.value].slice(0, MAX_VERSIONS);
   }
 
-  function listVersions(history: AIHistoryItem[]) {
-    return mergeDocumentVersions(snapshots.value, history);
+  function listVersions() {
+    return [...snapshots.value].sort((left, right) => right.timestamp - left.timestamp);
   }
 
   function removeVersionsForHistoryItem(historyItemId: string) {
-    snapshots.value = snapshots.value.filter((version) => version.historyItemId !== historyItemId);
+    const currentSnapshots = snapshotsForKey(documentKey.value);
+    currentSnapshots.value = currentSnapshots.value.filter((version) => version.historyItemId !== historyItemId);
   }
 
   function clearSnapshots() {
-    snapshots.value = [];
+    snapshotsForKey(documentKey.value).value = [];
   }
 
   return {

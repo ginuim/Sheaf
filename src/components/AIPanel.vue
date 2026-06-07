@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted } from "vue";
+import { ref, computed, nextTick, onMounted, onUnmounted } from "vue";
+import {
+  Bot,
+  Clock3,
+  GitCompare,
+  Plus,
+  Send,
+  Square,
+  Trash2,
+} from "@lucide/vue";
 import {
   explainNoChanges,
   useAI,
@@ -8,7 +17,6 @@ import {
   lineDiff,
   compressDiff,
   summarizeItemDiff,
-  isBlankDocument,
   isBlankToAiEdit,
   buildAgentHistoryFromItems,
   type AgentActivity,
@@ -16,9 +24,14 @@ import {
   type EditChange,
   type AIHistoryItem,
 } from "../composables/useAI";
-import { useDocumentVersions, type DocumentVersion } from "../composables/useDocumentVersions";
-import AIVersionViewer from "./AIVersionViewer.vue";
+import { useDocumentVersions } from "../composables/useDocumentVersions";
 import AgentActivityList from "./AgentActivityList.vue";
+
+const iconSize = 14;
+const DEFAULT_PANEL_WIDTH = 320;
+const MIN_PANEL_WIDTH = 280;
+const MAX_PANEL_WIDTH = 560;
+const PANEL_WIDTH_STORAGE_KEY = "sheaf:ai-panel-width";
 
 const props = defineProps<{
   doc: string;
@@ -50,12 +63,20 @@ const aiMode = ref<AIHistoryMode>("agent");
 const instruction = ref("");
 const listRef = ref<HTMLElement | null>(null);
 const expandedDiffId = ref<string | null>(null);
-const panelMode = ref<"edits" | "versions">("edits");
-const viewingVersionId = ref<string | null>(null);
+const panelWidth = ref(DEFAULT_PANEL_WIDTH);
+const isResizing = ref(false);
 let activeAbortController: AbortController | null = null;
 let imeComposing = false;
+let resizeStartX = 0;
+let resizeStartWidth = DEFAULT_PANEL_WIDTH;
+let previousBodyCursor = "";
+let previousBodyUserSelect = "";
 
 const isLoading = computed(() => historyList.value.some((item: AIHistoryItem) => item.status === "loading"));
+const canSubmit = computed(() => instruction.value.trim().length > 0 && !isLoading.value);
+const panelStyle = computed(() => ({
+  width: `${panelWidth.value}px`,
+}));
 
 const visibleHistoryList = computed(() =>
   historyList.value.filter(
@@ -68,8 +89,6 @@ const visibleHistoryList = computed(() =>
 const pastConversationSummaries = computed(() =>
   conversationSummaries.value.filter((conversation) => conversation.id !== activeConversationId.value),
 );
-
-const documentVersionList = computed(() => documentVersions.listVersions(historyList.value));
 
 function shouldHideHistoryItem(_item: AIHistoryItem) {
   return false;
@@ -219,14 +238,11 @@ async function submit() {
 
 function applyItemChanges(item: AIHistoryItem) {
   const labelBase = item.instruction.trim().slice(0, 24) || "AI 修改";
-  if (!isBlankDocument(props.doc)) {
-    documentVersions.addSnapshot(`应用前 · ${labelBase}`, props.doc);
-  }
   const nextDoc = applyChangesToDoc(props.doc, item.changes);
   emit("apply", item.changes);
   item.status = "applied";
   item.resultDoc = nextDoc;
-  documentVersions.addSnapshot(`应用后 · ${labelBase}`, nextDoc);
+  documentVersions.addSnapshot(labelBase, nextDoc, props.doc);
 }
 
 function discardItem(item: AIHistoryItem) {
@@ -238,8 +254,6 @@ function handleStartNewConversation() {
   if (isLoading.value) return;
   startNewConversation();
   expandedDiffId.value = null;
-  viewingVersionId.value = null;
-  panelMode.value = "edits";
 }
 
 function clearHistory() {
@@ -247,35 +261,13 @@ function clearHistory() {
   clearAllConversations();
   documentVersions.clearSnapshots();
   expandedDiffId.value = null;
-  viewingVersionId.value = null;
 }
 
 function selectConversation(conversationId: string) {
   if (isLoading.value || conversationId === activeConversationId.value) return;
   switchConversation(conversationId);
   expandedDiffId.value = null;
-  viewingVersionId.value = null;
-  panelMode.value = "edits";
   nextTick(scrollToBottom);
-}
-
-function openVersion(version: DocumentVersion) {
-  viewingVersionId.value = version.id;
-}
-
-function closeVersionViewer() {
-  viewingVersionId.value = null;
-}
-
-function restoreVersion(content: string) {
-  emit("restore", content);
-  viewingVersionId.value = null;
-}
-
-function versionKindLabel(kind: DocumentVersion["kind"]) {
-  if (kind === "ai-before") return "修改前";
-  if (kind === "ai-after") return "修改后";
-  return "快照";
 }
 
 function stop() {
@@ -351,15 +343,112 @@ function diffSummaryLabel(item: AIHistoryItem) {
   return parts.join(" · ") || "点击查看 diff";
 }
 
+function clampPanelWidth(width: number) {
+  return Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, Math.round(width)));
+}
+
+function persistPanelWidth() {
+  localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(panelWidth.value));
+}
+
+function loadPanelWidth() {
+  const savedWidth = Number(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY));
+  if (Number.isFinite(savedWidth)) {
+    panelWidth.value = clampPanelWidth(savedWidth);
+  }
+}
+
+function setPanelWidth(width: number, shouldPersist = true) {
+  panelWidth.value = clampPanelWidth(width);
+  if (shouldPersist) {
+    persistPanelWidth();
+  }
+}
+
+function onResizeMove(event: PointerEvent) {
+  const deltaX = event.clientX - resizeStartX;
+  setPanelWidth(resizeStartWidth - deltaX, false);
+}
+
+function stopResize() {
+  if (!isResizing.value) return;
+  isResizing.value = false;
+  document.removeEventListener("pointermove", onResizeMove);
+  document.removeEventListener("pointerup", stopResize);
+  document.removeEventListener("pointercancel", stopResize);
+  document.body.style.cursor = previousBodyCursor;
+  document.body.style.userSelect = previousBodyUserSelect;
+  persistPanelWidth();
+}
+
+function startResize(event: PointerEvent) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  resizeStartX = event.clientX;
+  resizeStartWidth = panelWidth.value;
+  previousBodyCursor = document.body.style.cursor;
+  previousBodyUserSelect = document.body.style.userSelect;
+  isResizing.value = true;
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+  document.addEventListener("pointermove", onResizeMove);
+  document.addEventListener("pointerup", stopResize);
+  document.addEventListener("pointercancel", stopResize);
+}
+
+function onResizeKeydown(event: KeyboardEvent) {
+  const step = event.shiftKey ? 40 : 16;
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    setPanelWidth(panelWidth.value + step);
+    return;
+  }
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    setPanelWidth(panelWidth.value - step);
+    return;
+  }
+  if (event.key === "Home") {
+    event.preventDefault();
+    setPanelWidth(MIN_PANEL_WIDTH);
+    return;
+  }
+  if (event.key === "End") {
+    event.preventDefault();
+    setPanelWidth(MAX_PANEL_WIDTH);
+  }
+}
+
 onMounted(() => {
+  loadPanelWidth();
   scrollToBottom();
+});
+
+onUnmounted(() => {
+  stopResize();
 });
 </script>
 
 <template>
-  <aside class="ai-panel">
+  <aside class="ai-panel" :class="{ 'is-resizing': isResizing }" :style="panelStyle">
+    <div
+      class="ai-resize-handle"
+      role="separator"
+      aria-label="调整 AI 面板宽度"
+      aria-orientation="vertical"
+      :aria-valuemin="MIN_PANEL_WIDTH"
+      :aria-valuemax="MAX_PANEL_WIDTH"
+      :aria-valuenow="panelWidth"
+      tabindex="0"
+      title="拖拽调整 AI 面板宽度"
+      @pointerdown="startResize"
+      @keydown="onResizeKeydown"
+    />
     <header class="ai-header">
-      <span>AI</span>
+      <div class="ai-brand">
+        <span class="ai-brand-icon"><Bot :size="15" aria-hidden="true" /></span>
+        <span class="ai-title">AI 助手</span>
+      </div>
       <div class="ai-mode-toggle">
         <button
           type="button"
@@ -368,6 +457,7 @@ onMounted(() => {
           :disabled="isLoading"
           @click="aiMode = 'agent'"
         >
+          <Bot :size="12" aria-hidden="true" />
           Agent
         </button>
         <button
@@ -377,6 +467,7 @@ onMounted(() => {
           :disabled="isLoading"
           @click="aiMode = 'quick'"
         >
+          <GitCompare :size="12" aria-hidden="true" />
           快速
         </button>
       </div>
@@ -388,78 +479,27 @@ onMounted(() => {
           :disabled="isLoading"
           @click="handleStartNewConversation"
         >
-          新对话
+          <Plus :size="iconSize" aria-hidden="true" />
         </button>
         <button
-          v-if="historyList.length > 0 || documentVersionList.length > 0"
+          v-if="historyList.length > 0"
           type="button"
           class="ai-header-btn"
           title="清空对话记录与版本快照"
           :disabled="isLoading"
           @click="clearHistory"
         >
-          清空全部
+          <Trash2 :size="iconSize" aria-hidden="true" />
         </button>
       </div>
     </header>
 
-    <div class="ai-panel-tabs">
-      <button
-        class="panel-tab-btn"
-        :class="{ active: panelMode === 'edits' }"
-        type="button"
-        @click="panelMode = 'edits'"
-      >
-        当前对话 {{ visibleHistoryList.length }}
-      </button>
-      <button
-        class="panel-tab-btn"
-        :class="{ active: panelMode === 'versions' }"
-        type="button"
-        @click="panelMode = 'versions'"
-      >
-        历史版本 {{ documentVersionList.length }}
-      </button>
-    </div>
-
     <div ref="listRef" class="ai-history-list">
-      <template v-if="panelMode === 'versions'">
-        <div v-if="documentVersionList.length === 0" class="ai-empty">
-          <div class="ai-empty-title">暂无历史版本</div>
-          <div class="ai-empty-desc">完成 AI 修改或应用变更后，会在此保存可查看、可恢复的文档版本。</div>
-        </div>
-
-        <div v-else class="versions-toolbar">
-          <button
-            type="button"
-            class="ai-header-btn"
-            title="清空版本快照"
-            :disabled="isLoading"
-            @click="documentVersions.clearSnapshots()"
-          >
-            清空版本
-          </button>
-        </div>
-
-        <button
-          v-for="version in documentVersionList"
-          :key="version.id"
-          class="version-card"
-          type="button"
-          @click="openVersion(version)"
-        >
-          <span class="version-card-kind">{{ versionKindLabel(version.kind) }}</span>
-          <span class="version-card-title">{{ version.label }}</span>
-          <span class="version-card-meta">
-            <span>{{ formatTime(version.timestamp) }}</span>
-            <span>{{ version.content.length }} 字</span>
-          </span>
-        </button>
-      </template>
-
-      <template v-else>
       <section v-if="pastConversationSummaries.length > 0" class="conversation-history">
-        <div class="conversation-history-title">历史对话</div>
+        <div class="conversation-history-title">
+          <Clock3 :size="12" aria-hidden="true" />
+          历史对话
+        </div>
         <button
           v-for="conversation in pastConversationSummaries"
           :key="conversation.id"
@@ -507,7 +547,10 @@ onMounted(() => {
               :activities="item.agentActivities"
             />
             <pre v-else-if="item.mode === 'agent' && item.rawResponse" class="agent-stream-preview">{{ item.rawResponse }}</pre>
-            <button class="ai-btn ai-btn-stop" type="button" @click="stop">停止</button>
+            <button class="ai-btn ai-btn-stop" type="button" @click="stop">
+              <Square :size="12" aria-hidden="true" />
+              停止
+            </button>
           </div>
 
           <div v-else-if="item.status === 'error'" class="ai-error-box">
@@ -595,21 +638,6 @@ onMounted(() => {
             </div>
 
             <div class="card-actions card-actions-split">
-              <button
-                v-if="item.resultDoc || item.changes.length > 0"
-                class="ai-btn ai-btn-ghost"
-                type="button"
-                @click="openVersion({
-                  id: `${item.id}:after`,
-                  timestamp: item.timestamp,
-                  label: `修改后 · ${item.instruction}`,
-                  content: item.resultDoc ?? applyChangesToDoc(item.originalDoc, item.changes),
-                  kind: 'ai-after',
-                  historyItemId: item.id
-                })"
-              >
-                查看版本
-              </button>
               <div v-if="item.status === 'done'" class="card-actions-main">
                 <button class="ai-btn ai-btn-apply" @click="applyItemChanges(item)">应用</button>
                 <button class="ai-btn ai-btn-ghost" @click="discardItem(item)">忽略</button>
@@ -619,40 +647,31 @@ onMounted(() => {
           </div>
         </div>
       </div>
-      </template>
     </div>
-
-    <AIVersionViewer
-      v-if="viewingVersionId"
-      :versions="documentVersionList"
-      :active-id="viewingVersionId"
-      :current-doc="doc"
-      @update:active-id="viewingVersionId = $event"
-      @close="closeVersionViewer"
-      @restore="restoreVersion"
-    />
 
     <div class="ai-input-area">
       <textarea
         v-model="instruction"
         class="ai-input"
         :placeholder="aiMode === 'agent'
-          ? '提问、查资料或描述修改…\n↵ 发送，⇧↵ 换行'
-          : '描述你想做的修改…\n↵ 发送，⇧↵ 换行'"
+          ? '让 AI 帮你查证、改写或续写这篇稿子...'
+          : '描述要应用到正文的修改...'"
         :disabled="isLoading"
         @compositionstart="onCompositionStart"
         @compositionend="onCompositionEnd"
         @keydown="onKeydown"
       />
       <div class="ai-actions">
+        <span class="ai-input-meta">{{ instruction.trim().length }} 字</span>
         <button
           class="ai-btn ai-btn-primary"
           :class="{ 'is-loading': isLoading }"
-          :disabled="isLoading || !instruction.trim()"
+          :disabled="!canSubmit"
           :aria-busy="isLoading"
           @click="submit"
         >
           <span v-if="isLoading" class="ai-send-spinner" aria-hidden="true" />
+          <Send v-else :size="13" aria-hidden="true" />
           {{ isLoading ? "执行中…" : "发送" }}
         </button>
       </div>
@@ -662,56 +681,144 @@ onMounted(() => {
 
 <style scoped>
 .ai-panel {
+  --ai-radius: 8px;
+  --ai-radius-sm: 6px;
+  --ai-surface-subtle: color-mix(in srgb, var(--ink-bg) 72%, var(--ink-surface));
+  --ai-surface-raised: color-mix(in srgb, var(--ink-surface) 90%, var(--ink-bg));
+  --ai-shadow-soft: 0 8px 22px color-mix(in srgb, var(--ink-shadow) 38%, transparent);
+
   display: flex;
   flex-direction: column;
-  width: 290px;
+  position: relative;
+  width: 320px;
+  min-width: 280px;
+  max-width: 560px;
   flex-shrink: 0;
-  background: var(--ink-surface);
-  border-left: 1px solid var(--ink-border);
-  overflow: hidden;
   height: 100%;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--ink-surface) 92%, var(--ink-bg)) 0%, var(--ink-surface) 34%),
+    var(--ink-surface);
+  border-left: 1px solid var(--ink-border);
+}
+
+.ai-resize-handle {
+  position: absolute;
+  inset: 0 auto 0 -5px;
+  z-index: 5;
+  width: 10px;
+  cursor: col-resize;
+  outline: none;
+  touch-action: none;
+}
+
+.ai-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  width: 2px;
+  height: 42px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-text-muted) 24%, transparent);
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 0.15s ease, background 0.15s ease, height 0.15s ease;
+}
+
+.ai-resize-handle:hover::before,
+.ai-resize-handle:focus-visible::before,
+.ai-panel.is-resizing .ai-resize-handle::before {
+  height: 64px;
+  opacity: 1;
+  background: var(--ink-accent);
+}
+
+.ai-panel.is-resizing {
+  border-left-color: color-mix(in srgb, var(--ink-accent) 46%, var(--ink-border));
 }
 
 .ai-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--ink-text-muted);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 14px 14px 10px;
   border-bottom: 1px solid var(--ink-border);
   flex-shrink: 0;
 }
 
+.ai-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ai-brand-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: var(--ink-accent);
+  background: var(--ink-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--ink-accent) 24%, var(--ink-border));
+  border-radius: var(--ai-radius-sm);
+}
+
+.ai-title {
+  overflow: hidden;
+  color: var(--ink-text);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ai-mode-toggle {
   display: flex;
+  grid-column: 1 / -1;
+  grid-row: 2;
   gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius);
+  background: var(--ai-surface-subtle);
 }
 
 .ai-header-actions {
   display: flex;
+  grid-column: 2;
+  grid-row: 1;
+  align-items: center;
   gap: 4px;
-  margin-left: auto;
+  justify-self: end;
 }
 
 .ai-mode-btn {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 4px;
-  border: 1px solid var(--ink-border);
-  background: var(--ink-bg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  padding: 5px 8px;
   color: var(--ink-text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .ai-mode-btn.active {
-  background: var(--ink-accent-soft);
   color: var(--ink-text);
-  border-color: var(--ink-accent);
+  background: var(--ink-surface);
+  border-color: var(--ink-border);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ink-shadow) 58%, transparent);
 }
 
 .ai-mode-btn:disabled {
@@ -719,36 +826,28 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
-.agent-stream-preview {
-  margin: 8px 0 0;
-  padding: 8px;
-  font-size: 11px;
-  line-height: 1.45;
-  max-height: 120px;
-  overflow: auto;
-  white-space: pre-wrap;
-  background: var(--ink-bg);
-  border-radius: 6px;
-  border: 1px solid var(--ink-border);
-}
-
-.agent-reply-text {
-  white-space: pre-wrap;
-}
-
 .ai-header-btn {
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 5px 8px;
   color: var(--ink-text-muted);
-  background: none;
-  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: var(--ai-radius-sm);
+  background: transparent;
   cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .ai-header-btn:hover:not(:disabled) {
-  background: var(--ink-accent-soft);
   color: var(--ink-text);
+  background: var(--ink-accent-soft);
+  border-color: color-mix(in srgb, var(--ink-accent) 16%, var(--ink-border));
 }
 
 .ai-header-btn:disabled {
@@ -756,43 +855,120 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
-.versions-toolbar {
+.ai-history-list {
   display: flex;
-  justify-content: flex-end;
-  margin-bottom: 8px;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.ai-history-list::-webkit-scrollbar,
+.diff-lines::-webkit-scrollbar,
+.agent-stream-preview::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.ai-history-list::-webkit-scrollbar-thumb,
+.diff-lines::-webkit-scrollbar-thumb,
+.agent-stream-preview::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ink-text-muted) 26%, transparent);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.ai-empty {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 190px;
+  margin: auto 0;
+  padding: 44px 18px;
+  color: var(--ink-text-muted);
+  text-align: center;
+}
+
+.ai-empty::before {
+  content: "";
+  width: 42px;
+  height: 42px;
+  margin-bottom: 14px;
+  border: 1px solid color-mix(in srgb, var(--ink-accent) 24%, var(--ink-border));
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, var(--ink-accent) 0 3px, transparent 4px),
+    linear-gradient(var(--ink-accent-soft), var(--ink-accent-soft));
+  box-shadow: inset 0 0 0 10px color-mix(in srgb, var(--ink-surface) 80%, transparent);
+  opacity: 0.9;
+}
+
+.ai-empty-title {
+  margin-bottom: 6px;
+  color: var(--ink-text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ai-empty-desc {
+  max-width: 230px;
+  font-size: 11px;
+  line-height: 1.65;
+  opacity: 0.82;
 }
 
 .conversation-history {
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--ink-border);
+  padding: 10px;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius);
+  background: var(--ai-surface-subtle);
 }
 
 .conversation-history-title {
-  font-size: 11px;
-  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 8px;
   color: var(--ink-text-muted);
-  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.conversation-history-item {
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius);
+  background: var(--ink-surface);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .conversation-history-item {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  padding: 8px 10px;
-  margin-bottom: 4px;
-  border: 1px solid var(--ink-border);
-  border-radius: 8px;
-  background: var(--ink-bg);
-  cursor: pointer;
-  text-align: left;
+  gap: 3px;
+  margin-bottom: 6px;
+  padding: 9px 10px;
+}
+
+.conversation-history-item:last-child {
+  margin-bottom: 0;
 }
 
 .conversation-history-item:hover:not(:disabled) {
-  border-color: var(--ink-accent);
-  background: var(--ink-accent-soft);
+  border-color: color-mix(in srgb, var(--ink-accent) 34%, var(--ink-border));
+  background: color-mix(in srgb, var(--ink-accent-soft) 52%, var(--ink-surface));
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ink-shadow) 32%, transparent);
+  transform: translateY(-1px);
 }
 
 .conversation-history-item:disabled {
@@ -801,207 +977,120 @@ onMounted(() => {
 }
 
 .conversation-history-item-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ink-text);
   overflow: hidden;
+  width: 100%;
+  color: var(--ink-text);
+  font-size: 12px;
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
-  width: 100%;
 }
 
-.conversation-history-item-meta {
+.conversation-history-item-meta,
+.card-time {
+  color: var(--ink-text-muted);
   font-size: 10px;
-  color: var(--ink-text-muted);
-}
-
-.ai-panel-tabs {
-  display: flex;
-  gap: 6px;
-  padding: 8px 12px 0;
-  flex-shrink: 0;
-}
-
-.panel-tab-btn {
-  flex: 1;
-  padding: 5px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  border: 1px solid var(--ink-border);
-  border-radius: 6px;
-  background: var(--ink-bg);
-  color: var(--ink-text-muted);
-  cursor: pointer;
-}
-
-.panel-tab-btn.active {
-  border-color: var(--ink-accent);
-  color: var(--ink-accent);
-  background: var(--ink-accent-soft);
-}
-
-.version-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  width: 100%;
-  padding: 10px;
-  border: 1px solid var(--ink-border);
-  border-radius: 8px;
-  background: var(--ink-bg);
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.version-card:hover {
-  border-color: var(--ink-border-strong);
-  background: var(--ink-accent-soft);
-}
-
-.version-card-kind {
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--ink-accent);
-  letter-spacing: 0.04em;
-}
-
-.version-card-title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ink-text);
-  line-height: 1.4;
-  word-break: break-all;
-}
-
-.version-card-meta {
-  display: flex;
-  gap: 8px;
-  font-size: 10px;
-  color: var(--ink-text-muted);
-}
-
-.card-actions-split {
-  flex-wrap: wrap;
-  justify-content: space-between;
-}
-
-.card-actions-main {
-  display: flex;
-  gap: 6px;
-}
-
-.ai-history-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 0;
-}
-
-.ai-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 16px;
-  text-align: center;
-  margin: auto 0;
-  color: var(--ink-text-muted);
-  flex: 1;
-}
-
-.ai-empty-title {
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 6px;
-  color: var(--ink-text);
-}
-
-.ai-empty-desc {
-  font-size: 11px;
-  line-height: 1.6;
-  opacity: 0.8;
 }
 
 .history-card {
-  border: 1px solid var(--ink-border);
-  border-radius: 8px;
-  background: var(--ink-bg);
-  padding: 10px;
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius);
+  background: var(--ai-surface-raised);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ink-inset) 76%, transparent);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.history-card::before {
+  content: "";
+  position: absolute;
+  inset: 10px auto 10px 0;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
 }
 
 .history-card.is-diff-expanded {
   border-color: var(--ink-border-strong);
+  box-shadow: var(--ai-shadow-soft);
 }
 
 .status-loading {
-  border-color: var(--ink-border-strong);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--ink-accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--ink-accent) 34%, var(--ink-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink-accent-soft) 72%, transparent);
+}
+
+.status-loading::before {
+  background: var(--ink-accent);
 }
 
 .status-error {
-  border-color: color-mix(in srgb, #e53e3e 25%, var(--ink-border));
+  border-color: color-mix(in srgb, #e53e3e 34%, var(--ink-border));
+}
+
+.status-error::before {
+  background: #e53e3e;
 }
 
 .status-applied {
-  border-color: color-mix(in srgb, #38a169 20%, var(--ink-border));
+  border-color: color-mix(in srgb, #38a169 26%, var(--ink-border));
 }
 
 .status-discarded {
-  opacity: 0.6;
+  opacity: 0.68;
 }
 
 .card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
 }
 
 .card-instruction {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ink-text);
-  line-height: 1.4;
-  word-break: break-all;
   display: flex;
+  gap: 7px;
   align-items: flex-start;
-  gap: 6px;
+  min-width: 0;
+  color: var(--ink-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .user-tag {
-  background: var(--ink-border-strong);
-  color: var(--ink-text-muted);
-  font-size: 9px;
-  padding: 1px 4px;
-  border-radius: 4px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   flex-shrink: 0;
+  margin-top: 1px;
+  padding: 2px 5px;
+  color: var(--ink-accent);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid color-mix(in srgb, var(--ink-accent) 18%, var(--ink-border));
+  border-radius: 4px;
+  background: var(--ink-accent-soft);
 }
 
 .card-meta {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: 5px;
   flex-shrink: 0;
 }
 
 .card-status {
+  padding: 2px 6px;
   font-size: 9px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 4px;
+  font-weight: 750;
+  line-height: 1.35;
+  border-radius: 999px;
 }
 
 .status-tag-done {
@@ -1009,9 +1098,10 @@ onMounted(() => {
   background: var(--ink-accent-soft);
 }
 
-.status-tag-applied {
+.status-tag-applied,
+.applied-badge {
   color: #2f855a;
-  background: color-mix(in srgb, #38a169 12%, transparent);
+  background: color-mix(in srgb, #38a169 13%, transparent);
 }
 
 .status-tag-loading,
@@ -1023,99 +1113,115 @@ onMounted(() => {
 
 .status-tag-error {
   color: #e53e3e;
-  background: color-mix(in srgb, #e53e3e 10%, transparent);
-}
-
-.card-time {
-  font-size: 10px;
-  color: var(--ink-text-muted);
+  background: color-mix(in srgb, #e53e3e 11%, transparent);
 }
 
 .card-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+}
+
+.ai-loading-box,
+.ai-error-box,
+.ai-muted-box {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  border-radius: var(--ai-radius-sm);
+  border: 1px solid var(--ink-border);
+  background: var(--ink-inset);
 }
 
 .ai-loading-box {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 6px;
-  background: var(--ink-inset);
-  border: 1px solid var(--ink-border);
+  position: relative;
 }
 
-.ai-loading-text {
-  font-size: 11px;
-  line-height: 1.4;
+.ai-loading-box::before {
+  content: "";
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, transparent, var(--ink-accent), transparent)
+    0 0 / 72px 100% no-repeat,
+    color-mix(in srgb, var(--ink-accent) 12%, transparent);
+  animation: ai-progress 1.45s ease-in-out infinite;
+}
+
+.ai-loading-text,
+.muted-label,
+.error-label {
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
+.ai-loading-text,
+.muted-label {
   color: var(--ink-text-muted);
 }
 
 .ai-error-box {
-  background: color-mix(in srgb, #e53e3e 6%, transparent);
-  border: 1px solid color-mix(in srgb, #e53e3e 15%, transparent);
-  padding: 8px;
-  border-radius: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  background: color-mix(in srgb, #e53e3e 7%, transparent);
+  border-color: color-mix(in srgb, #e53e3e 19%, transparent);
 }
 
 .error-label {
-  font-size: 10px;
-  font-weight: 600;
   color: #e53e3e;
 }
 
-.error-msg {
-  font-size: 11px;
+.error-msg,
+.muted-msg {
   color: var(--ink-text);
-  line-height: 1.4;
-  word-break: break-all;
-}
-
-.ai-muted-box {
-  background: var(--ink-inset);
-  border: 1px solid var(--ink-border);
-  padding: 8px;
-  border-radius: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.muted-label {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--ink-text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .muted-msg {
-  font-size: 11px;
   color: var(--ink-text-muted);
-  line-height: 1.4;
+}
+
+.agent-reply-text {
+  white-space: pre-wrap;
+}
+
+.agent-stream-preview {
+  max-height: 138px;
+  margin: 2px 0 0;
+  padding: 9px 10px;
+  overflow: auto;
+  color: var(--ink-text);
+  font-family: var(--font-editor);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius-sm);
+  background: var(--ai-surface-subtle);
 }
 
 .ai-diff-box {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
 }
 
 .diff-toggle {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  padding: 6px 8px;
+  min-height: 36px;
+  padding: 8px 9px;
+  text-align: left;
   border: 1px solid var(--ink-border);
-  border-radius: 6px;
+  border-radius: var(--ai-radius-sm);
   background: var(--ink-inset);
   cursor: pointer;
-  text-align: left;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
@@ -1125,26 +1231,24 @@ onMounted(() => {
 }
 
 .diff-toggle-label {
-  font-size: 11px;
-  font-weight: 600;
   color: var(--ink-text);
-  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .diff-toggle-summary {
-  flex: 1;
   min-width: 0;
-  font-size: 10px;
-  color: var(--ink-text-muted);
   overflow: hidden;
+  color: var(--ink-text-muted);
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .diff-toggle-chevron {
-  font-size: 14px;
-  line-height: 1;
   color: var(--ink-text-muted);
+  font-size: 16px;
+  line-height: 1;
   transform: rotate(90deg);
   transition: transform 0.15s ease;
 }
@@ -1154,19 +1258,24 @@ onMounted(() => {
 }
 
 .diff-container {
-  border: 1px solid var(--ink-border);
-  border-radius: 6px;
-  background: var(--ink-inset);
   overflow: hidden;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius-sm);
+  background: var(--ai-surface-subtle);
+}
+
+.diff-title,
+.diff-sub-title {
+  color: var(--ink-text-muted);
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--ink-border);
 }
 
 .diff-title {
+  padding: 7px 10px;
   font-size: 10px;
-  font-weight: 600;
-  color: var(--ink-text-muted);
-  padding: 4px 8px;
-  background: transparent;
-  border-bottom: 1px solid var(--ink-border);
+  background: color-mix(in srgb, var(--ink-inset) 72%, transparent);
 }
 
 .diff-sub-block {
@@ -1178,35 +1287,32 @@ onMounted(() => {
 }
 
 .diff-sub-title {
+  padding: 5px 10px;
   font-size: 9px;
-  font-weight: 600;
-  color: var(--ink-text-muted);
-  padding: 2px 8px;
-  background: transparent;
 }
 
 .diff-lines {
-  max-height: 200px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .diff-line {
   display: flex;
-  font-family: var(--font-mono, monospace);
+  padding: 2px 9px;
+  font-family: var(--font-editor);
   font-size: 11px;
-  line-height: 1.5;
-  padding: 1px 8px;
+  line-height: 1.55;
   white-space: pre-wrap;
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .diff-sign {
-  width: 12px;
   flex-shrink: 0;
+  width: 15px;
+  opacity: 0.75;
   user-select: none;
-  opacity: 0.7;
 }
 
 .diff-content {
@@ -1214,70 +1320,94 @@ onMounted(() => {
 }
 
 .diff-type-removed {
-  background: color-mix(in srgb, #e53e3e 8%, transparent);
   color: #c53030;
+  background: color-mix(in srgb, #e53e3e 9%, transparent);
 }
 
 .diff-type-added {
-  background: color-mix(in srgb, #38a169 8%, transparent);
   color: #2f855a;
+  background: color-mix(in srgb, #38a169 10%, transparent);
 }
 
 .diff-type-normal {
   color: var(--ink-text-muted);
-  opacity: 0.85;
 }
 
 .diff-type-ellipsis {
-  color: var(--ink-text-muted);
-  opacity: 0.5;
-  font-style: italic;
-  font-size: 10px;
   justify-content: center;
-  padding: 4px 8px;
-  background: var(--ink-bg);
+  padding: 5px 9px;
+  color: var(--ink-text-muted);
+  font-size: 10px;
+  font-style: italic;
+  background: color-mix(in srgb, var(--ink-bg) 82%, var(--ink-surface));
+  opacity: 0.62;
 }
 
 .card-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 6px;
   align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.card-actions-split {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.card-actions-main {
+  display: flex;
+  gap: 7px;
 }
 
 .applied-badge {
+  padding: 3px 7px;
   font-size: 10px;
-  font-weight: 600;
-  color: #2f855a;
-  background: color-mix(in srgb, #38a169 12%, transparent);
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-weight: 700;
+  border-radius: 999px;
 }
 
 .ai-btn {
-  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 5px 10px;
   font-size: 11px;
-  font-weight: 500;
-  border-radius: 4px;
-  transition: all 0.15s ease;
+  font-weight: 650;
+  line-height: 1;
   white-space: nowrap;
-  border: none;
+  border: 1px solid transparent;
+  border-radius: var(--ai-radius-sm);
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.ai-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 
 .ai-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.42;
   cursor: not-allowed;
 }
 
-.ai-btn-primary {
-  background: var(--ink-accent);
+.ai-btn-primary,
+.ai-btn-apply {
   color: #fff;
-  padding: 6px 14px;
+  background: var(--ink-accent);
+  border-color: color-mix(in srgb, var(--ink-accent) 80%, #000);
 }
 
-.ai-btn-primary:hover:not(:disabled) {
-  opacity: 0.85;
+.ai-btn-primary {
+  min-width: 76px;
+  padding-inline: 12px;
+}
+
+.ai-btn-primary:hover:not(:disabled),
+.ai-btn-apply:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink-accent) 88%, #000);
 }
 
 .ai-btn-primary.is-loading:disabled {
@@ -1289,12 +1419,92 @@ onMounted(() => {
   display: inline-block;
   width: 12px;
   height: 12px;
-  margin-right: 6px;
   border: 2px solid rgba(255, 255, 255, 0.35);
   border-top-color: #fff;
   border-radius: 50%;
   animation: ai-send-spin 0.8s linear infinite;
-  vertical-align: -2px;
+}
+
+.ai-btn-stop {
+  align-self: flex-start;
+  color: #c53030;
+  background: color-mix(in srgb, #e53e3e 9%, transparent);
+  border-color: color-mix(in srgb, #e53e3e 18%, transparent);
+}
+
+.ai-btn-stop:hover:not(:disabled) {
+  background: color-mix(in srgb, #e53e3e 14%, transparent);
+}
+
+.ai-btn-ghost {
+  color: var(--ink-text-muted);
+  background: transparent;
+  border-color: var(--ink-border);
+}
+
+.ai-btn-ghost:hover:not(:disabled) {
+  color: var(--ink-text);
+  background: var(--ink-accent-soft);
+  border-color: color-mix(in srgb, var(--ink-accent) 20%, var(--ink-border));
+}
+
+.ai-input-area {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 12px;
+  border-top: 1px solid var(--ink-border);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--ink-surface) 76%, transparent), var(--ink-surface)),
+    var(--ink-surface);
+  box-shadow: 0 -10px 20px color-mix(in srgb, var(--ink-shadow) 18%, transparent);
+}
+
+.ai-input {
+  width: 100%;
+  min-height: 84px;
+  max-height: 150px;
+  padding: 10px 11px;
+  resize: vertical;
+  color: var(--ink-text);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  border: 1px solid var(--ink-border-strong);
+  border-radius: var(--ai-radius);
+  outline: none;
+  background: color-mix(in srgb, var(--ink-bg) 84%, var(--ink-surface));
+  box-shadow: inset 0 1px 0 var(--ink-inset);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.ai-input::placeholder {
+  color: color-mix(in srgb, var(--ink-text-muted) 76%, transparent);
+}
+
+.ai-input:focus {
+  border-color: color-mix(in srgb, var(--ink-accent) 70%, var(--ink-border));
+  background: var(--ink-surface);
+  box-shadow:
+    inset 0 1px 0 var(--ink-inset),
+    0 0 0 3px color-mix(in srgb, var(--ink-accent-soft) 80%, transparent);
+}
+
+.ai-input:disabled {
+  opacity: 0.62;
+}
+
+.ai-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-input-meta {
+  color: var(--ink-text-muted);
+  font-size: 10px;
 }
 
 @keyframes ai-send-spin {
@@ -1303,73 +1513,25 @@ onMounted(() => {
   }
 }
 
-.ai-btn-stop {
-  background: var(--ink-border-strong);
-  color: var(--ink-text-muted);
-  align-self: flex-start;
+@keyframes ai-progress {
+  0% {
+    background-position: -80px 0, 0 0;
+  }
+
+  100% {
+    background-position: calc(100% + 80px) 0, 0 0;
+  }
 }
 
-.ai-btn-stop:hover {
-  background: var(--ink-accent-soft);
-  color: var(--ink-text);
-}
+@media (prefers-reduced-motion: reduce) {
+  .ai-loading-box::before,
+  .ai-send-spinner {
+    animation: none;
+  }
 
-.ai-btn-apply {
-  background: var(--ink-accent);
-  color: #fff;
-}
-
-.ai-btn-apply:hover {
-  opacity: 0.85;
-}
-
-.ai-btn-ghost {
-  background: transparent;
-  color: var(--ink-text-muted);
-}
-
-.ai-btn-ghost:hover {
-  background: var(--ink-accent-soft);
-  color: var(--ink-text);
-}
-
-.ai-input-area {
-  border-top: 1px solid var(--ink-border);
-  padding: 12px;
-  background: var(--ink-surface);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.ai-input {
-  width: 100%;
-  min-height: 60px;
-  max-height: 120px;
-  padding: 8px 10px;
-  font-size: 12px;
-  font-family: inherit;
-  line-height: 1.5;
-  background: var(--ink-bg);
-  border: 1px solid var(--ink-border-strong);
-  border-radius: 8px;
-  color: var(--ink-text);
-  resize: vertical;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.ai-input:focus {
-  border-color: var(--ink-accent);
-}
-
-.ai-input:disabled {
-  opacity: 0.6;
-}
-
-.ai-actions {
-  display: flex;
-  justify-content: flex-end;
+  .ai-btn,
+  .conversation-history-item {
+    transition: none;
+  }
 }
 </style>

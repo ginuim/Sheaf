@@ -5,6 +5,8 @@ import { buildEditorContextText } from "./context";
 import { extractReadableTextFromHtml } from "./extract-web";
 import { fetchWebResource, resolveWebFetchMode } from "./web-transport";
 import { formatWebSearchForAgent, runWebSearch } from "./web-search";
+import { generateImageFromConfig } from "./image-generation";
+import { saveGeneratedImageAsset } from "./save-generated-image";
 import type { AgentToolRuntime, WorkspaceNote } from "./types";
 import { validateEditChanges } from "./validate-edits";
 
@@ -199,6 +201,46 @@ export function createSheafAgentTools(runtime: AgentToolRuntime) {
         }
       },
     }),
+
+    ...(runtime.imageModel
+      ? {
+          generate_image: tool({
+            description:
+              "根据文字描述生成图片。返回可插入文档的 Markdown 图片语法；需要写入文档时请再调用 append_content。",
+            inputSchema: z.object({
+              prompt: z.string().min(1).describe("图片描述"),
+              alt: z.string().optional().describe("图片 alt 文本"),
+              aspectRatio: z
+                .enum(["1:1", "16:9", "9:16", "4:3", "3:4"])
+                .optional()
+                .describe("宽高比，默认 1:1"),
+            }),
+            execute: async ({ prompt, alt, aspectRatio }) => {
+              try {
+                const generated = await generateImageFromConfig(runtime.imageModel!, prompt, {
+                  aspectRatio,
+                });
+                const saved = await saveGeneratedImageAsset(
+                  runtime.documentPath,
+                  generated,
+                  alt?.trim() || "生成的图片",
+                );
+                return {
+                  ok: true,
+                  model: runtime.imageModel!.model,
+                  markdown: saved.markdown,
+                  src: saved.src,
+                  savedPath: saved.savedPath,
+                  summary: "图片已生成",
+                };
+              } catch (error) {
+                const message = error instanceof Error ? error.message : "生图失败";
+                return { ok: false, error: message };
+              }
+            },
+          }),
+        }
+      : {}),
 
     ...(runtime.webSearch.enabled
       ? {
