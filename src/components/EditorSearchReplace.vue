@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { nextTick, ref } from "vue";
 import { CaseSensitive, ChevronDown, ChevronUp, Replace } from "@lucide/vue";
+import { useLocale } from "../composables/useLocale";
+
+const { t } = useLocale();
 
 defineProps<{
   searchText: string;
@@ -84,7 +87,7 @@ defineExpose({
   <div
     class="search-bar"
     role="search"
-    aria-label="在文档中搜索"
+    :aria-label="t('search.ariaLabel')"
     @keydown.stop
   >
     <div class="search-row">
@@ -93,7 +96,7 @@ defineExpose({
         :value="searchText"
         class="search-input"
         type="search"
-        placeholder="搜索..."
+        :placeholder="t('search.placeholder')"
         autocomplete="off"
         spellcheck="false"
         @input="emit('update:searchText', ($event.target as HTMLInputElement).value)"
@@ -106,8 +109,8 @@ defineExpose({
         type="button"
         class="search-btn"
         :class="{ 'search-btn--active': caseSensitive }"
-        title="区分大小写"
-        aria-label="区分大小写"
+        :title="t('search.caseSensitive')"
+        :aria-label="t('search.caseSensitive')"
         :aria-pressed="caseSensitive"
         @click="toggleCaseSensitive(caseSensitive)"
       >
@@ -116,8 +119,8 @@ defineExpose({
       <button
         type="button"
         class="search-btn"
-        title="上一个 (Shift+Enter)"
-        aria-label="上一个匹配"
+        :title="t('search.previous')"
+        :aria-label="t('search.previousMatch')"
         :disabled="!hasMatches"
         @click="emit('findPrevious')"
       >
@@ -126,8 +129,8 @@ defineExpose({
       <button
         type="button"
         class="search-btn"
-        title="下一个 (Enter)"
-        aria-label="下一个匹配"
+        :title="t('search.next')"
+        :aria-label="t('search.nextMatch')"
         :disabled="!hasMatches"
         @click="emit('findNext')"
       >
@@ -137,8 +140,8 @@ defineExpose({
         type="button"
         class="search-btn"
         :class="{ 'search-btn--active': replaceOpen }"
-        title="显示替换"
-        aria-label="显示替换"
+        :title="t('search.showReplace')"
+        :aria-label="t('search.showReplace')"
         :aria-pressed="replaceOpen"
         @click="toggleReplace(replaceOpen)"
       >
@@ -147,8 +150,8 @@ defineExpose({
       <button
         type="button"
         class="search-close"
-        title="关闭 (Esc)"
-        aria-label="关闭搜索"
+        :title="t('search.close')"
+        :aria-label="t('search.closeSearch')"
         @click="emit('close')"
       >
         ×
@@ -160,7 +163,7 @@ defineExpose({
         :value="replaceText"
         class="search-input"
         type="text"
-        placeholder="替换为..."
+        :placeholder="t('search.replacePlaceholder')"
         autocomplete="off"
         spellcheck="false"
         @input="emit('update:replaceText', ($event.target as HTMLInputElement).value)"
@@ -172,7 +175,7 @@ defineExpose({
         :disabled="!hasMatches"
         @click="emit('replaceNext')"
       >
-        替换
+        {{ t("search.replace") }}
       </button>
       <button
         type="button"
@@ -180,7 +183,7 @@ defineExpose({
         :disabled="!hasMatches"
         @click="emit('replaceAll')"
       >
-        全部
+        {{ t("search.replaceAll") }}
       </button>
     </div>
   </div>

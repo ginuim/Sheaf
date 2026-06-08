@@ -1,4 +1,5 @@
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
+import { translate } from "./useLocale";
 
 export type AppMenuHandlers = {
   onNew: () => void;
@@ -33,7 +34,7 @@ export async function refreshRecentMenu(paths: string[]) {
     await recentSubmenu.append(
       await MenuItem.new({
         id: "recent-empty",
-        text: "（无最近文档）",
+        text: translate("menu.recentEmpty"),
         enabled: false,
       }),
     );
@@ -57,7 +58,7 @@ export async function refreshRecentMenu(paths: string[]) {
   await recentSubmenu.append(
     await MenuItem.new({
       id: "recent-clear",
-      text: "清除菜单",
+      text: translate("menu.clearRecent"),
       action: () => handlers!.onClearRecent(),
     }),
   );
@@ -67,22 +68,22 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
   handlers = menuHandlers;
 
   recentSubmenu = await Submenu.new({
-    text: "打开最近使用",
+    text: translate("menu.openRecent"),
     items: [],
   });
 
   const fileSubmenu = await Submenu.new({
-    text: "文件",
+    text: translate("menu.file"),
     items: [
       await MenuItem.new({
         id: "file-new",
-        text: "新建",
+        text: translate("menu.new"),
         accelerator: "CmdOrCtrl+N",
         action: () => handlers!.onNew(),
       }),
       await MenuItem.new({
         id: "file-open",
-        text: "打开…",
+        text: translate("menu.open"),
         accelerator: "CmdOrCtrl+O",
         action: () => handlers!.onOpen(),
       }),
@@ -90,31 +91,31 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "file-save",
-        text: "保存",
+        text: translate("menu.save"),
         accelerator: "CmdOrCtrl+S",
         action: () => handlers!.onSave(),
       }),
       await MenuItem.new({
         id: "file-save-as",
-        text: "另存为…",
+        text: translate("menu.saveAs"),
         accelerator: "CmdOrCtrl+Shift+S",
         action: () => handlers!.onSaveAs(),
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "file-export-pdf",
-        text: "导出 PDF",
+        text: translate("menu.exportPdf"),
         action: () => handlers!.onExportPdf(),
       }),
       await MenuItem.new({
         id: "file-copy-wechat-html",
-        text: "复制公众号 HTML",
+        text: translate("menu.copyWechatHtml"),
         action: () => handlers!.onCopyWechatHtml(),
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "file-settings",
-        text: "设置…",
+        text: translate("menu.settings"),
         accelerator: "CmdOrCtrl+,",
         action: () => handlers!.onOpenSettings(),
       }),
@@ -122,7 +123,7 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
   });
 
   const editSubmenu = await Submenu.new({
-    text: "编辑",
+    text: translate("menu.edit"),
     items: [
       await PredefinedMenuItem.new({ item: "Undo" }),
       await PredefinedMenuItem.new({ item: "Redo" }),
@@ -134,7 +135,7 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "edit-format-cjk-spacing",
-        text: "格式化中英文间距",
+        text: translate("menu.formatSpacing"),
         accelerator: "CmdOrCtrl+Shift+Space",
         action: () => handlers!.onFormatSpacing(),
       }),
@@ -142,11 +143,11 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
   });
 
   const helpSubmenu = await Submenu.new({
-    text: "帮助",
+    text: translate("menu.help"),
     items: [
       await MenuItem.new({
         id: "help-about",
-        text: "关于 Sheaf…",
+        text: translate("menu.about"),
         action: () => handlers!.onOpenAbout(),
       }),
     ],
@@ -159,11 +160,11 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
   if (isMac) {
     menuItems.push(
       await Submenu.new({
-        text: "Sheaf",
+        text: translate("app.title"),
         items: [
           await MenuItem.new({
             id: "app-about",
-            text: "关于 Sheaf…",
+            text: translate("menu.about"),
             action: () => handlers!.onOpenAbout(),
           }),
           await PredefinedMenuItem.new({ item: "Separator" }),
@@ -171,7 +172,7 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
           await PredefinedMenuItem.new({ item: "Separator" }),
           await MenuItem.new({
             id: "app-settings",
-            text: "设置…",
+            text: translate("menu.settings"),
             accelerator: "CmdOrCtrl+,",
             action: () => handlers!.onOpenSettings(),
           }),

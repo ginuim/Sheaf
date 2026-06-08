@@ -2,8 +2,9 @@
 import { computed, ref } from "vue";
 import {
   useTheme,
-  type ThemePreference,
 } from "../composables/useTheme";
+import { useLocale } from "../composables/useLocale";
+import type { AppLocale } from "../i18n";
 import { useAI } from "../composables/useAI";
 import { useExportTypography } from "../composables/useExportTypography";
 import AiProviderSettingsPanel from "./AiProviderSettingsPanel.vue";
@@ -17,6 +18,7 @@ const emit = defineEmits<{
 }>();
 
 const { preference, setPreference } = useTheme();
+const { locale, setLocale, t } = useLocale();
 const { settings: aiSettings } = useAI();
 const { settings: exportTypographySettings } = useExportTypography();
 
@@ -24,25 +26,30 @@ type SettingsTab = "appearance" | "ai";
 
 const activeTab = ref<SettingsTab>("appearance");
 
-const tabs: { id: SettingsTab; label: string; icon: string }[] = [
-  { id: "appearance", label: "外观", icon: "◐" },
-  { id: "ai", label: "AI", icon: "✦" },
-];
+const tabs = computed(() => [
+  { id: "appearance" as const, label: t("settings.tabs.appearance"), icon: "◐" },
+  { id: "ai" as const, label: t("settings.tabs.ai"), icon: "✦" },
+]);
 
-const appearanceOptions: { id: ThemePreference; label: string; hint: string }[] = [
-  { id: "light", label: "浅色", hint: "始终使用浅色外观" },
-  { id: "dark", label: "深色", hint: "始终使用深色外观" },
-  { id: "system", label: "跟随系统", hint: "随系统外观自动切换" },
+const appearanceOptions = computed(() => [
+  { id: "light" as const, label: t("settings.appearance.themeLight"), hint: t("settings.appearance.themeLightHint") },
+  { id: "dark" as const, label: t("settings.appearance.themeDark"), hint: t("settings.appearance.themeDarkHint") },
+  { id: "system" as const, label: t("settings.appearance.themeSystem"), hint: t("settings.appearance.themeSystemHint") },
+]);
+
+const languageOptions: { id: AppLocale; label: string }[] = [
+  { id: "zh-CN", label: "中文" },
+  { id: "en", label: "English" },
 ];
 
 const activeHint = computed(
-  () => appearanceOptions.find((option) => option.id === preference.value)?.hint ?? "",
+  () => appearanceOptions.value.find((option) => option.id === preference.value)?.hint ?? "",
 );
 
-const tabTitles: Record<SettingsTab, string> = {
-  appearance: "外观",
-  ai: "AI",
-};
+const tabTitles = computed<Record<SettingsTab, string>>(() => ({
+  appearance: t("settings.tabs.appearance"),
+  ai: t("settings.tabs.ai"),
+}));
 </script>
 
 <template>
@@ -54,7 +61,7 @@ const tabTitles: Record<SettingsTab, string> = {
         aria-modal="true"
         aria-labelledby="settings-title"
       >
-        <nav class="settings-tabs" aria-label="设置分类">
+        <nav class="settings-tabs" :aria-label="t('settings.categories')">
           <button
             v-for="tab in tabs"
             :key="tab.id"
@@ -75,10 +82,30 @@ const tabTitles: Record<SettingsTab, string> = {
           <section v-if="activeTab === 'appearance'" class="settings-section">
             <div class="setting-row">
               <div class="setting-label">
-                <span class="setting-name">主题</span>
+                <span class="setting-name">{{ t("settings.appearance.language") }}</span>
+                <span class="setting-desc">{{ t("settings.appearance.languageDesc") }}</span>
+              </div>
+              <div class="segmented" role="radiogroup" :aria-label="t('settings.appearance.language')">
+                <button
+                  v-for="option in languageOptions"
+                  :key="option.id"
+                  class="segment-btn"
+                  :class="{ active: locale === option.id }"
+                  role="radio"
+                  :aria-checked="locale === option.id"
+                  @click="setLocale(option.id)"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">{{ t("settings.appearance.theme") }}</span>
                 <span class="setting-desc">{{ activeHint }}</span>
               </div>
-              <div class="segmented" role="radiogroup" aria-label="主题">
+              <div class="segmented" role="radiogroup" :aria-label="t('settings.appearance.theme')">
                 <button
                   v-for="option in appearanceOptions"
                   :key="option.id"
@@ -95,14 +122,18 @@ const tabTitles: Record<SettingsTab, string> = {
 
             <div class="setting-row">
               <div class="setting-label">
-                <span class="setting-name">中英文间距</span>
+                <span class="setting-name">{{ t("settings.appearance.chineseEnglishSpacing") }}</span>
                 <span class="setting-desc">
-                  在中文与英文、数字之间自动补齐排版间隙。它会影响正文预览、公众号导出、小红书卡片和 PDF。
+                  {{ t("settings.appearance.chineseEnglishSpacingDesc") }}
                 </span>
               </div>
               <label class="toggle">
                 <input v-model="exportTypographySettings.chineseEnglishSpacing" type="checkbox" />
-                <span>{{ exportTypographySettings.chineseEnglishSpacing ? "开启" : "关闭" }}</span>
+                <span>{{
+                  exportTypographySettings.chineseEnglishSpacing
+                    ? t("settings.appearance.on")
+                    : t("settings.appearance.off")
+                }}</span>
               </label>
             </div>
           </section>
@@ -120,7 +151,7 @@ const tabTitles: Record<SettingsTab, string> = {
 .settings-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 10001;
   display: flex;
   align-items: center;
   justify-content: center;

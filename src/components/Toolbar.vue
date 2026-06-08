@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { computed, ref, onMounted, onUnmounted } from "vue";
 import { ChevronDown, FilePlus, FolderOpen, History, ListTree, Save, WholeWord } from "@lucide/vue";
+import { useLocale } from "../composables/useLocale";
 
 export type ViewMode = "split" | "edit" | "preview";
 
@@ -33,11 +34,13 @@ const emit = defineEmits<{
   "update:viewMode": [mode: ViewMode];
 }>();
 
-const modes: { id: ViewMode; label: string }[] = [
-  { id: "split", label: "分屏" },
-  { id: "edit", label: "编辑" },
-  { id: "preview", label: "预览" },
-];
+const { t } = useLocale();
+
+const modes = computed(() => [
+  { id: "split" as const, label: t("toolbar.viewSplit") },
+  { id: "edit" as const, label: t("toolbar.viewEdit") },
+  { id: "preview" as const, label: t("toolbar.viewPreview") },
+]);
 
 const exportMenuOpen = ref(false);
 const exportMenuRef = ref<HTMLElement | null>(null);
@@ -75,32 +78,32 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
     <div class="toolbar-left">
       <button
         class="btn btn-icon"
-        title="新建文档 (⌘N)"
-        aria-label="新建文档"
+        :title="`${t('toolbar.newDoc')} (⌘N)`"
+        :aria-label="t('toolbar.newDoc')"
         @click="emit('newDoc')"
       >
         <FilePlus :size="iconSize" aria-hidden="true" />
       </button>
       <button
         class="btn btn-icon"
-        title="打开文件 (⌘O)"
-        aria-label="打开文件"
+        :title="`${t('toolbar.openFile')} (⌘O)`"
+        :aria-label="t('toolbar.openFile')"
         @click="emit('open')"
       >
         <FolderOpen :size="iconSize" aria-hidden="true" />
       </button>
       <button
         class="btn btn-icon"
-        title="保存 (⌘S)"
-        aria-label="保存"
+        :title="`${t('toolbar.save')} (⌘S)`"
+        :aria-label="t('toolbar.save')"
         @click="emit('save')"
       >
         <Save :size="iconSize" aria-hidden="true" />
       </button>
       <button
         class="btn btn-icon"
-        title="格式化中英文间距 (⌘⇧Space)"
-        aria-label="格式化中英文间距"
+        :title="`${t('toolbar.formatSpacing')} (⌘⇧Space)`"
+        :aria-label="t('toolbar.formatSpacing')"
         @click="emit('formatSpacing')"
       >
         <WholeWord :size="iconSize" aria-hidden="true" />
@@ -118,8 +121,8 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
         class="btn btn-icon btn-ghost versions-toggle"
         :class="{ active: showVersions }"
         :disabled="!hasVersions"
-        title="历史版本"
-        aria-label="历史版本"
+        :title="t('toolbar.versionHistory')"
+        :aria-label="t('toolbar.versionHistory')"
         @click="emit('toggleVersions')"
       >
         <History :size="iconSize" aria-hidden="true" />
@@ -127,7 +130,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
       <button
         class="btn btn-ghost ai-toggle"
         :class="{ active: showAI }"
-        title="AI 编辑 (⌘⇧A)"
+        :title="`${t('toolbar.aiEdit')} (⌘⇧A)`"
         @click="emit('toggleAI')"
       >
         AI
@@ -136,12 +139,12 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
         <button
           class="btn btn-ghost export-toggle"
           :class="{ active: showExport || exportMenuOpen }"
-          title="导出"
+          :title="t('toolbar.export')"
           aria-haspopup="menu"
           :aria-expanded="exportMenuOpen"
           @click.stop="toggleExportMenu"
         >
-          <span>导出</span>
+          <span>{{ t("toolbar.export") }}</span>
           <ChevronDown
             :size="14"
             class="export-chevron"
@@ -155,7 +158,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
             role="menuitem"
             @click="onOpenSocialExport"
           >
-            导出到社交媒体
+            {{ t("toolbar.exportSocial") }}
           </button>
           <button
             class="export-dropdown-item"
@@ -163,28 +166,28 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
             :disabled="exporting"
             @click="onExportPdf"
           >
-            {{ exporting ? "导出中…" : "导出 PDF" }}
+            {{ exporting ? t("toolbar.exporting") : t("toolbar.exportPdf") }}
           </button>
         </div>
       </div>
       <button
         class="btn btn-icon btn-ghost outline-toggle"
         :class="{ active: showOutline }"
-        title="章节大纲"
-        aria-label="章节大纲"
+        :title="t('toolbar.outline')"
+        :aria-label="t('toolbar.outline')"
         @click="emit('toggleOutline')"
       >
         <ListTree :size="iconSize" aria-hidden="true" />
       </button>
       <button
         class="btn btn-icon theme-toggle"
-        :title="isDark ? '切换浅色模式' : '切换暗色模式'"
-        :aria-label="isDark ? '切换浅色模式' : '切换暗色模式'"
+        :title="isDark ? t('toolbar.themeLight') : t('toolbar.themeDark')"
+        :aria-label="isDark ? t('toolbar.themeLight') : t('toolbar.themeDark')"
         @click="emit('toggleTheme')"
       >
         {{ isDark ? "☀" : "☾" }}
       </button>
-      <div class="view-switch" role="group" aria-label="视图模式">
+      <div class="view-switch" role="group" :aria-label="t('toolbar.viewMode')">
         <button
           v-for="mode in modes"
           :key="mode.id"

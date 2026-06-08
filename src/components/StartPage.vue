@@ -2,6 +2,9 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { getMissingRecent } from "../composables/useRecentFiles";
 import { formatDraftUpdatedAt, type UnsavedDraft } from "../composables/useDraftRecovery";
+import { useLocale } from "../composables/useLocale";
+
+const { t } = useLocale();
 
 const props = defineProps<{
   recentFiles: string[];
@@ -45,31 +48,31 @@ function parentPath(path: string): string {
 </script>
 
 <template>
-  <section class="start-page" aria-label="开始">
+  <section class="start-page" :aria-label="t('startPage.ariaLabel')">
     <div class="start-panel">
       <div class="start-main">
         <p class="eyebrow">Sheaf</p>
-        <h1>开始写作</h1>
+        <h1>{{ t("startPage.title") }}</h1>
         <p class="intro">
-          新建一篇 Markdown，或打开本地文件继续排版和导出。
+          {{ t("startPage.intro") }}
         </p>
 
         <p v-if="recoverableDraft" class="recovery-hint">
-          <span>发现未保存的「{{ recoveryTitle }}」</span>
+          <span>{{ t("startPage.unsavedDraft", { title: recoveryTitle }) }}</span>
           <span class="recovery-time">{{ formatDraftUpdatedAt(recoverableDraft.updatedAt) }}</span>
-          <button class="recovery-link" type="button" @click="emit('recoverDraft')">继续编辑</button>
+          <button class="recovery-link" type="button" @click="emit('recoverDraft')">{{ t("startPage.continueEdit") }}</button>
           <span class="recovery-sep" aria-hidden="true">·</span>
           <button class="recovery-link recovery-link-muted" type="button" @click="emit('discardDraft')">
-            放弃
+            {{ t("startPage.discard") }}
           </button>
         </p>
 
         <div class="actions">
           <button class="primary-action" @click="emit('newDoc')">
-            新建文档
+            {{ t("startPage.newDoc") }}
           </button>
           <button class="secondary-action" @click="emit('open')">
-            打开 Markdown
+            {{ t("startPage.openMarkdown") }}
           </button>
         </div>
       </div>
@@ -77,20 +80,20 @@ function parentPath(path: string): string {
       <div class="recent-section">
         <div class="recent-header">
           <div>
-            <h2>最近文档</h2>
-            <p>只记录路径，不接管你的文件。</p>
+            <h2>{{ t("startPage.recentDocs") }}</h2>
+            <p>{{ t("startPage.recentHint") }}</p>
           </div>
           <button
             v-if="recentFiles.length > 0"
             class="clear-btn"
             @click="emit('clearRecent')"
           >
-            清除
+            {{ t("startPage.clear") }}
           </button>
         </div>
 
         <div v-if="recentFiles.length === 0" class="empty-recent">
-          暂无最近文档
+          {{ t("startPage.noRecent") }}
         </div>
         <div
           v-for="path in recentFiles"
@@ -106,7 +109,7 @@ function parentPath(path: string): string {
             <span class="recent-name-row">
               <span class="recent-name">{{ fileName(path) }}</span>
               <span v-if="missingPaths.has(path)" class="recent-missing-badge">
-                找不到文件
+                {{ t("startPage.fileMissing") }}
               </span>
             </span>
             <span class="recent-path">{{ parentPath(path) }}</span>
@@ -114,8 +117,8 @@ function parentPath(path: string): string {
           <button
             type="button"
             class="recent-remove"
-            title="从列表移除"
-            aria-label="从列表移除"
+            :title="t('startPage.removeFromList')"
+            :aria-label="t('startPage.removeFromList')"
             @click="emit('removeRecent', path)"
           >
             <svg

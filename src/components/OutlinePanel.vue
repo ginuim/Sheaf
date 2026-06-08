@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import type { OutlineItem } from "../composables/useOutline";
+import { useLocale } from "../composables/useLocale";
 
 const DEFAULT_PANEL_WIDTH = 220;
 const MIN_PANEL_WIDTH = 180;
 const MAX_PANEL_WIDTH = 420;
 const PANEL_WIDTH_STORAGE_KEY = "sheaf:outline-panel-width";
+
+const { t } = useLocale();
 
 defineProps<{
   items: OutlineItem[];
@@ -115,18 +118,18 @@ onUnmounted(() => {
     <div
       class="outline-resize-handle"
       role="separator"
-      aria-label="调整章节面板宽度"
+      :aria-label="t('outline.resize')"
       aria-orientation="vertical"
       :aria-valuemin="MIN_PANEL_WIDTH"
       :aria-valuemax="MAX_PANEL_WIDTH"
       :aria-valuenow="panelWidth"
       tabindex="0"
-      title="拖拽调整章节面板宽度"
+      :title="t('outline.resizeTitle')"
       @pointerdown="startResize"
       @keydown="onResizeKeydown"
     />
-    <header class="outline-header">章节大纲</header>
-    <nav v-if="items.length" class="outline-nav" aria-label="章节大纲">
+    <header class="outline-header">{{ t("outline.title") }}</header>
+    <nav v-if="items.length" class="outline-nav" :aria-label="t('outline.title')">
       <button
         v-for="item in items"
         :key="`${item.line}-${item.id}`"
@@ -138,7 +141,7 @@ onUnmounted(() => {
         {{ item.text }}
       </button>
     </nav>
-    <p v-else class="outline-empty">文档中暂无标题</p>
+    <p v-else class="outline-empty">{{ t("outline.empty") }}</p>
   </aside>
 </template>
 

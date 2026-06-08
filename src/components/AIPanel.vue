@@ -25,7 +25,10 @@ import {
   type AIHistoryItem,
 } from "../composables/useAI";
 import { useDocumentVersions } from "../composables/useDocumentVersions";
+import { useLocale } from "../composables/useLocale";
 import AgentActivityList from "./AgentActivityList.vue";
+
+const { t } = useLocale();
 
 const iconSize = 14;
 const DEFAULT_PANEL_WIDTH = 320;
@@ -151,7 +154,7 @@ async function submit() {
       const readWorkspaceFile =
         props.readWorkspaceFile ??
         (async () => {
-          throw new Error("读取其他笔记仅在桌面版可用");
+          throw new Error(t("ai.desktopOnlyRead"));
         });
 
       const result = await runAgent(text, props.doc, {
@@ -189,7 +192,7 @@ async function submit() {
           target.status = "no-changes";
           target.noChangesHint = undefined;
         } else {
-          target.noChangesHint = "Agent 未返回可应用的内容";
+          target.noChangesHint = t("ai.noChangesHint");
           target.status = "no-changes";
         }
       }
@@ -237,7 +240,7 @@ async function submit() {
 }
 
 function applyItemChanges(item: AIHistoryItem) {
-  const labelBase = item.instruction.trim().slice(0, 24) || "AI 修改";
+  const labelBase = item.instruction.trim().slice(0, 24) || t("ai.editLabel");
   const nextDoc = applyChangesToDoc(props.doc, item.changes);
   emit("apply", item.changes);
   item.status = "applied";
@@ -302,7 +305,7 @@ function formatShortTime(timestamp: number): string {
 }
 
 function conversationTurnLabel(count: number) {
-  return count === 0 ? "暂无轮次" : `${count} 轮`;
+  return count === 0 ? t("ai.noRounds") : t("ai.roundCount", { count });
 }
 
 function formatTime(timestamp: number): string {
@@ -324,23 +327,23 @@ function getChangeDiff(change: EditChange, originalDoc: string) {
 }
 
 function statusLabel(item: AIHistoryItem) {
-  if (item.status === "applied") return "已应用";
-  if (item.status === "done") return "待应用";
-  if (item.status === "no-changes") return "无修改";
-  if (item.status === "error") return "出错";
-  if (item.status === "discarded") return "已忽略";
-  if (item.status === "loading") return "生成中";
+  if (item.status === "applied") return t("ai.statusApplied");
+  if (item.status === "done") return t("ai.statusDone");
+  if (item.status === "no-changes") return t("ai.statusNoChanges");
+  if (item.status === "error") return t("ai.statusError");
+  if (item.status === "discarded") return t("ai.statusDiscarded");
+  if (item.status === "loading") return t("ai.statusLoading");
   return "";
 }
 
 function diffSummaryLabel(item: AIHistoryItem) {
   const { added, removed, changeCount } = summarizeItemDiff(item);
-  if (changeCount === 0) return "点击查看详情";
+  if (changeCount === 0) return t("ai.viewDetails");
   const parts: string[] = [];
-  if (changeCount > 1) parts.push(`${changeCount} 处修改`);
+  if (changeCount > 1) parts.push(t("ai.changeCount", { count: changeCount }));
   if (added > 0) parts.push(`+${added}`);
   if (removed > 0) parts.push(`-${removed}`);
-  return parts.join(" · ") || "点击查看 diff";
+  return parts.join(" · ") || t("ai.viewDiffHint");
 }
 
 function clampPanelWidth(width: number) {
@@ -434,20 +437,20 @@ onUnmounted(() => {
     <div
       class="ai-resize-handle"
       role="separator"
-      aria-label="调整 AI 面板宽度"
+      :aria-label="t('ai.resize')"
       aria-orientation="vertical"
       :aria-valuemin="MIN_PANEL_WIDTH"
       :aria-valuemax="MAX_PANEL_WIDTH"
       :aria-valuenow="panelWidth"
       tabindex="0"
-      title="拖拽调整 AI 面板宽度"
+      :title="t('ai.resizeTitle')"
       @pointerdown="startResize"
       @keydown="onResizeKeydown"
     />
     <header class="ai-header">
       <div class="ai-brand">
         <span class="ai-brand-icon"><Bot :size="15" aria-hidden="true" /></span>
-        <span class="ai-title">AI 助手</span>
+        <span class="ai-title">{{ t("ai.title") }}</span>
       </div>
       <div class="ai-mode-toggle">
         <button
@@ -468,14 +471,14 @@ onUnmounted(() => {
           @click="aiMode = 'quick'"
         >
           <GitCompare :size="12" aria-hidden="true" />
-          快速
+          {{ t("ai.quick") }}
         </button>
       </div>
       <div class="ai-header-actions">
         <button
           type="button"
           class="ai-header-btn"
-          title="开始新的 AI 对话"
+          :title="t('ai.newConversation')"
           :disabled="isLoading"
           @click="handleStartNewConversation"
         >
@@ -485,7 +488,7 @@ onUnmounted(() => {
           v-if="historyList.length > 0"
           type="button"
           class="ai-header-btn"
-          title="清空对话记录与版本快照"
+          :title="t('ai.clearHistory')"
           :disabled="isLoading"
           @click="clearHistory"
         >
@@ -498,7 +501,7 @@ onUnmounted(() => {
       <section v-if="pastConversationSummaries.length > 0" class="conversation-history">
         <div class="conversation-history-title">
           <Clock3 :size="12" aria-hidden="true" />
-          历史对话
+          {{ t("ai.history") }}
         </div>
         <button
           v-for="conversation in pastConversationSummaries"
@@ -516,8 +519,8 @@ onUnmounted(() => {
       </section>
 
       <div v-if="visibleHistoryList.length === 0" class="ai-empty">
-        <div class="ai-empty-title">当前对话暂无记录</div>
-        <div class="ai-empty-desc">在下方输入指令开始对话。之前的对话会保留在「历史对话」列表中，可随时切换查看。</div>
+        <div class="ai-empty-title">{{ t("ai.emptyTitle") }}</div>
+        <div class="ai-empty-desc">{{ t("ai.emptyDesc") }}</div>
       </div>
 
       <div
@@ -528,7 +531,7 @@ onUnmounted(() => {
       >
         <div class="card-header">
           <div class="card-instruction" :title="item.instruction">
-            <span class="user-tag">指令</span>
+            <span class="user-tag">{{ t("ai.instruction") }}</span>
             {{ item.instruction }}
           </div>
           <div class="card-meta">
@@ -540,7 +543,7 @@ onUnmounted(() => {
         <div class="card-body">
           <div v-if="item.status === 'loading'" class="ai-loading-box">
             <span class="ai-loading-text">
-              {{ item.mode === 'agent' ? 'Agent 执行中…' : '正在生成修改…' }}
+              {{ item.mode === 'agent' ? t('ai.agentRunning') : t('ai.generating') }}
             </span>
             <AgentActivityList
               v-if="item.agentActivities?.length"
@@ -549,21 +552,21 @@ onUnmounted(() => {
             <pre v-else-if="item.mode === 'agent' && item.rawResponse" class="agent-stream-preview">{{ item.rawResponse }}</pre>
             <button class="ai-btn ai-btn-stop" type="button" @click="stop">
               <Square :size="12" aria-hidden="true" />
-              停止
+              {{ t("ai.stop") }}
             </button>
           </div>
 
           <div v-else-if="item.status === 'error'" class="ai-error-box">
-            <span class="error-label">出错</span>
+            <span class="error-label">{{ t("ai.error") }}</span>
             <div class="error-msg">{{ item.errorMsg }}</div>
           </div>
 
           <div v-else-if="item.status === 'no-changes'" class="ai-muted-box">
             <span class="muted-label">
-              {{ item.assistantText && item.mode === 'agent' ? '回复' : '评估无需修改' }}
+              {{ item.assistantText && item.mode === 'agent' ? t('ai.reply') : t('ai.noChangesNeeded') }}
             </span>
             <div class="muted-msg agent-reply-text">
-              {{ item.assistantText || item.noChangesHint || "原文已符合要求，未做任何改动。" }}
+              {{ item.assistantText || item.noChangesHint || t("ai.noChangesDefault") }}
             </div>
             <AgentActivityList
               v-if="item.agentActivities?.length"
@@ -573,7 +576,7 @@ onUnmounted(() => {
           </div>
 
           <div v-else-if="item.status === 'discarded'" class="ai-muted-box">
-            <span class="muted-label">已忽略</span>
+            <span class="muted-label">{{ t("ai.discarded") }}</span>
           </div>
 
           <div v-else-if="item.status === 'done' || item.status === 'applied'" class="ai-diff-box">
@@ -590,7 +593,7 @@ onUnmounted(() => {
               @click="toggleDiff(item)"
             >
               <span class="diff-toggle-label">
-                {{ expandedDiffId === item.id ? "收起 diff" : "查看 diff" }}
+                {{ expandedDiffId === item.id ? t("ai.collapseDiff") : t("ai.viewDiff") }}
               </span>
               <span class="diff-toggle-summary">{{ diffSummaryLabel(item) }}</span>
               <span class="diff-toggle-chevron" :class="{ expanded: expandedDiffId === item.id }">›</span>
@@ -598,7 +601,7 @@ onUnmounted(() => {
 
             <div v-if="expandedDiffId === item.id" class="diff-container">
               <div v-if="isFullDocChange(item.changes, item.originalDoc)" class="diff-block">
-                <div class="diff-title">全文修改（已折叠相同行）</div>
+                <div class="diff-title">{{ t("ai.fullDocDiff") }}</div>
                 <div class="diff-lines">
                   <div
                     v-for="(line, idx) in getFullDocDiff(item)"
@@ -614,13 +617,13 @@ onUnmounted(() => {
               </div>
 
               <div v-else class="diff-block">
-                <div class="diff-title">找到 {{ item.changes.length }} 处修改</div>
+                <div class="diff-title">{{ t("ai.changePoints", { count: item.changes.length }) }}</div>
                 <div
                   v-for="(change, idx) in item.changes"
                   :key="idx"
                   class="diff-sub-block"
                 >
-                  <div class="diff-sub-title">修改点 {{ idx + 1 }}</div>
+                  <div class="diff-sub-title">{{ t("ai.changePoint", { index: idx + 1 }) }}</div>
                   <div class="diff-lines">
                     <div
                       v-for="(line, lIdx) in getChangeDiff(change, item.originalDoc)"
@@ -639,10 +642,10 @@ onUnmounted(() => {
 
             <div class="card-actions card-actions-split">
               <div v-if="item.status === 'done'" class="card-actions-main">
-                <button class="ai-btn ai-btn-apply" @click="applyItemChanges(item)">应用</button>
-                <button class="ai-btn ai-btn-ghost" @click="discardItem(item)">忽略</button>
+                <button class="ai-btn ai-btn-apply" @click="applyItemChanges(item)">{{ t("ai.apply") }}</button>
+                <button class="ai-btn ai-btn-ghost" @click="discardItem(item)">{{ t("ai.discard") }}</button>
               </div>
-              <span v-else class="applied-badge">已应用</span>
+              <span v-else class="applied-badge">{{ t("ai.applied") }}</span>
             </div>
           </div>
         </div>
@@ -653,16 +656,14 @@ onUnmounted(() => {
       <textarea
         v-model="instruction"
         class="ai-input"
-        :placeholder="aiMode === 'agent'
-          ? '让 AI 帮你查证、改写或续写这篇稿子...'
-          : '描述要应用到正文的修改...'"
+        :placeholder="aiMode === 'agent' ? t('ai.agentPlaceholder') : t('ai.editPlaceholder')"
         :disabled="isLoading"
         @compositionstart="onCompositionStart"
         @compositionend="onCompositionEnd"
         @keydown="onKeydown"
       />
       <div class="ai-actions">
-        <span class="ai-input-meta">{{ instruction.trim().length }} 字</span>
+        <span class="ai-input-meta">{{ t("ai.charCount", { count: instruction.trim().length }) }}</span>
         <button
           class="ai-btn ai-btn-primary"
           :class="{ 'is-loading': isLoading }"
@@ -672,7 +673,7 @@ onUnmounted(() => {
         >
           <span v-if="isLoading" class="ai-send-spinner" aria-hidden="true" />
           <Send v-else :size="13" aria-hidden="true" />
-          {{ isLoading ? "执行中…" : "发送" }}
+          {{ isLoading ? t("ai.sending") : t("ai.send") }}
         </button>
       </div>
     </div>
