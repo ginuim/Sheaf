@@ -58,7 +58,7 @@ const config = ref({
   cardTheme: "classic" as "classic" | "modern" | "dark",
   author: "Sheaf Writer",
   showWatermark: true,
-  fontSize: 16,
+  fontSize: 15,
 });
 
 const exporting = ref(false);
@@ -498,7 +498,11 @@ async function measureContentHeight(html: string, runId: number) {
     if (runId !== paginationRunId) return Number.POSITIVE_INFINITY;
   }
 
-  return measureTarget.scrollHeight;
+  const measuredHeight = Math.max(
+    measureTarget.scrollHeight,
+    measureTarget.getBoundingClientRect().height,
+  );
+  return Math.ceil(measuredHeight);
 }
 
 async function paginateXiaohongshuCards(
@@ -518,8 +522,8 @@ async function paginateXiaohongshuCards(
   if (runId !== paginationRunId) return null;
 
   const availableHeight = contentEl.clientHeight;
-  const targetHeight = Math.floor(availableHeight * 0.985);
-  const hardHeight = Math.floor(availableHeight);
+  const targetHeight = Math.max(1, Math.floor(availableHeight - 10));
+  const hardHeight = targetHeight;
 
   let currentBlocks: string[] = [];
   let currentRenderedHtml = "";
@@ -564,7 +568,7 @@ async function paginateXiaohongshuCards(
     }
 
     if (candidateHeight > hardHeight) {
-      const splitBlocks = splitOversizedCardBlock(block, hardHeight / candidateHeight);
+      const splitBlocks = splitOversizedCardBlock(block, targetHeight / candidateHeight);
       if (splitBlocks.length > 1) {
         blocks.splice(blockIndex, 1, ...splitBlocks);
         blockIndex -= 1;
@@ -1821,7 +1825,7 @@ const cardThemes = [
 
 /* 卡片排版 */
 .card-main-content {
-  line-height: 1.76;
+  line-height: 1.66;
   text-align: justify;
   min-height: 0;
   overflow-wrap: anywhere;
@@ -1831,7 +1835,7 @@ const cardThemes = [
 .card-main-content :deep(h2),
 .card-main-content :deep(h3) {
   line-height: 1.4;
-  margin: 1.25em 0 0.7em;
+  margin: 1.05em 0 0.55em;
   font-weight: 600;
 }
 
@@ -1854,7 +1858,18 @@ const cardThemes = [
 }
 
 .card-main-content :deep(p) {
-  margin: 0 0 0.9em;
+  margin: 0 0 0.72em;
+}
+
+.card-main-content :deep(hr) {
+  height: 1px;
+  margin: 0.8em 0 1em;
+  border: 0;
+  background: linear-gradient(90deg, transparent, rgba(46, 42, 36, 0.12), transparent);
+}
+
+.theme-dark .card-main-content :deep(hr) {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
 }
 
 .card-main-content :deep(.card-measure-inner > :last-child) {
@@ -1862,7 +1877,7 @@ const cardThemes = [
 }
 
 .card-main-content :deep(blockquote) {
-  margin: 0 0 1em;
+  margin: 0 0 0.8em;
   padding-left: 12px;
   border-left: 3px solid currentColor;
   opacity: 0.8;
@@ -1871,12 +1886,12 @@ const cardThemes = [
 
 .card-main-content :deep(ul),
 .card-main-content :deep(ol) {
-  margin: 0 0 1em;
+  margin: 0 0 0.8em;
   padding-left: 20px;
 }
 
 .card-main-content :deep(li) {
-  margin-bottom: 0.4em;
+  margin-bottom: 0.28em;
 }
 
 .card-main-content :deep(code) {
@@ -1972,12 +1987,12 @@ const cardThemes = [
   align-items: center;
   margin-top: 18px;
   padding-top: 16px;
-  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  border-top: 1px solid rgba(46, 42, 36, 0.035);
   flex-shrink: 0;
 }
 
 .theme-dark .card-footer {
-  border-top-color: rgba(255, 255, 255, 0.08);
+  border-top-color: rgba(255, 255, 255, 0.06);
 }
 
 .card-pagination {
