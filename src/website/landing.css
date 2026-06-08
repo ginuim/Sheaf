@@ -30,6 +30,16 @@ body,
   text-decoration: none;
 }
 
+.landing-nav,
+.landing-hero h1,
+.landing-hero-lead,
+.landing-eyebrow,
+.landing-feature-card,
+.sheaf-demo,
+.landing-cta {
+  will-change: transform, opacity;
+}
+
 .landing-nav {
   position: sticky;
   top: 0;

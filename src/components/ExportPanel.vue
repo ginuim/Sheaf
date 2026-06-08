@@ -6,6 +6,7 @@ import {
   copyPlainText,
   copyWechatHtml,
 } from "../composables/useWechatExport";
+import { useExportTypography } from "../composables/useExportTypography";
 import { renderMermaidIn } from "../composables/useMermaid";
 import { WECHAT_THEMES, type WechatThemeId } from "../lib/wechatThemes";
 
@@ -18,15 +19,17 @@ const selectedTheme = ref<WechatThemeId>("classic");
 const copying = ref(false);
 const toast = ref<{ type: "success" | "error"; text: string } | null>(null);
 const previewRef = ref<HTMLElement | null>(null);
+const { settings: exportTypographySettings } = useExportTypography();
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
-const previewHtml = computed(() =>
-  buildWechatHtml(
+const previewHtml = computed(() => {
+  void exportTypographySettings.chineseEnglishSpacing;
+  return buildWechatHtml(
     props.source,
     selectedTheme.value,
     props.docFilePath ?? null,
-  ),
-);
+  );
+});
 
 function showToast(type: "success" | "error", text: string) {
   toast.value = { type, text };

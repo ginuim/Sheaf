@@ -34,6 +34,7 @@ import {
   removeRecent,
 } from "./composables/useRecentFiles";
 import { useTheme } from "./composables/useTheme";
+import { applyChineseEnglishSpacingToMarkdownSource } from "./lib/cjkSpacing";
 import {
   clearUnsavedDraft,
   hasRecoverableDraft,
@@ -115,6 +116,10 @@ const outlineItems = computed(() => parseOutline(content.value));
 
 const { theme, toggleTheme } = useTheme();
 const isDark = computed(() => theme.value === "dark");
+
+function hasTauriRuntime() {
+  return typeof window !== "undefined" && Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+}
 
 function clearDocHistory() {
   docHistory.value = [];
@@ -483,6 +488,25 @@ async function handleCopyWechatHtml() {
   }
 }
 
+function formatChineseEnglishSpacing() {
+  if (showStartPage.value) return;
+
+  const formatted = applyChineseEnglishSpacingToMarkdownSource(content.value);
+  if (formatted === content.value) {
+    showToast("info", "没有需要格式化的中英文间距");
+    return;
+  }
+
+  if (editorRef.value) {
+    editorRef.value.applyChanges([
+      { from: 0, to: content.value.length, insert: formatted },
+    ]);
+  } else {
+    content.value = formatted;
+  }
+  showToast("success", "已格式化中英文间距");
+}
+
 function applyAIChanges(changes: EditChange[]) {
   editorRef.value?.applyChanges(changes);
 }
@@ -564,6 +588,9 @@ function handleKeydown(e: KeyboardEvent) {
     e.preventDefault();
     if (e.shiftKey) saveFileAs(content.value);
     else saveFile(content.value);
+  } else if (e.key === " " && e.shiftKey && !showStartPage.value) {
+    e.preventDefault();
+    formatChineseEnglishSpacing();
   } else if (e.key === "n" && !e.shiftKey) {
     e.preventDefault();
     void newFileWithConfirm();
@@ -585,42 +612,47 @@ function handleKeydown(e: KeyboardEvent) {
 onMounted(async () => {
   window.addEventListener("keydown", handleKeydown);
 
-  await setupAppMenu({
-    onNew: () => void newFileWithConfirm(),
-    onOpen: () => void openFileWithConfirm(),
-    onOpenRecent: (path) => void openRecentFile(path),
-    onSave: () => void saveFile(content.value),
-    onSaveAs: () => void saveFileAs(content.value),
-    onExportPdf: () => void handleExportPdf(),
-    onCopyWechatHtml: () => void handleCopyWechatHtml(),
-    onOpenSettings: () => {
-      showSettings.value = true;
-    },
-    onOpenAbout: () => {
-      showAbout.value = true;
-    },
-    onClearRecent: handleClearRecent,
-  });
-  await refreshRecentMenu(recentFiles.value);
-
-  const pending = await invoke<string[]>("take_opened_files");
-  if (pending.length > 0) {
-    await handleOpenedFiles(pending);
-  }
-
-  unlistenOpened = await listen<string[]>("opened", (event) => {
-    void handleOpenedFiles(event.payload);
-  });
-
-  if (isTauri()) {
-    unlistenDragDrop = await getCurrentWebview().onDragDropEvent((event) => {
-      if (event.payload.type !== "drop") return;
-
-      const paths = filterDocPaths(event.payload.paths);
-      if (paths.length === 0) return;
-
-      void invoke("open_dropped_files", { paths });
+  if (hasTauriRuntime()) {
+    await setupAppMenu({
+      onNew: () => void newFileWithConfirm(),
+      onOpen: () => void openFileWithConfirm(),
+      onOpenRecent: (path) => void openRecentFile(path),
+      onSave: () => void saveFile(content.value),
+      onSaveAs: () => void saveFileAs(content.value),
+      onFormatSpacing: formatChineseEnglishSpacing,
+      onExportPdf: () => void handleExportPdf(),
+      onCopyWechatHtml: () => void handleCopyWechatHtml(),
+      onOpenSettings: () => {
+        showSettings.value = true;
+      },
+      onOpenAbout: () => {
+        showAbout.value = true;
+      },
+      onClearRecent: handleClearRecent,
     });
+    await refreshRecentMenu(recentFiles.value);
+
+    const pending = await invoke<string[]>("take_opened_files");
+    if (pending.length > 0) {
+      await handleOpenedFiles(pending);
+    }
+
+    unlistenOpened = await listen<string[]>("opened", (event) => {
+      void handleOpenedFiles(event.payload);
+    });
+
+    try {
+      unlistenDragDrop = await getCurrentWebview().onDragDropEvent((event) => {
+        if (event.payload.type !== "drop") return;
+
+        const paths = filterDocPaths(event.payload.paths);
+        if (paths.length === 0) return;
+
+        void invoke("open_dropped_files", { paths });
+      });
+    } catch (error) {
+      console.warn("Drag-and-drop listener unavailable in this environment:", error);
+    }
   }
 });
 
@@ -649,6 +681,7 @@ onUnmounted(() => {
       @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @save="saveFile(content)"
+      @format-spacing="formatChineseEnglishSpacing"
       @export-pdf="handleExportPdf"
       @toggle-theme="toggleTheme"
       @toggle-outline="showOutline = !showOutline"

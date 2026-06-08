@@ -5,6 +5,7 @@ import {
   type ThemePreference,
 } from "../composables/useTheme";
 import { useAI } from "../composables/useAI";
+import { useExportTypography } from "../composables/useExportTypography";
 import AiProviderSettingsPanel from "./AiProviderSettingsPanel.vue";
 
 defineProps<{
@@ -17,6 +18,7 @@ const emit = defineEmits<{
 
 const { preference, setPreference } = useTheme();
 const { settings: aiSettings } = useAI();
+const { settings: exportTypographySettings } = useExportTypography();
 
 type SettingsTab = "appearance" | "ai";
 
@@ -36,6 +38,11 @@ const appearanceOptions: { id: ThemePreference; label: string; hint: string }[] 
 const activeHint = computed(
   () => appearanceOptions.find((option) => option.id === preference.value)?.hint ?? "",
 );
+
+const tabTitles: Record<SettingsTab, string> = {
+  appearance: "外观",
+  ai: "AI",
+};
 </script>
 
 <template>
@@ -62,7 +69,7 @@ const activeHint = computed(
 
         <div class="settings-body">
           <h2 id="settings-title" class="settings-title">
-            {{ activeTab === "appearance" ? "外观" : "AI" }}
+            {{ tabTitles[activeTab] }}
           </h2>
 
           <section v-if="activeTab === 'appearance'" class="settings-section">
@@ -84,6 +91,19 @@ const activeHint = computed(
                   {{ option.label }}
                 </button>
               </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">中英文间距</span>
+                <span class="setting-desc">
+                  在中文与英文、数字之间自动补齐排版间隙。它会影响正文预览、公众号导出、小红书卡片和 PDF。
+                </span>
+              </div>
+              <label class="toggle">
+                <input v-model="exportTypographySettings.chineseEnglishSpacing" type="checkbox" />
+                <span>{{ exportTypographySettings.chineseEnglishSpacing ? "开启" : "关闭" }}</span>
+              </label>
             </div>
           </section>
 

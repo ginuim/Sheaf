@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
-import { ChevronDown, FilePlus, FolderOpen, History, ListTree, Save } from "@lucide/vue";
+import { ChevronDown, FilePlus, FolderOpen, History, ListTree, Save, WholeWord } from "@lucide/vue";
 
 export type ViewMode = "split" | "edit" | "preview";
 
@@ -23,6 +23,7 @@ const emit = defineEmits<{
   newDoc: [];
   open: [];
   save: [];
+  formatSpacing: [];
   exportPdf: [];
   openExport: [];
   toggleTheme: [];
@@ -95,6 +96,14 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
         @click="emit('save')"
       >
         <Save :size="iconSize" aria-hidden="true" />
+      </button>
+      <button
+        class="btn btn-icon"
+        title="格式化中英文间距 (⌘⇧Space)"
+        aria-label="格式化中英文间距"
+        @click="emit('formatSpacing')"
+      >
+        <WholeWord :size="iconSize" aria-hidden="true" />
       </button>
     </div>
 

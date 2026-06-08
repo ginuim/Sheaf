@@ -130,6 +130,7 @@ button {
   line-height: 1.3;
   letter-spacing: -0.02em;
   color: var(--ink-text);
+  margin-bottom: 0.8em;
 }
 
 .preview-content h1 {
@@ -137,6 +138,10 @@ button {
   margin-top: 0;
   padding-bottom: 0.4em;
   border-bottom: 1px solid var(--ink-border-strong);
+}
+
+.preview-content h1 + p {
+  margin-top: 1.5em;
 }
 
 .preview-content h2 {
@@ -150,6 +155,10 @@ button {
 
 .preview-content p {
   margin: 0;
+}
+
+.preview-content p + p {
+  margin-top: 1.45em;
 }
 
 .preview-content a {
@@ -186,6 +195,10 @@ button {
   border-left: 3px solid var(--ink-quote-border);
   color: var(--ink-text-muted);
   font-style: italic;
+}
+
+.preview-content blockquote + p {
+  margin-top: 1.45em;
 }
 
 .preview-content code {

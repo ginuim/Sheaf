@@ -33,6 +33,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "ai": "^6.0.196",
     "codemirror": "^6.0.2",
+    "gsap": "^3.15.0",
     "html-to-image": "^1.11.13",
     "katex": "^0.17.0",
     "markdown-it": "^14.1.1",

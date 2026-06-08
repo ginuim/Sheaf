@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { renderMermaidIn } from "../composables/useMermaid";
 import { renderMarkdown } from "../composables/useMarkdown";
+import { useExportTypography } from "../composables/useExportTypography";
 
 const props = defineProps<{
   source: string;
@@ -13,8 +14,11 @@ const emit = defineEmits<{
 }>();
 
 const articleRef = ref<HTMLElement | null>(null);
+const { settings: exportTypographySettings } = useExportTypography();
 const html = computed(() =>
-  renderMarkdown(props.source, props.docFilePath ?? null),
+  renderMarkdown(props.source, props.docFilePath ?? null, {
+    chineseEnglishSpacing: exportTypographySettings.chineseEnglishSpacing,
+  }),
 );
 
 async function renderDynamicBlocks() {
