@@ -6,6 +6,7 @@ export type AppMenuHandlers = {
   onOpenRecent: (path: string) => void;
   onSave: () => void;
   onSaveAs: () => void;
+  onFormatSpacing: () => void;
   onExportPdf: () => void;
   onCopyWechatHtml: () => void;
   onOpenSettings: () => void;
@@ -130,6 +131,13 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
       await PredefinedMenuItem.new({ item: "Copy" }),
       await PredefinedMenuItem.new({ item: "Paste" }),
       await PredefinedMenuItem.new({ item: "SelectAll" }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      await MenuItem.new({
+        id: "edit-format-cjk-spacing",
+        text: "格式化中英文间距",
+        accelerator: "CmdOrCtrl+Shift+Space",
+        action: () => handlers!.onFormatSpacing(),
+      }),
     ],
   });
 

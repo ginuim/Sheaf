@@ -1,6 +1,57 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { ref } from "vue";
+import { parseOutline } from "./useOutline";
+
+const DEFAULT_MARKDOWN_BASENAME = "未命名";
+const MAX_MARKDOWN_BASENAME_LENGTH = 80;
+const WINDOWS_RESERVED_BASENAMES = new Set([
+  "con",
+  "prn",
+  "aux",
+  "nul",
+  "com1",
+  "com2",
+  "com3",
+  "com4",
+  "com5",
+  "com6",
+  "com7",
+  "com8",
+  "com9",
+  "lpt1",
+  "lpt2",
+  "lpt3",
+  "lpt4",
+  "lpt5",
+  "lpt6",
+  "lpt7",
+  "lpt8",
+  "lpt9",
+]);
+
+function sanitizeMarkdownFileBaseName(value: string): string {
+  const normalized = value
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\-_.\s]/gu, "_")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^[._\s-]+|[._\s-]+$/g, "");
+
+  if (!normalized) return "";
+
+  const clipped = normalized.slice(0, MAX_MARKDOWN_BASENAME_LENGTH).replace(/[._\s-]+$/g, "");
+  if (!clipped) return "";
+
+  return WINDOWS_RESERVED_BASENAMES.has(clipped.toLowerCase()) ? `_${clipped}` : clipped;
+}
+
+function getDefaultMarkdownFileName(content: string): string {
+  const firstHeading = parseOutline(content).find((item) => item.level === 1)?.text ?? "";
+  const baseName = sanitizeMarkdownFileBaseName(firstHeading) || DEFAULT_MARKDOWN_BASENAME;
+  return `${baseName}.md`;
+}
 
 export function useFile(
   onLoad: (content: string) => void,
@@ -48,6 +99,7 @@ export function useFile(
 
     if (!target) {
       const selected = await save({
+        defaultPath: getDefaultMarkdownFileName(content),
         filters: [{ name: "Markdown", extensions: ["md"] }],
       });
       if (!selected) return;
@@ -63,6 +115,7 @@ export function useFile(
 
   async function saveFileAs(content: string) {
     const selected = await save({
+      defaultPath: getDefaultMarkdownFileName(content),
       filters: [{ name: "Markdown", extensions: ["md"] }],
     });
     if (!selected) return;

@@ -86,6 +86,7 @@ body {
   line-height: 1.3;
   letter-spacing: -0.02em;
   color: #2a2520;
+  margin-bottom: 0.8em;
 }
 
 .markdown-export h1 {
@@ -93,6 +94,10 @@ body {
   margin-top: 0;
   padding-bottom: 0.4em;
   border-bottom: 1px solid rgba(42, 37, 32, 0.14);
+}
+
+.markdown-export h1 + p {
+  margin-top: 1.5em;
 }
 
 .markdown-export h2 {
@@ -106,6 +111,10 @@ body {
 
 .markdown-export p {
   margin: 0;
+}
+
+.markdown-export p + p {
+  margin-top: 1.45em;
 }
 
 .markdown-export a {
@@ -127,6 +136,10 @@ body {
   border-left: 3px solid #c4b8a8;
   color: #8a8278;
   font-style: italic;
+}
+
+.markdown-export blockquote + p {
+  margin-top: 1.45em;
 }
 
 .markdown-export code {

@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from "vue";
+import { useLandingMotion } from "./composables/useLandingMotion";
 import SheafProductDemo from "./components/SheafProductDemo.vue";
 import type { DemoScenarioId } from "./components/SheafProductDemo.vue";
+
+const landingRoot = ref<HTMLElement | null>(null);
+useLandingMotion(landingRoot);
 
 const downloadHref = "#download";
 const demoRef = ref<InstanceType<typeof SheafProductDemo> | null>(null);
@@ -58,7 +62,11 @@ const features = [
 </script>
 
 <template>
-  <div class="landing" :data-theme="demoIsDark ? 'dark' : undefined">
+  <div
+    ref="landingRoot"
+    class="landing"
+    :data-theme="demoIsDark ? 'dark' : undefined"
+  >
     <header class="landing-nav">
       <a class="landing-brand" href="/website/">
         <span class="landing-brand-mark">S</span>
