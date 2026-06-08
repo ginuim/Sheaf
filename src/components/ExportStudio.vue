@@ -61,6 +61,16 @@ const config = ref({
   fontSize: 15,
 });
 
+const XIAOHONGSHU_EXPORT_SIZE = {
+  width: 1242,
+  height: 1660,
+} as const;
+const XIAOHONGSHU_EXPORT_PIXEL_RATIO = 3;
+const XIAOHONGSHU_CAPTURE_SIZE = {
+  width: XIAOHONGSHU_EXPORT_SIZE.width / XIAOHONGSHU_EXPORT_PIXEL_RATIO,
+  height: XIAOHONGSHU_EXPORT_SIZE.height / XIAOHONGSHU_EXPORT_PIXEL_RATIO,
+} as const;
+
 const exporting = ref(false);
 const exportingImage = ref(false);
 const exportCaptureRef = ref<HTMLElement | null>(null);
@@ -718,19 +728,30 @@ function cardImageFileName(pageIndex: number, pageCount: number) {
 
 async function captureExportImage(el: HTMLElement) {
   await waitForAnimationFrame();
+  const isXiaohongshu = config.value.type === "xiaohongshu";
+  const captureWidth = isXiaohongshu
+    ? XIAOHONGSHU_CAPTURE_SIZE.width
+    : el.offsetWidth;
+  const captureHeight = isXiaohongshu
+    ? XIAOHONGSHU_CAPTURE_SIZE.height
+    : config.value.type === "long-image"
+      ? el.scrollHeight
+      : el.offsetHeight;
+
   return toPng(el, {
     cacheBust: true,
-    pixelRatio: 2, // 2倍高保真超清
+    pixelRatio: isXiaohongshu ? XIAOHONGSHU_EXPORT_PIXEL_RATIO : 2,
     backgroundColor: "transparent",
     skipFonts: true,
+    width: captureWidth,
+    height: captureHeight,
+    canvasWidth: captureWidth,
+    canvasHeight: captureHeight,
     style: {
       transform: "scale(1)",
       transformOrigin: "top left",
-      width: el.offsetWidth + "px",
-      height:
-        config.value.type === "long-image"
-          ? el.scrollHeight + "px"
-          : el.offsetHeight + "px",
+      width: `${captureWidth}px`,
+      height: `${captureHeight}px`,
     },
   });
 }
@@ -1602,7 +1623,7 @@ const cardThemes = [
 
 .card-pagination-rail {
   position: relative;
-  width: min(384px, calc(100% - 36px));
+  width: min(414px, calc(100% - 36px));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1638,9 +1659,9 @@ const cardThemes = [
 
 /* 宽高比例适配 */
 .capture-box.type-xiaohongshu {
-  aspect-ratio: 3/4;
-  width: 384px;
-  height: 512px;
+  aspect-ratio: 1242 / 1660;
+  width: 414px;
+  height: 553.333333px;
 }
 
 .capture-box.type-long-image {
@@ -1794,9 +1815,14 @@ const cardThemes = [
 }
 
 .card-tag {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.1em;
+  line-height: 1;
+  white-space: nowrap;
   text-transform: uppercase;
   padding: 3px 8px;
   border-radius: 100px;
@@ -2050,6 +2076,7 @@ const cardThemes = [
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .author-avatar {
@@ -2068,15 +2095,20 @@ const cardThemes = [
   display: flex;
   flex-direction: column;
   line-height: 1.3;
+  min-width: 0;
 }
 
 .author-name {
   font-size: 11px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .author-desc {
   font-size: 9px;
+  white-space: nowrap;
 }
 
 .watermark-logo {
