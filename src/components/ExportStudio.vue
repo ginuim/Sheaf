@@ -16,6 +16,10 @@ import { toPng } from "html-to-image";
 import { save, message } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { useExportTypography } from "../composables/useExportTypography";
+import {
+  loadExportCardSettings,
+  saveExportCardSettings,
+} from "../lib/exportCardSettings";
 
 const props = defineProps<{
   docFilePath?: string | null;
@@ -50,14 +54,15 @@ const emit = defineEmits<{
 }>();
 
 const { settings: exportTypographySettings } = useExportTypography();
+const savedCardSettings = loadExportCardSettings();
 
 // 导出配置状态
 const config = ref({
   type: "wechat" as "wechat" | "xiaohongshu" | "long-image",
   wechatTheme: "classic" as "classic" | "editorial" | "minimal",
   cardTheme: "classic" as "classic" | "modern" | "dark",
-  author: "Sheaf Writer",
-  showWatermark: true,
+  author: savedCardSettings.author,
+  authorDesc: savedCardSettings.authorDesc,
   fontSize: 15,
 });
 
@@ -451,12 +456,7 @@ async function splitCardBlockToFitPage(
 }
 
 function ensureMeasureSurface() {
-  const signature = [
-    config.value.cardTheme,
-    config.value.author,
-    config.value.showWatermark ? "1" : "0",
-    formattedDate.value,
-  ].join("|");
+  const signature = config.value.type;
 
   if (
     measureHostEl &&
@@ -685,16 +685,34 @@ onMounted(() => {
 watch(
   [
     renderedHtml,
-    wechatPreviewHtml,
     () => config.value.type,
-    () => config.value.cardTheme,
     () => config.value.fontSize,
-    () => config.value.author,
-    () => config.value.showWatermark,
     () => props.isDark,
   ],
   () => {
     void syncPreviewLayout();
+  },
+);
+
+watch(wechatPreviewHtml, () => {
+  if (config.value.type === "wechat") {
+    void renderVisibleMermaid();
+  }
+});
+
+watch(
+  () => config.value.cardTheme,
+  () => {
+    if (config.value.type === "long-image") {
+      void renderVisibleMermaid();
+    }
+  },
+);
+
+watch(
+  () => [config.value.author, config.value.authorDesc] as const,
+  ([author, authorDesc]) => {
+    saveExportCardSettings({ author, authorDesc });
   },
 );
 
@@ -989,17 +1007,8 @@ const cardThemes = [
                       <div class="author-avatar">{{ authorInitial }}</div>
                       <div class="author-meta">
                         <span class="author-name">{{ config.author || "Sheaf User" }}</span>
-                        <span class="author-desc">写于 Sheaf 极简排版</span>
+                        <span class="author-desc">{{ config.authorDesc || "写于 Sheaf 极简排版" }}</span>
                       </div>
-                    </div>
-                    <div v-if="config.showWatermark" class="watermark-logo">
-                      <svg viewBox="0 0 24 24" class="logo-svg">
-                        <path
-                          fill="currentColor"
-                          d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"
-                        />
-                      </svg>
-                      <span class="logo-text">Sheaf</span>
                     </div>
                   </footer>
                 </div>
@@ -1050,17 +1059,8 @@ const cardThemes = [
                     <div class="author-avatar">{{ authorInitial }}</div>
                     <div class="author-meta">
                       <span class="author-name">{{ config.author || "Sheaf User" }}</span>
-                      <span class="author-desc">写于 Sheaf 极简排版</span>
+                      <span class="author-desc">{{ config.authorDesc || "写于 Sheaf 极简排版" }}</span>
                     </div>
-                  </div>
-                  <div v-if="config.showWatermark" class="watermark-logo">
-                    <svg viewBox="0 0 24 24" class="logo-svg">
-                      <path
-                        fill="currentColor"
-                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"
-                      />
-                    </svg>
-                    <span class="logo-text">Sheaf</span>
                   </div>
                 </footer>
               </div>
@@ -1145,26 +1145,27 @@ const cardThemes = [
             </div>
           </section>
 
-          <!-- 4. 署名与水印（非微信端适用） -->
+          <!-- 4. 署名（非微信端适用） -->
           <section v-if="config.type !== 'wechat'" class="control-section">
-            <h3 class="section-label">署名与标识</h3>
+            <h3 class="section-label">署名</h3>
 
             <div class="form-group">
-              <label class="form-label">卡片作者</label>
+              <label class="form-label">作者名称</label>
               <input
                 v-model="config.author"
                 type="text"
                 class="form-input"
-                placeholder="署名将显示在底部名片"
+                placeholder="显示在卡片左下角"
               />
             </div>
 
-            <div class="form-group inline-group">
-              <label class="form-label">显示 Sheaf 标识</label>
+            <div class="form-group">
+              <label class="form-label">作者描述</label>
               <input
-                v-model="config.showWatermark"
-                type="checkbox"
-                class="form-checkbox"
+                v-model="config.authorDesc"
+                type="text"
+                class="form-input"
+                placeholder="显示在作者名称下方"
               />
             </div>
           </section>
@@ -1747,9 +1748,6 @@ const cardThemes = [
 .theme-classic .author-desc {
   color: #8c8579;
 }
-.theme-classic .watermark-logo {
-  color: rgba(46, 42, 36, 0.25);
-}
 
 /* 2. 现代冷灰主题 */
 .theme-modern {
@@ -1774,9 +1772,6 @@ const cardThemes = [
 .theme-modern .author-desc {
   color: #7d8085;
 }
-.theme-modern .watermark-logo {
-  color: rgba(0, 0, 0, 0.3);
-}
 
 /* 3. 暗黑极简 */
 .theme-dark {
@@ -1800,9 +1795,6 @@ const cardThemes = [
 }
 .theme-dark .author-desc {
   color: #8a8d91;
-}
-.theme-dark .watermark-logo {
-  color: rgba(255, 255, 255, 0.2);
 }
 
 /* 卡片细部样式 */
@@ -2108,24 +2100,9 @@ const cardThemes = [
 
 .author-desc {
   font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.watermark-logo {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.logo-svg {
-  width: 12px;
-  height: 12px;
-}
-
-.logo-text {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
 }
 
 /* 控制台目的地切换 */
