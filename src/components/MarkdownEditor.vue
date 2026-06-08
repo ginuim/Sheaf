@@ -23,6 +23,7 @@ import {
 import EditorSearchReplace from "./EditorSearchReplace.vue";
 import { editorHighlightStyle } from "../lib/editorHighlightStyle";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useLocale } from "../composables/useLocale";
 
 const props = defineProps<{
   modelValue: string;
@@ -37,6 +38,7 @@ const container = ref<HTMLElement | null>(null);
 const searchReplaceRef = ref<InstanceType<typeof EditorSearchReplace> | null>(null);
 const searchOpen = ref(false);
 const replaceOpen = ref(false);
+const { t } = useLocale();
 const searchText = ref("");
 const replaceText = ref("");
 const caseSensitive = ref(false);
@@ -98,9 +100,9 @@ function refreshMatchCount() {
 }
 
 const searchCountText = computed(() => {
-  if (matchTotal.value === 0) return "无匹配";
+  if (matchTotal.value === 0) return t("search.noMatch");
   const current = matchCurrent.value > 0 ? matchCurrent.value : 0;
-  return `${current} / ${matchTotal.value}`;
+  return t("search.matchCount", { current, total: matchTotal.value });
 });
 
 function applySearchQuery() {

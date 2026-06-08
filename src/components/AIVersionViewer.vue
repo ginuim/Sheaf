@@ -2,6 +2,9 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { compressDiff, lineDiff, type CompressedDiffLine } from "../composables/useAI";
 import type { DocumentVersion } from "../composables/useDocumentVersions";
+import { useLocale } from "../composables/useLocale";
+
+const { t } = useLocale();
 
 const props = defineProps<{
   versions: DocumentVersion[];
@@ -32,7 +35,7 @@ const previousVersion = computed(() => {
   if (!activeVersion.value) return null;
   if (typeof activeVersion.value.previousContent === "string") {
     return {
-      label: "上一版",
+      label: t("version.previous"),
       content: activeVersion.value.previousContent,
     };
   }
@@ -50,7 +53,7 @@ const diffLines = computed<CompressedDiffLine[]>(() => {
 });
 
 const charCount = computed(() => activeVersion.value?.content.length ?? 0);
-const diffBaseLabel = computed(() => previousVersion.value?.label ?? "暂无上一版");
+const diffBaseLabel = computed(() => previousVersion.value?.label ?? t("version.noPrevious"));
 
 watch(
   () => props.activeId,
@@ -72,7 +75,7 @@ function formatListTime(timestamp: number) {
 }
 
 function kindLabel(_kind: DocumentVersion["kind"]) {
-  return "版本";
+  return t("version.label");
 }
 
 function selectVersion(id: string) {
@@ -125,7 +128,7 @@ onUnmounted(() => {
   <div v-if="activeVersion" class="version-overlay" @click="handleBackdropClick">
     <div class="version-dialog" role="dialog" aria-modal="true" :aria-label="activeVersion.label">
       <aside v-if="versions.length > 1" class="version-sidebar">
-        <p class="version-sidebar-title">历史版本</p>
+        <p class="version-sidebar-title">{{ t("version.title") }}</p>
         <div class="version-sidebar-list">
           <button
             v-for="(item, index) in versions"
@@ -151,7 +154,7 @@ onUnmounted(() => {
               <button
                 class="version-nav-btn"
                 type="button"
-                title="上一版本"
+                :title="t('version.previousVersion')"
                 :disabled="!hasPrev"
                 @click="selectRelative(-1)"
               >
@@ -161,7 +164,7 @@ onUnmounted(() => {
               <button
                 class="version-nav-btn"
                 type="button"
-                title="下一版本"
+                :title="t('version.nextVersion')"
                 :disabled="!hasNext"
                 @click="selectRelative(1)"
               >
@@ -172,10 +175,10 @@ onUnmounted(() => {
             <p class="version-meta">
               <span class="version-kind">{{ kindLabel(activeVersion.kind) }}</span>
               <span>{{ formatTime(activeVersion.timestamp) }}</span>
-              <span>{{ charCount }} 字</span>
+              <span>{{ t("version.charCount", { count: charCount }) }}</span>
             </p>
           </div>
-          <button class="version-close-btn" type="button" title="关闭" @click="emit('close')">×</button>
+          <button class="version-close-btn" type="button" :title="t('version.close')" @click="emit('close')">×</button>
         </header>
 
         <div class="version-tabs">
@@ -185,7 +188,7 @@ onUnmounted(() => {
             type="button"
             @click="viewMode = 'diff'"
           >
-            与上一版对比
+            {{ t("version.comparePrevious") }}
           </button>
           <button
             class="version-tab"
@@ -193,16 +196,16 @@ onUnmounted(() => {
             type="button"
             @click="viewMode = 'preview'"
           >
-            预览
+            {{ t("version.preview") }}
           </button>
         </div>
 
         <div class="version-body">
           <pre v-if="viewMode === 'preview'" class="version-content">{{ activeVersion.content }}</pre>
           <div v-else class="version-diff">
-            <div class="diff-base">基于：{{ diffBaseLabel }}</div>
+            <div class="diff-base">{{ t("version.basedOn", { label: diffBaseLabel }) }}</div>
             <div v-if="diffLines.length === 0" class="diff-empty">
-              {{ previousVersion ? "与上一版没有内容差异。" : "这是最早的版本，暂无上一版可对比。" }}
+              {{ previousVersion ? t("version.noDiff") : t("version.earliest") }}
             </div>
             <div
               v-for="(line, idx) in diffLines"
@@ -218,14 +221,14 @@ onUnmounted(() => {
         </div>
 
         <footer class="version-footer">
-          <button class="ai-btn ai-btn-ghost" type="button" @click="emit('close')">关闭</button>
+          <button class="ai-btn ai-btn-ghost" type="button" @click="emit('close')">{{ t("version.close") }}</button>
           <button
             class="ai-btn ai-btn-apply"
             type="button"
             :disabled="activeVersion.content === currentDoc"
             @click="handleRestore"
           >
-            恢复此版本
+            {{ t("version.restore") }}
           </button>
         </footer>
       </div>

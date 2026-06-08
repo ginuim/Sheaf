@@ -21,6 +21,9 @@ import {
   saveExportCardSettings,
 } from "../lib/exportCardSettings";
 import { splitLeadingH1Title } from "../lib/wechatHtml";
+import { useLocale } from "../composables/useLocale";
+
+const { t } = useLocale();
 
 const props = defineProps<{
   docFilePath?: string | null;
@@ -35,7 +38,7 @@ async function studioMessage(
   kind: "info" | "error" = "info",
 ) {
   if (!isTauri()) return;
-  await message(text, { title: "Sheaf 导出", kind });
+  await message(text, { title: t("export.dialogTitle"), kind });
 }
 
 function downloadDataUrl(dataUrl: string, fileName: string) {
@@ -144,7 +147,7 @@ const cardPageCount = computed(() => {
   return cardPages.value.length || 1;
 });
 const cardPaginationText = computed(() => {
-  if (cardPaginationPending.value) return "分页计算中...";
+  if (cardPaginationPending.value) return t("export.paginationPending");
   return `${currentCardIndex.value + 1} / ${cardPageCount.value}`;
 });
 
@@ -793,7 +796,7 @@ async function handleCopyWechatHtml() {
     const result = await copyWechatHtml(html);
     if (result.ok) {
       await studioMessage(
-        "已复制微信公众号格式 HTML！请在微信公众号编辑器直接粘贴。",
+        t("export.wechatCopied"),
       );
     } else {
       await studioMessage(result.message, "error");
@@ -809,7 +812,7 @@ async function handleCopyWechatTitle() {
   try {
     const result = await copyPlainText(wechatCopyTitle.value);
     if (result.ok) {
-      await studioMessage("已复制微信公众号标题。");
+      await studioMessage(t("export.titleCopied"));
     } else {
       await studioMessage(result.message, "error");
     }
@@ -829,7 +832,7 @@ async function handleCopyPlain() {
         : modelValue.value;
     const result = await copyPlainText(text);
     if (result.ok) {
-      await studioMessage("已复制 Markdown 纯文本至剪贴板。");
+      await studioMessage(t("export.markdownCopied"));
     } else {
       await studioMessage(result.message, "error");
     }
@@ -843,7 +846,7 @@ async function handleDownloadImage() {
   if (exportingImage.value) return;
   const el = exportCaptureRef.value;
   if (!el) {
-    await studioMessage("未找到预览节点，请重试。", "error");
+    await studioMessage(t("export.previewNotFound"), "error");
     return;
   }
 
@@ -876,7 +879,7 @@ async function handleDownloadImage() {
 
     if (isTauri()) {
       const selectedPath = await save({
-        title: "保存图片至本地",
+        title: t("export.saveImageTitle"),
         defaultPath: imageJobs[0]?.fileName ?? cardImageFileName(0, pageCount),
         filters: [{ name: "PNG Image", extensions: ["png"] }],
       });
@@ -895,8 +898,8 @@ async function handleDownloadImage() {
       }
       await studioMessage(
         imageJobs.length > 1
-          ? `图片保存成功，共 ${imageJobs.length} 张。`
-          : "图片保存成功！",
+          ? t("export.imageSavedMultiple", { count: imageJobs.length })
+          : t("export.imageSaved"),
       );
     } else {
       for (const image of imageJobs) {
@@ -905,7 +908,7 @@ async function handleDownloadImage() {
     }
   } catch (error: any) {
     console.error("Export image error:", error);
-    await studioMessage(error?.message || "图片导出失败，请重试。", "error");
+    await studioMessage(error?.message || t("export.imageExportFailed"), "error");
   } finally {
     currentCardIndex.value = originalCardIndex;
     await nextTick();
@@ -914,11 +917,22 @@ async function handleDownloadImage() {
   }
 }
 
-const cardThemes = [
-  { id: "classic", label: "极简米白", desc: "暖色纸张，沉静人文" },
-  { id: "modern", label: "现代深灰", desc: "冷调无衬，高级工业感" },
-  { id: "dark", label: "暗黑极简", desc: "深空黑白，适合科技与夜读" },
-] as const;
+const cardThemes = computed(() => [
+  { id: "classic" as const, label: t("export.themes.classic"), desc: t("export.themes.classicDesc") },
+  { id: "modern" as const, label: t("export.themes.modern"), desc: t("export.themes.modernDesc") },
+  { id: "dark" as const, label: t("export.themes.dark"), desc: t("export.themes.darkDesc") },
+]);
+
+const wechatThemes = computed(() =>
+  WECHAT_THEMES.map((theme) => ({
+    ...theme,
+    label: t(`export.wechatThemes.${theme.id}`),
+    description: t(`export.wechatThemes.${theme.id}Desc`),
+  })),
+);
+
+const displayAuthorName = computed(() => config.value.author || t("export.defaultAuthorName"));
+const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.defaultAuthorDesc"));
 </script>
 
 <template>
@@ -931,12 +945,12 @@ const cardThemes = [
       <div class="header-left">
         <span class="studio-brand">Sheaf</span>
         <span class="studio-divider">/</span>
-        <span class="studio-title">导出</span>
+        <span class="studio-title">{{ t("export.title") }}</span>
       </div>
       <div class="header-right">
-        <button class="exit-btn" title="返回编辑" @click="emit('close')">
+        <button class="exit-btn" :title="t('export.backToEditTitle')" @click="emit('close')">
           <Undo2 :size="14" aria-hidden="true" />
-          <span>返回编辑</span>
+          <span>{{ t("export.backToEdit") }}</span>
         </button>
       </div>
     </header>
@@ -966,7 +980,7 @@ const cardThemes = [
             <!-- 微信排版预览 -->
             <div v-if="config.type === 'wechat'" class="preview-wechat-wrapper">
               <div class="wechat-preview-toolbar">
-                <span class="wechat-preview-title">公众号文章预览</span>
+                <span class="wechat-preview-title">{{ t("export.wechatPreviewTitle") }}</span>
                 <span class="wechat-preview-meta">{{ fileName }}</span>
               </div>
               <div class="preview-scroll-pane">
@@ -1005,7 +1019,7 @@ const cardThemes = [
                     <span class="card-date">
                       {{ formattedDate }}
                       <span v-if="isXiaohongshuCard" class="card-page-count">
-                        {{ cardPaginationPending ? "计算中" : `${currentCardIndex + 1}/${cardPageCount}` }}
+                        {{ cardPaginationPending ? t("export.paginationCalculating") : `${currentCardIndex + 1}/${cardPageCount}` }}
                       </span>
                     </span>
                   </header>
@@ -1022,7 +1036,7 @@ const cardThemes = [
 
                   <div v-if="cardPaginationPending" class="card-loading-mask">
                     <span class="card-loading-spinner" aria-hidden="true"></span>
-                    <span>正在计算分页...</span>
+                    <span>{{ t("export.paginationLoading") }}</span>
                   </div>
 
                   <!-- 底部作者栏 -->
@@ -1030,8 +1044,8 @@ const cardThemes = [
                     <div class="author-info">
                       <div class="author-avatar">{{ authorInitial }}</div>
                       <div class="author-meta">
-                        <span class="author-name">{{ config.author || "Sheaf User" }}</span>
-                        <span class="author-desc">{{ config.authorDesc || "写于 Sheaf 极简排版" }}</span>
+                        <span class="author-name">{{ displayAuthorName }}</span>
+                        <span class="author-desc">{{ displayAuthorDesc }}</span>
                       </div>
                     </div>
                   </footer>
@@ -1044,7 +1058,7 @@ const cardThemes = [
                   :disabled="cardPaginationPending || currentCardIndex === 0"
                   @click="goToPreviousCard"
                 >
-                  上一张
+                  {{ t("export.previousCard") }}
                 </button>
                 <span class="card-pagination-indicator">
                   {{ cardPaginationText }}
@@ -1054,7 +1068,7 @@ const cardThemes = [
                   :disabled="cardPaginationPending || currentCardIndex >= cardPageCount - 1"
                   @click="goToNextCard"
                 >
-                  下一张
+                  {{ t("export.nextCard") }}
                 </button>
               </div>
 
@@ -1082,8 +1096,8 @@ const cardThemes = [
                   <div class="author-info">
                     <div class="author-avatar">{{ authorInitial }}</div>
                     <div class="author-meta">
-                      <span class="author-name">{{ config.author || "Sheaf User" }}</span>
-                      <span class="author-desc">{{ config.authorDesc || "写于 Sheaf 极简排版" }}</span>
+                      <span class="author-name">{{ displayAuthorName }}</span>
+                      <span class="author-desc">{{ displayAuthorDesc }}</span>
                     </div>
                   </div>
                 </footer>
@@ -1102,40 +1116,40 @@ const cardThemes = [
         <div class="controls-scroller">
           <!-- 1. 导出类型切换 -->
           <section class="control-section">
-            <h3 class="section-label">导出目的地</h3>
+            <h3 class="section-label">{{ t("export.destination") }}</h3>
             <div class="type-switch">
               <button
                 class="type-btn"
                 :class="{ active: config.type === 'wechat' }"
                 @click="config.type = 'wechat'"
               >
-                微信公众号
+                {{ t("export.typeWechat") }}
               </button>
               <button
                 class="type-btn"
                 :class="{ active: config.type === 'xiaohongshu' }"
                 @click="config.type = 'xiaohongshu'"
               >
-                小红书卡片
+                {{ t("export.typeXiaohongshu") }}
               </button>
               <button
                 class="type-btn"
                 :class="{ active: config.type === 'long-image' }"
                 @click="config.type = 'long-image'"
               >
-                分享长图
+                {{ t("export.typeLongImage") }}
               </button>
             </div>
           </section>
 
           <!-- 2. 微信排版主题 -->
           <section v-if="config.type === 'wechat'" class="control-section">
-            <h3 class="section-label">公众号样式</h3>
-            <p class="section-hint">样式已自动内联，无需手动调色</p>
+            <h3 class="section-label">{{ t("export.wechatStyle") }}</h3>
+            <p class="section-hint">{{ t("export.wechatStyleHint") }}</p>
 
             <div class="theme-list">
               <button
-                v-for="theme in WECHAT_THEMES"
+                v-for="theme in wechatThemes"
                 :key="theme.id"
                 class="theme-card"
                 :class="{ active: config.wechatTheme === theme.id }"
@@ -1149,11 +1163,11 @@ const cardThemes = [
 
           <!-- 3. 小红书卡片配置 -->
           <section v-if="config.type === 'xiaohongshu'" class="control-section">
-            <h3 class="section-label">卡片设置</h3>
-            <p class="section-hint">小红书卡片固定为 3:4 竖图，正文会自动收放以适配卡面。</p>
+            <h3 class="section-label">{{ t("export.cardSettings") }}</h3>
+            <p class="section-hint">{{ t("export.cardSettingsHint") }}</p>
 
             <div class="form-group">
-              <label class="form-label">卡片视觉风格</label>
+              <label class="form-label">{{ t("export.cardVisualStyle") }}</label>
               <div class="theme-list">
                 <button
                   v-for="theme in cardThemes"
@@ -1171,32 +1185,32 @@ const cardThemes = [
 
           <!-- 4. 署名（非微信端适用） -->
           <section v-if="config.type !== 'wechat'" class="control-section">
-            <h3 class="section-label">署名</h3>
+            <h3 class="section-label">{{ t("export.byline") }}</h3>
 
             <div class="form-group">
-              <label class="form-label">作者名称</label>
+              <label class="form-label">{{ t("export.authorName") }}</label>
               <input
                 v-model="config.author"
                 type="text"
                 class="form-input"
-                placeholder="显示在卡片左下角"
+                :placeholder="t('export.authorNamePlaceholder')"
               />
             </div>
 
             <div class="form-group">
-              <label class="form-label">作者描述</label>
+              <label class="form-label">{{ t("export.authorDesc") }}</label>
               <input
                 v-model="config.authorDesc"
                 type="text"
                 class="form-input"
-                placeholder="显示在作者名称下方"
+                :placeholder="t('export.authorDescPlaceholder')"
               />
             </div>
           </section>
 
           <!-- 5. 统一字号调节 -->
           <section class="control-section">
-            <h3 class="section-label">排版字号</h3>
+            <h3 class="section-label">{{ t("export.fontSize") }}</h3>
             <div class="fontsize-control">
               <button
                 class="size-btn"
@@ -1221,9 +1235,9 @@ const cardThemes = [
         <footer class="controls-footer">
           <div v-if="config.type === 'wechat'" class="wechat-title-copy">
             <div class="wechat-title-copy-meta">
-              <span class="wechat-title-copy-label">公众号标题</span>
+              <span class="wechat-title-copy-label">{{ t("export.wechatTitleLabel") }}</span>
               <span class="wechat-title-copy-value">
-                {{ wechatCopyTitle || "首行不是一级标题" }}
+                {{ wechatCopyTitle || t("export.noH1Title") }}
               </span>
             </div>
             <button
@@ -1231,7 +1245,7 @@ const cardThemes = [
               :disabled="exporting || copyingWechatTitle || !wechatCopyTitle"
               @click="handleCopyWechatTitle"
             >
-              {{ copyingWechatTitle ? "复制中…" : "复制标题" }}
+              {{ copyingWechatTitle ? t("export.copyingTitle") : t("export.copyTitle") }}
             </button>
           </div>
           <button
@@ -1240,7 +1254,7 @@ const cardThemes = [
             :disabled="exporting"
             @click="handleCopyWechatHtml"
           >
-            {{ exporting ? "正在复制 HTML…" : "一键复制内联 HTML" }}
+            {{ exporting ? t("export.copyingHtml") : t("export.copyInlineHtml") }}
           </button>
           <button
             v-else
@@ -1248,14 +1262,14 @@ const cardThemes = [
             :disabled="exportingImage"
             @click="handleDownloadImage"
           >
-            {{ exportingImage ? "正在生成超清图片…" : "保存超清图片" }}
+            {{ exportingImage ? t("export.generatingImage") : t("export.saveHdImage") }}
           </button>
           <button
             class="btn-ghost"
             :disabled="exporting || exportingImage"
             @click="handleCopyPlain"
           >
-            复制纯文本
+            {{ t("export.copyPlainText") }}
           </button>
         </footer>
       </section>

@@ -20,7 +20,7 @@ import type { ViewMode } from "./components/Toolbar.vue";
 import type { EditChange } from "./composables/useAI";
 import { migrateAiHistoryKey } from "./composables/useAI";
 import { migrateDocumentVersionsKey, useDocumentVersions } from "./composables/useDocumentVersions";
-import { refreshRecentMenu, setupAppMenu } from "./composables/useAppMenu";
+import { refreshRecentMenu, setupAppMenu, type AppMenuHandlers } from "./composables/useAppMenu";
 import { exportPdf, type ExportPdfStage } from "./composables/usePdfExport";
 import { useAppToast } from "./composables/useAppToast";
 import { buildWechatHtmlForCopy, copyWechatHtml } from "./composables/useWechatExport";
@@ -34,6 +34,7 @@ import {
   removeRecent,
 } from "./composables/useRecentFiles";
 import { useTheme } from "./composables/useTheme";
+import { translate, useLocale } from "./composables/useLocale";
 import { applyChineseEnglishSpacingToMarkdownSource } from "./lib/cjkSpacing";
 import {
   clearUnsavedDraft,
@@ -43,30 +44,9 @@ import {
   type UnsavedDraft
 } from "./composables/useDraftRecovery";
 
-const DEFAULT_CONTENT = `# 欢迎使用 Sheaf
+const DEFAULT_CONTENT = translate("app.defaultContent");
 
-一款注重排版与留白的 Markdown 编辑器。
-
-## 开始写作
-
-在左侧输入 Markdown，右侧实时预览渲染效果。
-
-- **粗体** 与 *斜体*
-- [链接](https://tauri.app)
-- 行内 \`代码\`
-
-> 好的排版让文字呼吸。
-> 留白不是浪费，是给思考的空间。
-
-\`\`\`javascript
-const greeting = "Hello, Markdown";
-console.log(greeting);
-\`\`\`
-
----
-
-用 **新建** 开始空白文档，**打开** 读取本地文件，**保存** 写入磁盘。`;
-
+const { t, locale } = useLocale();
 const content = ref(DEFAULT_CONTENT);
 const baselineContent = ref(DEFAULT_CONTENT);
 const isDirty = computed(() => content.value !== baselineContent.value);
@@ -81,7 +61,7 @@ const exportingPdf = ref(false);
 const exportPdfStage = ref<ExportPdfStage>("rendering");
 const { showToast } = useAppToast();
 const exportPdfLoadingText = computed(() =>
-  exportPdfStage.value === "rendering" ? "正在渲染文档…" : "正在生成 PDF…",
+  exportPdfStage.value === "rendering" ? t("app.renderingDoc") : t("app.generatingPdf"),
 );
 const showSettings = ref(false);
 const showAbout = ref(false);
@@ -176,7 +156,7 @@ const allowedAiReadPaths = computed(() => {
 
 async function readAiWorkspaceFile(path: string): Promise<string> {
   if (!allowedAiReadPaths.value.has(path)) {
-    throw new Error("只能读取当前文件或最近打开列表中的 Markdown");
+    throw new Error(t("app.aiReadScopeError"));
   }
   const { readTextFile } = await import("@tauri-apps/plugin-fs");
   return readTextFile(path);
@@ -274,8 +254,8 @@ function discardUnsavedDraft() {
 
 async function confirmDiscardChanges(): Promise<boolean> {
   if (!isDirty.value) return true;
-  return ask("当前文档有未保存的更改，是否继续？", {
-    title: "Sheaf",
+  return ask(t("app.unsavedChanges"), {
+    title: t("app.title"),
     kind: "warning",
   });
 }
@@ -303,8 +283,8 @@ async function openRecentFile(path: string) {
 
   const ok = await openFileAtPath(path);
   if (!ok) {
-    await message("文件不存在或无法读取。", {
-      title: "Sheaf",
+    await message(t("app.fileReadError"), {
+      title: t("app.title"),
       kind: "error",
     });
     return;
@@ -319,8 +299,8 @@ async function openAssociatedFile(path: string): Promise<boolean> {
 
   const ok = await openFileAtPath(path);
   if (!ok) {
-    await message("文件不存在或无法读取。", {
-      title: "Sheaf",
+    await message(t("app.fileReadError"), {
+      title: t("app.title"),
       kind: "error",
     });
   }
@@ -335,7 +315,7 @@ async function openAssociatedFile(path: string): Promise<boolean> {
 async function handleOpenLink(href: string) {
   const resolved = resolveLinkHref(filePath.value, href);
   if (resolved.type === "error") {
-    await message(resolved.message, { title: "Sheaf", kind: "warning" });
+    await message(resolved.message, { title: t("app.title"), kind: "warning" });
     return;
   }
 
@@ -455,13 +435,13 @@ async function handleExportPdf() {
 
     if (result.status === "success") {
       if (isTauri()) {
-        showToast("success", `PDF 已导出：${result.fileName}`);
+        showToast("success", t("app.pdfExported", { fileName: result.fileName }));
       } else {
-        showToast("info", "已打开打印对话框，请选择「存储为 PDF」");
+        showToast("info", t("app.pdfPrintHint"));
       }
     }
   } catch (error) {
-    const msg = error instanceof Error ? error.message : "导出 PDF 失败。";
+    const msg = error instanceof Error ? error.message : t("app.pdfExportFailed");
     showToast("error", msg);
   } finally {
     exportingPdf.value = false;
@@ -481,7 +461,7 @@ async function handleCopyWechatHtml() {
     );
     const result = await copyWechatHtml(html);
     if (!result.ok) {
-      await message(result.message, { title: "Sheaf", kind: "error" });
+      await message(result.message, { title: t("app.title"), kind: "error" });
     }
   } finally {
     exporting.value = false;
@@ -493,7 +473,7 @@ function formatChineseEnglishSpacing() {
 
   const formatted = applyChineseEnglishSpacingToMarkdownSource(content.value);
   if (formatted === content.value) {
-    showToast("info", "没有需要格式化的中英文间距");
+    showToast("info", t("app.spacingNothingToFormat"));
     return;
   }
 
@@ -504,7 +484,7 @@ function formatChineseEnglishSpacing() {
   } else {
     content.value = formatted;
   }
-  showToast("success", "已格式化中英文间距");
+  showToast("success", t("app.spacingFormatted"));
 }
 
 function applyAIChanges(changes: EditChange[]) {
@@ -514,7 +494,7 @@ function applyAIChanges(changes: EditChange[]) {
 function openVersionHistory() {
   const latestVersion = documentVersionList.value[0];
   if (!latestVersion) {
-    showToast("info", "暂无历史版本");
+    showToast("info", t("app.noVersions"));
     return;
   }
   activeVersionId.value = latestVersion.id;
@@ -617,28 +597,39 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
+const appMenuHandlers: AppMenuHandlers = {
+  onNew: () => void newFileWithConfirm(),
+  onOpen: () => void openFileWithConfirm(),
+  onOpenRecent: (path) => void openRecentFile(path),
+  onSave: () => void saveFile(content.value),
+  onSaveAs: () => void saveFileAs(content.value),
+  onFormatSpacing: formatChineseEnglishSpacing,
+  onExportPdf: () => void handleExportPdf(),
+  onCopyWechatHtml: () => void handleCopyWechatHtml(),
+  onOpenSettings: () => {
+    showSettings.value = true;
+  },
+  onOpenAbout: () => {
+    showAbout.value = true;
+  },
+  onClearRecent: handleClearRecent,
+};
+
+async function refreshAppMenu() {
+  if (!hasTauriRuntime()) return;
+  await setupAppMenu(appMenuHandlers);
+  await refreshRecentMenu(recentFiles.value);
+}
+
+watch(locale, () => {
+  void refreshAppMenu();
+});
+
 onMounted(async () => {
   window.addEventListener("keydown", handleKeydown, true);
 
   if (hasTauriRuntime()) {
-    await setupAppMenu({
-      onNew: () => void newFileWithConfirm(),
-      onOpen: () => void openFileWithConfirm(),
-      onOpenRecent: (path) => void openRecentFile(path),
-      onSave: () => void saveFile(content.value),
-      onSaveAs: () => void saveFileAs(content.value),
-      onFormatSpacing: formatChineseEnglishSpacing,
-      onExportPdf: () => void handleExportPdf(),
-      onCopyWechatHtml: () => void handleCopyWechatHtml(),
-      onOpenSettings: () => {
-        showSettings.value = true;
-      },
-      onOpenAbout: () => {
-        showAbout.value = true;
-      },
-      onClearRecent: handleClearRecent,
-    });
-    await refreshRecentMenu(recentFiles.value);
+    await refreshAppMenu();
 
     const pending = await invoke<string[]>("take_opened_files");
     if (pending.length > 0) {
@@ -719,11 +710,11 @@ onUnmounted(() => {
       <button
         v-if="canGoBack"
         class="doc-back"
-        title="返回上一文档 (⌘[)"
+        :title="t('app.backToPreviousDocTitle')"
         @click="goBackDocument"
       >
         <span class="doc-back-arrow">←</span>
-        <span>返回上一文档</span>
+        <span>{{ t("app.backToPreviousDoc") }}</span>
       </button>
 
       <section v-show="showEditor" class="pane pane-editor">

@@ -7,9 +7,11 @@ import {
   patchProviderInSettings,
 } from "../ai-providers/settings";
 import type { AISettings } from "../composables/useAI";
+import { useLocale } from "../composables/useLocale";
 import type { AiProviderConfig, AiProviderModel } from "../ai-providers/types";
 
 const settings = defineModel<AISettings>({ required: true });
+const { t } = useLocale();
 
 const selectedProviderId = ref(settings.value.agentDefaultProviderId ?? settings.value.providers[0]?.id);
 const providerSearch = ref("");
@@ -28,14 +30,14 @@ const editModelDraft = ref({
   capabilities: ["text"] as AiModelCapability[],
 });
 
-const capabilityLabels: Record<AiModelCapability, string> = {
-  text: "文本",
-  vision: "视觉",
-  image: "生图",
-  reasoning: "推理",
-  tools: "工具",
-  web: "联网",
-};
+const capabilityLabels = computed<Record<AiModelCapability, string>>(() => ({
+  text: t("aiSettings.capability.text"),
+  vision: t("aiSettings.capability.vision"),
+  image: t("aiSettings.capability.image"),
+  reasoning: t("aiSettings.capability.reasoning"),
+  tools: t("aiSettings.capability.tools"),
+  web: t("aiSettings.capability.web"),
+}));
 
 const visibleProviders = computed(() => {
   const query = providerSearch.value.trim().toLowerCase();
@@ -184,7 +186,7 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
       <input
         v-model="providerSearch"
         class="setting-input"
-        placeholder="搜索服务商"
+        :placeholder="t('aiSettings.searchProvider')"
         spellcheck="false"
       />
       <div class="provider-list">
@@ -200,25 +202,25 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
               v-if="provider.enabled"
               class="provider-enabled-dot"
               aria-hidden="true"
-              title="已启用"
+              :title="t('aiSettings.enabled')"
             />
             <span class="provider-name">{{ provider.name }}</span>
           </span>
         </button>
       </div>
-      <button class="ghost-btn" type="button" @click="addProvider">+ 添加自定义</button>
+      <button class="ghost-btn" type="button" @click="addProvider">{{ t("aiSettings.addCustom") }}</button>
     </aside>
 
     <section v-if="selectedProvider" class="provider-detail">
       <div class="detail-header">
         <div>
           <h3 class="detail-title">{{ selectedProvider.name }}</h3>
-          <p class="detail-desc">配置 API 与模型能力；Agent 默认使用已启用的文本模型。</p>
+          <p class="detail-desc">{{ t("aiSettings.configDesc") }}</p>
         </div>
         <div class="detail-actions">
           <label class="toggle">
             <input v-model="selectedProviderEnabled" type="checkbox" />
-            <span>启用</span>
+            <span>{{ t("aiSettings.enable") }}</span>
           </label>
           <button
             v-if="selectedProvider.id.startsWith('custom-provider-')"
@@ -226,14 +228,14 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
             type="button"
             @click="deleteProvider"
           >
-            删除
+            {{ t("aiSettings.delete") }}
           </button>
         </div>
       </div>
 
       <div class="detail-section">
         <label class="field">
-          <span class="field-label">API 地址</span>
+          <span class="field-label">{{ t("aiSettings.apiUrl") }}</span>
           <input
             :value="selectedProvider.baseUrl"
             class="setting-input"
@@ -253,7 +255,7 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
           />
         </label>
         <label v-if="selectedProvider.id.startsWith('custom-provider-')" class="field">
-          <span class="field-label">服务商名称</span>
+          <span class="field-label">{{ t("aiSettings.providerName") }}</span>
           <input
             :value="selectedProvider.name"
             class="setting-input"
@@ -265,7 +267,7 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
 
       <div class="detail-section">
         <label class="field">
-          <span class="field-label">Agent 默认模型</span>
+          <span class="field-label">{{ t("aiSettings.defaultModel") }}</span>
           <select
             class="setting-input"
             :value="settings.agentDefaultProviderId === selectedProvider.id
@@ -286,9 +288,9 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
 
       <div class="detail-section">
         <div class="section-head">
-          <span class="field-label">模型列表</span>
+          <span class="field-label">{{ t("aiSettings.modelList") }}</span>
           <button class="ghost-btn" type="button" @click="isAddingModel = !isAddingModel">
-            {{ isAddingModel ? "取消" : "+ 添加模型" }}
+            {{ isAddingModel ? t("aiSettings.cancel") : t("aiSettings.addModel") }}
           </button>
         </div>
 
@@ -296,13 +298,13 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
           <input
             v-model="modelDraft.id"
             class="setting-input"
-            placeholder="模型 ID，如 gpt-4o"
+            :placeholder="t('aiSettings.modelIdPlaceholder')"
             spellcheck="false"
           />
           <input
             v-model="modelDraft.name"
             class="setting-input"
-            placeholder="显示名称"
+            :placeholder="t('aiSettings.displayNamePlaceholder')"
             spellcheck="false"
           />
           <div class="capability-picker">
@@ -317,7 +319,7 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
               {{ capabilityLabels[capability] }}
             </button>
           </div>
-          <button class="ghost-btn" type="button" @click="addModel">保存模型</button>
+          <button class="ghost-btn" type="button" @click="addModel">{{ t("aiSettings.saveModel") }}</button>
         </div>
 
         <div class="model-list">
@@ -339,8 +341,8 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
                   </button>
                 </div>
                 <div class="model-row-actions">
-                  <button class="ghost-btn" type="button" @click="saveEditedModel">保存</button>
-                  <button class="ghost-btn" type="button" @click="editingModelId = null">取消</button>
+                  <button class="ghost-btn" type="button" @click="saveEditedModel">{{ t("aiSettings.save") }}</button>
+                  <button class="ghost-btn" type="button" @click="editingModelId = null">{{ t("aiSettings.cancel") }}</button>
                 </div>
               </div>
             </template>
@@ -366,8 +368,8 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
                 </span>
               </div>
               <div class="model-row-actions">
-                <button class="ghost-btn" type="button" @click="startEditModel(model)">编辑</button>
-                <button class="ghost-btn danger" type="button" @click="removeModel(model.id)">删除</button>
+                <button class="ghost-btn" type="button" @click="startEditModel(model)">{{ t("aiSettings.edit") }}</button>
+                <button class="ghost-btn danger" type="button" @click="removeModel(model.id)">{{ t("aiSettings.delete") }}</button>
               </div>
             </template>
           </div>
@@ -377,16 +379,16 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
       <div class="detail-section web-search-section">
         <div class="setting-row">
           <div class="setting-label">
-            <span class="setting-name">网页搜索</span>
-            <span class="setting-desc">无需 API Key，Agent 可联网查资料。</span>
+            <span class="setting-name">{{ t("aiSettings.webSearch") }}</span>
+            <span class="setting-desc">{{ t("aiSettings.webSearchDesc") }}</span>
           </div>
           <label class="toggle">
             <input v-model="settings.webSearchEnabled" type="checkbox" />
-            <span>启用</span>
+            <span>{{ t("aiSettings.enable") }}</span>
           </label>
         </div>
         <label v-if="settings.webSearchEnabled" class="field">
-          <span class="field-label">每次搜索条数</span>
+          <span class="field-label">{{ t("aiSettings.searchResultCount") }}</span>
           <input
             v-model.number="settings.webSearchMaxResults"
             class="setting-input setting-input-narrow"

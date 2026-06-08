@@ -2,8 +2,11 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { ref } from "vue";
 import { parseOutline } from "./useOutline";
+import { translate } from "./useLocale";
 
-const DEFAULT_MARKDOWN_BASENAME = "未命名";
+function untitledName() {
+  return translate("file.untitled");
+}
 const MAX_MARKDOWN_BASENAME_LENGTH = 80;
 const WINDOWS_RESERVED_BASENAMES = new Set([
   "con",
@@ -49,7 +52,7 @@ function sanitizeMarkdownFileBaseName(value: string): string {
 
 function getDefaultMarkdownFileName(content: string): string {
   const firstHeading = parseOutline(content).find((item) => item.level === 1)?.text ?? "";
-  const baseName = sanitizeMarkdownFileBaseName(firstHeading) || DEFAULT_MARKDOWN_BASENAME;
+  const baseName = sanitizeMarkdownFileBaseName(firstHeading) || untitledName();
   return `${baseName}.md`;
 }
 
@@ -59,13 +62,13 @@ export function useFile(
   onSaved?: () => void,
 ) {
   const filePath = ref<string | null>(null);
-  const fileName = ref("未命名");
+  const fileName = ref(untitledName());
 
   async function loadPath(path: string): Promise<boolean> {
     try {
       const content = await readTextFile(path);
       filePath.value = path;
-      fileName.value = path.split(/[/\\]/).pop() ?? "未命名";
+      fileName.value = path.split(/[/\\]/).pop() ?? untitledName();
       onLoad(content);
       onPathOpened?.(path);
       return true;
@@ -90,7 +93,7 @@ export function useFile(
 
   function newFile() {
     filePath.value = null;
-    fileName.value = "未命名";
+    fileName.value = untitledName();
     onLoad("");
   }
 
@@ -105,7 +108,7 @@ export function useFile(
       if (!selected) return;
       target = selected;
       filePath.value = selected;
-      fileName.value = selected.split(/[/\\]/).pop() ?? "未命名";
+      fileName.value = selected.split(/[/\\]/).pop() ?? untitledName();
     }
 
     await writeTextFile(target, content);
@@ -121,7 +124,7 @@ export function useFile(
     if (!selected) return;
 
     filePath.value = selected;
-    fileName.value = selected.split(/[/\\]/).pop() ?? "未命名";
+    fileName.value = selected.split(/[/\\]/).pop() ?? untitledName();
     await writeTextFile(selected, content);
     onPathOpened?.(selected);
     onSaved?.();
