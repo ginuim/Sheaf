@@ -22,8 +22,11 @@ import {
 } from "../lib/exportCardSettings";
 import { splitLeadingH1Title } from "../lib/wechatHtml";
 import { useLocale } from "../composables/useLocale";
+import QRCode from "qrcode";
 
 const { t } = useLocale();
+
+const LONG_IMAGE_MAX_HEIGHT_PRESETS = [0, 800, 1200, 1600, 2000, 2400] as const;
 
 const props = defineProps<{
   docFilePath?: string | null;
@@ -67,8 +70,15 @@ const config = ref({
   cardTheme: "classic" as "classic" | "modern" | "dark",
   author: savedCardSettings.author,
   authorDesc: savedCardSettings.authorDesc,
+  longImageMaxHeight: savedCardSettings.longImageMaxHeight,
+  longImageQrEnabled: savedCardSettings.longImageQrEnabled,
+  longImageQrUrl: savedCardSettings.longImageQrUrl,
+  longImageQrLabel: savedCardSettings.longImageQrLabel,
   fontSize: 15,
 });
+
+const longImageContentClipped = ref(false);
+const longImageQrDataUrl = ref("");
 
 const XIAOHONGSHU_EXPORT_SIZE = {
   width: 1242,
@@ -137,6 +147,24 @@ const shouldRenderMermaidAsDark = computed(() => {
 
 const isXiaohongshuCard = computed(() => config.value.type === "xiaohongshu");
 const isLongImage = computed(() => config.value.type === "long-image");
+const longImageMaxHeightActive = computed(
+  () => isLongImage.value && config.value.longImageMaxHeight > 0,
+);
+const longImageCaptureStyle = computed(() => {
+  if (!longImageMaxHeightActive.value) return undefined;
+  return {
+    "--long-image-max-height": `${config.value.longImageMaxHeight}px`,
+  };
+});
+const longImageQrLabel = computed(
+  () => config.value.longImageQrLabel.trim() || t("export.qrDefaultLabel"),
+);
+const showLongImageQr = computed(
+  () =>
+    isLongImage.value &&
+    config.value.longImageQrEnabled &&
+    longImageQrDataUrl.value.length > 0,
+);
 const currentCardHtml = computed(() => {
   if (!isXiaohongshuCard.value) return renderedHtml.value;
   if (cardPaginationPending.value && !cardPages.value.length) return "";
@@ -154,6 +182,64 @@ const cardPaginationText = computed(() => {
 function waitForAnimationFrame() {
   return new Promise<void>((resolve) => {
     requestAnimationFrame(() => resolve());
+  });
+}
+
+async function updateLongImageClipState() {
+  if (!longImageMaxHeightActive.value) {
+    longImageContentClipped.value = false;
+    return;
+  }
+
+  await nextTick();
+  await waitForAnimationFrame();
+  const main = cardContentRef.value;
+  const inner = main?.querySelector(".card-measure-inner") as HTMLElement | null;
+  if (!main || !inner) {
+    longImageContentClipped.value = false;
+    return;
+  }
+
+  longImageContentClipped.value = inner.scrollHeight > main.clientHeight + 2;
+}
+
+async function refreshLongImageQrCode() {
+  if (!config.value.longImageQrEnabled) {
+    longImageQrDataUrl.value = "";
+    return;
+  }
+
+  const target = config.value.longImageQrUrl.trim();
+  if (!target) {
+    longImageQrDataUrl.value = "";
+    return;
+  }
+
+  try {
+    longImageQrDataUrl.value = await QRCode.toDataURL(target, {
+      width: 128,
+      margin: 1,
+      errorCorrectionLevel: "M",
+      color: {
+        dark: "#111111",
+        light: "#ffffff",
+      },
+    });
+  } catch {
+    longImageQrDataUrl.value = "";
+  } finally {
+    await updateLongImageClipState();
+  }
+}
+
+function persistExportCardSettings() {
+  saveExportCardSettings({
+    author: config.value.author,
+    authorDesc: config.value.authorDesc,
+    longImageMaxHeight: config.value.longImageMaxHeight,
+    longImageQrEnabled: config.value.longImageQrEnabled,
+    longImageQrUrl: config.value.longImageQrUrl,
+    longImageQrLabel: config.value.longImageQrLabel,
   });
 }
 
@@ -664,6 +750,9 @@ async function syncPreviewLayout() {
   currentCardIndex.value = 0;
   paginatedCardFontSize.value = config.value.fontSize;
   await renderVisibleMermaid();
+  if (isLongImage.value) {
+    await updateLongImageClipState();
+  }
 }
 
 function goToPreviousCard() {
@@ -688,6 +777,8 @@ async function renderVisibleMermaid() {
 
 onMounted(() => {
   void syncPreviewLayout();
+  void refreshLongImageQrCode();
+  void updateLongImageClipState();
 });
 
 watch(
@@ -718,9 +809,46 @@ watch(
 );
 
 watch(
-  () => [config.value.author, config.value.authorDesc] as const,
-  ([author, authorDesc]) => {
-    saveExportCardSettings({ author, authorDesc });
+  () =>
+    [
+      config.value.author,
+      config.value.authorDesc,
+      config.value.longImageMaxHeight,
+      config.value.longImageQrEnabled,
+      config.value.longImageQrUrl,
+      config.value.longImageQrLabel,
+    ] as const,
+  () => {
+    persistExportCardSettings();
+  },
+);
+
+watch(
+  [
+    renderedHtml,
+    () => config.value.longImageMaxHeight,
+    () => config.value.fontSize,
+    () => config.value.type,
+    () => config.value.cardTheme,
+  ],
+  () => {
+    if (isLongImage.value) {
+      void updateLongImageClipState();
+    }
+  },
+);
+
+watch(
+  [
+    () => config.value.longImageQrEnabled,
+    () => config.value.longImageQrUrl,
+    showLongImageQr,
+  ],
+  () => {
+    void refreshLongImageQrCode();
+    if (isLongImage.value) {
+      void updateLongImageClipState();
+    }
   },
 );
 
@@ -755,20 +883,42 @@ function cardImageFileName(pageIndex: number, pageCount: number) {
 async function captureExportImage(el: HTMLElement) {
   await waitForAnimationFrame();
   const isXiaohongshu = config.value.type === "xiaohongshu";
+  const isLongImageExport = config.value.type === "long-image";
   const captureWidth = isXiaohongshu
     ? XIAOHONGSHU_CAPTURE_SIZE.width
     : el.offsetWidth;
   const captureHeight = isXiaohongshu
     ? XIAOHONGSHU_CAPTURE_SIZE.height
-    : config.value.type === "long-image"
-      ? el.scrollHeight
-      : el.offsetHeight;
+    : el.offsetHeight;
 
-  return toPng(el, {
+  const baseOptions = {
     cacheBust: true,
     pixelRatio: isXiaohongshu ? XIAOHONGSHU_EXPORT_PIXEL_RATIO : 2,
     backgroundColor: "transparent",
     skipFonts: true,
+  } as const;
+
+  if (isLongImageExport) {
+    const capped = config.value.longImageMaxHeight > 0;
+    const exportHeight = capped ? el.offsetHeight : undefined;
+    return toPng(el, {
+      ...baseOptions,
+      width: captureWidth,
+      height: exportHeight,
+      canvasWidth: exportHeight ? captureWidth : undefined,
+      canvasHeight: exportHeight,
+      style: {
+        transform: "scale(1)",
+        transformOrigin: "top left",
+        width: `${captureWidth}px`,
+        height: capped ? `${exportHeight}px` : "auto",
+        overflow: "hidden",
+      },
+    });
+  }
+
+  return toPng(el, {
+    ...baseOptions,
     width: captureWidth,
     height: captureHeight,
     canvasWidth: captureWidth,
@@ -1008,7 +1158,9 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
                   :class="[
                     `theme-${config.cardTheme}`,
                     `type-${config.type}`,
+                    { 'has-max-height': longImageMaxHeightActive },
                   ]"
+                  :style="longImageCaptureStyle"
                 >
                   <!-- 装饰背景 -->
                   <div class="card-deco-mesh"></div>
@@ -1028,10 +1180,18 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
                   <main
                     ref="cardContentRef"
                     class="card-main-content"
-                    :class="{ 'is-paginating': cardPaginationPending }"
+                    :class="{
+                      'is-paginating': cardPaginationPending,
+                      'has-height-cap': longImageMaxHeightActive,
+                    }"
                     :style="{ fontSize: paginatedCardFontSize + 'px' }"
                   >
                     <div class="card-measure-inner" v-html="currentCardHtml"></div>
+                    <div
+                      v-if="longImageContentClipped"
+                      class="card-content-fade"
+                      aria-hidden="true"
+                    />
                   </main>
 
                   <div v-if="cardPaginationPending" class="card-loading-mask">
@@ -1040,13 +1200,21 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
                   </div>
 
                   <!-- 底部作者栏 -->
-                  <footer class="card-footer">
+                  <footer class="card-footer" :class="{ 'has-qr': showLongImageQr }">
                     <div class="author-info">
                       <div class="author-avatar">{{ authorInitial }}</div>
                       <div class="author-meta">
                         <span class="author-name">{{ displayAuthorName }}</span>
                         <span class="author-desc">{{ displayAuthorDesc }}</span>
                       </div>
+                    </div>
+                    <div v-if="showLongImageQr" class="card-qr-block">
+                      <img
+                        :src="longImageQrDataUrl"
+                        alt=""
+                        class="card-qr-image"
+                      />
+                      <span class="card-qr-label">{{ longImageQrLabel }}</span>
                     </div>
                   </footer>
                 </div>
@@ -1161,7 +1329,78 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
             </div>
           </section>
 
-          <!-- 3. 小红书卡片配置 -->
+          <!-- 3. 长图配置 -->
+          <section v-if="config.type === 'long-image'" class="control-section">
+            <h3 class="section-label">{{ t("export.longImageSettings") }}</h3>
+            <p class="section-hint">{{ t("export.longImageSettingsHint") }}</p>
+
+            <div class="form-group">
+              <label class="form-label">{{ t("export.cardVisualStyle") }}</label>
+              <div class="theme-list">
+                <button
+                  v-for="theme in cardThemes"
+                  :key="theme.id"
+                  class="theme-card"
+                  :class="{ active: config.cardTheme === theme.id }"
+                  @click="config.cardTheme = theme.id"
+                >
+                  <span class="theme-name">{{ theme.label }}</span>
+                  <span class="theme-desc">{{ theme.desc }}</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">{{ t("export.longImageMaxHeight") }}</label>
+              <div class="height-preset-row">
+                <button
+                  v-for="height in LONG_IMAGE_MAX_HEIGHT_PRESETS"
+                  :key="height"
+                  class="height-preset-btn"
+                  :class="{ active: config.longImageMaxHeight === height }"
+                  @click="config.longImageMaxHeight = height"
+                >
+                  {{
+                    height === 0
+                      ? t("export.longImageMaxHeightUnlimited")
+                      : `${height}px`
+                  }}
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group inline-group">
+              <label class="form-label">{{ t("export.longImageQrEnabled") }}</label>
+              <input
+                v-model="config.longImageQrEnabled"
+                type="checkbox"
+                class="form-checkbox"
+              />
+            </div>
+
+            <template v-if="config.longImageQrEnabled">
+              <div class="form-group">
+                <label class="form-label">{{ t("export.longImageQrUrl") }}</label>
+                <input
+                  v-model="config.longImageQrUrl"
+                  type="url"
+                  class="form-input"
+                  :placeholder="t('export.longImageQrUrlPlaceholder')"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">{{ t("export.longImageQrLabel") }}</label>
+                <input
+                  v-model="config.longImageQrLabel"
+                  type="text"
+                  class="form-input"
+                  :placeholder="t('export.qrDefaultLabel')"
+                />
+              </div>
+            </template>
+          </section>
+
+          <!-- 4. 小红书卡片配置 -->
           <section v-if="config.type === 'xiaohongshu'" class="control-section">
             <h3 class="section-label">{{ t("export.cardSettings") }}</h3>
             <p class="section-hint">{{ t("export.cardSettingsHint") }}</p>
@@ -1183,7 +1422,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
             </div>
           </section>
 
-          <!-- 4. 署名（非微信端适用） -->
+          <!-- 5. 署名（非微信端适用） -->
           <section v-if="config.type !== 'wechat'" class="control-section">
             <h3 class="section-label">{{ t("export.byline") }}</h3>
 
@@ -1208,7 +1447,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
             </div>
           </section>
 
-          <!-- 5. 统一字号调节 -->
+          <!-- 6. 统一字号调节 -->
           <section class="control-section">
             <h3 class="section-label">{{ t("export.fontSize") }}</h3>
             <div class="fontsize-control">
@@ -1478,6 +1717,10 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   box-sizing: border-box;
 }
 
+.canvas-viewport.type-long-image .canvas-scroller {
+  align-items: flex-start;
+}
+
 /* 右面板：控制器 */
 .pane-controls {
   width: 320px;
@@ -1666,6 +1909,12 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   z-index: 10;
 }
 
+.canvas-viewport.type-long-image .preview-image-wrapper {
+  height: auto;
+  min-height: min-content;
+  justify-content: flex-start;
+}
+
 .capture-stack {
   display: flex;
   flex-direction: column;
@@ -1721,6 +1970,33 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 .capture-box.type-long-image {
   width: 420px;
   min-height: 480px;
+  overflow: hidden;
+}
+
+.capture-box.type-long-image.has-max-height {
+  max-height: var(--long-image-max-height);
+}
+
+.capture-box.type-long-image.has-max-height .card-main-content.has-height-cap {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.card-content-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 108px;
+  pointer-events: none;
+  z-index: 2;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--card-fade-color) 78%
+  );
 }
 
 /* 小红书非截图状态下正文溢出滚动 */
@@ -1772,6 +2048,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 
 /* 1. 经典米白主题 */
 .theme-classic {
+  --card-fade-color: #fbf9f4;
   background: #fbf9f4;
   color: #2e2a24;
   border: 1px solid #eae5db;
@@ -1804,6 +2081,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 
 /* 2. 现代冷灰主题 */
 .theme-modern {
+  --card-fade-color: #eff0f1;
   background: linear-gradient(135deg, #f4f5f6 0%, #e9ebed 100%);
   color: #1a1a1b;
   border: 1px solid rgba(0, 0, 0, 0.05);
@@ -1828,6 +2106,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 
 /* 3. 暗黑极简 */
 .theme-dark {
+  --card-fade-color: #17191a;
   background: linear-gradient(135deg, #1e2022 0%, #101112 100%);
   color: #e3e4e6;
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -1943,6 +2222,10 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
 }
 
+.card-main-content :deep(.card-measure-inner > :first-child) {
+  margin-top: 0;
+}
+
 .card-main-content :deep(.card-measure-inner > :last-child) {
   margin-bottom: 0;
 }
@@ -2056,10 +2339,47 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-top: 18px;
   padding-top: 16px;
   border-top: 1px solid rgba(46, 42, 36, 0.035);
   flex-shrink: 0;
+}
+
+.card-footer.has-qr {
+  align-items: flex-end;
+}
+
+.card-qr-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.card-qr-image {
+  width: 54px;
+  height: 54px;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 3px;
+  box-sizing: border-box;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+.theme-dark .card-qr-image {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+
+.card-qr-label {
+  max-width: 72px;
+  font-size: 8px;
+  line-height: 1.35;
+  text-align: center;
+  color: inherit;
+  opacity: 0.72;
+  word-break: break-all;
 }
 
 .theme-dark .card-footer {
@@ -2271,6 +2591,35 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   height: 16px;
   accent-color: var(--ink-accent);
   cursor: pointer;
+}
+
+.height-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.height-preset-btn {
+  padding: 6px 10px;
+  border: 1px solid var(--ink-border);
+  border-radius: 6px;
+  background: var(--ink-bg);
+  color: var(--ink-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.height-preset-btn:hover {
+  border-color: var(--ink-border-strong);
+  color: var(--ink-text);
+}
+
+.height-preset-btn.active {
+  border-color: var(--ink-accent);
+  background: var(--ink-accent-soft);
+  color: var(--ink-text);
 }
 
 /* 字号控制 */
