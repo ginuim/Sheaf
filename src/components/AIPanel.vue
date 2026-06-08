@@ -25,8 +25,20 @@ import {
   type AIHistoryItem,
 } from "../composables/useAI";
 import { useDocumentVersions } from "../composables/useDocumentVersions";
+import { modelHasCapability } from "../ai-providers/capabilities";
+import {
+  isBuiltinProvider,
+  localizedBuiltinModelName,
+  localizedBuiltinProviderName,
+} from "../ai-providers/catalog";
 import { useLocale } from "../composables/useLocale";
 import AgentActivityList from "./AgentActivityList.vue";
+
+type AgentModelOption = {
+  providerId: string;
+  modelId: string;
+  label: string;
+};
 
 const { t } = useLocale();
 
@@ -51,6 +63,7 @@ const emit = defineEmits<{
 
 const resolvedDocumentKey = computed(() => props.documentKey?.trim() || "__untitled__");
 const {
+  settings,
   streamEdit,
   runAgent,
   historyList,
@@ -77,6 +90,74 @@ let previousBodyUserSelect = "";
 
 const isLoading = computed(() => historyList.value.some((item: AIHistoryItem) => item.status === "loading"));
 const canSubmit = computed(() => instruction.value.trim().length > 0 && !isLoading.value);
+
+function agentModelValue(providerId: string, modelId: string) {
+  return `${providerId}::${modelId}`;
+}
+
+function parseAgentModelValue(value: string) {
+  const separatorIndex = value.indexOf("::");
+  if (separatorIndex <= 0) return null;
+  const providerId = value.slice(0, separatorIndex);
+  const modelId = value.slice(separatorIndex + 2);
+  if (!providerId || !modelId) return null;
+  return { providerId, modelId };
+}
+
+const availableAgentModels = computed<AgentModelOption[]>(() => {
+  const options: AgentModelOption[] = [];
+
+  for (const provider of settings.providers) {
+    if (!provider.enabled || !provider.apiKey?.trim()) continue;
+
+    const providerName = isBuiltinProvider(provider.id)
+      ? localizedBuiltinProviderName(provider.id, provider.name)
+      : provider.name;
+
+    for (const model of provider.models) {
+      if (!model.enabled || !modelHasCapability(model, "text")) continue;
+
+      const modelName = isBuiltinProvider(provider.id)
+        ? localizedBuiltinModelName(provider.id, model.id, model.name)
+        : model.name;
+
+      options.push({
+        providerId: provider.id,
+        modelId: model.id,
+        label: `${providerName} · ${modelName}`,
+      });
+    }
+  }
+
+  return options;
+});
+
+const selectedAgentModelValue = computed({
+  get() {
+    const providerId = settings.agentDefaultProviderId;
+    const modelId = settings.agentDefaultModelId;
+    if (providerId && modelId) {
+      const currentValue = agentModelValue(providerId, modelId);
+      if (
+        availableAgentModels.value.some(
+          (option) =>
+            option.providerId === providerId && option.modelId === modelId,
+        )
+      ) {
+        return currentValue;
+      }
+    }
+
+    const first = availableAgentModels.value[0];
+    return first ? agentModelValue(first.providerId, first.modelId) : "";
+  },
+  set(value: string) {
+    const parsed = parseAgentModelValue(value);
+    if (!parsed) return;
+    settings.agentDefaultProviderId = parsed.providerId;
+    settings.agentDefaultModelId = parsed.modelId;
+  },
+});
 const panelStyle = computed(() => ({
   width: `${panelWidth.value}px`,
 }));
@@ -662,6 +743,25 @@ onUnmounted(() => {
         @compositionend="onCompositionEnd"
         @keydown="onKeydown"
       />
+      <div v-if="availableAgentModels.length > 0" class="ai-model-row">
+        <label class="ai-model-label" for="ai-model-select">{{ t("ai.model") }}</label>
+        <select
+          id="ai-model-select"
+          v-model="selectedAgentModelValue"
+          class="ai-model-select"
+          :disabled="isLoading"
+          :aria-label="t('ai.model')"
+        >
+          <option
+            v-for="option in availableAgentModels"
+            :key="agentModelValue(option.providerId, option.modelId)"
+            :value="agentModelValue(option.providerId, option.modelId)"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+      </div>
+      <p v-else class="ai-model-empty">{{ t("ai.noModelConfigured") }}</p>
       <div class="ai-actions">
         <span class="ai-input-meta">{{ t("ai.charCount", { count: instruction.trim().length }) }}</span>
         <button
@@ -1495,6 +1595,52 @@ onUnmounted(() => {
 
 .ai-input:disabled {
   opacity: 0.62;
+}
+
+.ai-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ai-model-label {
+  flex-shrink: 0;
+  color: var(--ink-text-muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.ai-model-select {
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 8px;
+  color: var(--ink-text);
+  font-size: 11px;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius-sm);
+  background: var(--ink-surface);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ai-model-select:focus-visible {
+  border-color: color-mix(in srgb, var(--ink-accent) 70%, var(--ink-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink-accent-soft) 80%, transparent);
+}
+
+.ai-model-select:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
+.ai-model-empty {
+  margin: 0;
+  color: var(--ink-text-muted);
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .ai-actions {

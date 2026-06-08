@@ -1,4 +1,5 @@
 import { modelHasCapability } from "./capabilities";
+import { isBuiltinProvider, localizedBuiltinProviderName } from "./catalog";
 import type {
   AiProviderConfig,
   AiProviderSettings,
@@ -73,7 +74,9 @@ export function resolveAgentModel(settings: AiProviderSettings): ResolvedAgentMo
 
   return {
     providerId: provider.id,
-    providerName: provider.name,
+    providerName: isBuiltinProvider(provider.id)
+      ? localizedBuiltinProviderName(provider.id, provider.name)
+      : provider.name,
     baseUrl,
     apiKey,
     model: model.id,
