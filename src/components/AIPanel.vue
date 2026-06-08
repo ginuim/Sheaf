@@ -530,14 +530,14 @@ onUnmounted(() => {
         :class="[`status-${item.status}`, { 'is-diff-expanded': expandedDiffId === item.id }]"
       >
         <div class="card-header">
-          <div class="card-instruction" :title="item.instruction">
+          <div class="card-header-row">
             <span class="user-tag">{{ t("ai.instruction") }}</span>
-            {{ item.instruction }}
+            <div class="card-meta">
+              <span class="card-status" :class="`status-tag-${item.status}`">{{ statusLabel(item) }}</span>
+              <span class="card-time">{{ formatTime(item.timestamp) }}</span>
+            </div>
           </div>
-          <div class="card-meta">
-            <span class="card-status" :class="`status-tag-${item.status}`">{{ statusLabel(item) }}</span>
-            <span class="card-time">{{ formatTime(item.timestamp) }}</span>
-          </div>
+          <p class="card-instruction-text">{{ item.instruction }}</p>
         </div>
 
         <div class="card-body">
@@ -1046,17 +1046,20 @@ onUnmounted(() => {
 }
 
 .card-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.card-instruction {
+.card-header-row {
   display: flex;
-  gap: 7px;
-  align-items: flex-start;
-  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.card-instruction-text {
+  margin: 0;
   color: var(--ink-text);
   font-size: 12px;
   font-weight: 600;
@@ -1066,7 +1069,6 @@ onUnmounted(() => {
 
 .user-tag {
   flex-shrink: 0;
-  margin-top: 1px;
   padding: 2px 5px;
   color: var(--ink-accent);
   font-size: 9px;
@@ -1080,9 +1082,8 @@ onUnmounted(() => {
 
 .card-meta {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 5px;
+  align-items: center;
+  gap: 8px;
   flex-shrink: 0;
 }
 
