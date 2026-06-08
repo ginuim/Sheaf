@@ -152,6 +152,31 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
   file: {
     untitled: "Untitled",
   },
+  aiProviders: {
+    providers: {
+      "minimax-cn": "MiniMax (China)",
+      "minimax-global": "MiniMax (Global)",
+      "aliyun-bailian": "Qwen (Alibaba Cloud)",
+    },
+    models: {
+      deepseek: {
+        v4: "DeepSeek V4",
+        v4Flash: "DeepSeek V4 Flash",
+        chat: "DeepSeek Chat (deprecated 2026/07/24)",
+        reasoner: "DeepSeek Reasoner (deprecated 2026/07/24)",
+      },
+    },
+  },
+  imageGeneration: {
+    downloadFailed: "Failed to download image ({status})",
+    minimaxFailed: "MiniMax image generation failed ({status}): {detail}",
+    minimaxNoData: "No image data returned",
+    minimaxFailedMessage: "MiniMax image generation failed: {message}",
+    generateFailed: "Image generation failed ({status}): {detail}",
+    apiNoImage: "Image API returned no image",
+    apiUnknownFormat: "Unrecognized image API response format",
+    emptyPrompt: "Image description cannot be empty",
+  },
   aiSettings: {
     searchProvider: "Search providers",
     enabled: "Enabled",
@@ -210,6 +235,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     agentPlaceholder: "Ask AI to verify, rewrite, or continue this draft...",
     editPlaceholder: "Describe the edits to apply to the document...",
     charCount: "{count} chars",
+    model: "Model",
+    noModelConfigured: "Enable a provider and add an API key in Settings first",
     sending: "Running…",
     send: "Send",
     resize: "Resize AI panel",

@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import {
+  isBuiltinProvider,
+  localizedBuiltinModelName,
+  localizedBuiltinProviderName,
+} from "../ai-providers/catalog";
 import { aiModelCapabilities, toggleModelCapability } from "../ai-providers/capabilities";
 import type { AiModelCapability } from "../ai-providers/types";
 import {
@@ -30,6 +35,20 @@ const editModelDraft = ref({
   capabilities: ["text"] as AiModelCapability[],
 });
 
+function displayProviderName(provider: AiProviderConfig) {
+  if (isBuiltinProvider(provider.id)) {
+    return localizedBuiltinProviderName(provider.id, provider.name);
+  }
+  return provider.name;
+}
+
+function displayModelName(provider: AiProviderConfig, model: AiProviderModel) {
+  if (isBuiltinProvider(provider.id)) {
+    return localizedBuiltinModelName(provider.id, model.id, model.name);
+  }
+  return model.name;
+}
+
 const capabilityLabels = computed<Record<AiModelCapability, string>>(() => ({
   text: t("aiSettings.capability.text"),
   vision: t("aiSettings.capability.vision"),
@@ -43,7 +62,7 @@ const visibleProviders = computed(() => {
   const query = providerSearch.value.trim().toLowerCase();
   if (!query) return settings.value.providers;
   return settings.value.providers.filter((provider) =>
-    provider.name.toLowerCase().includes(query),
+    displayProviderName(provider).toLowerCase().includes(query),
   );
 });
 
@@ -204,7 +223,7 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
               aria-hidden="true"
               :title="t('aiSettings.enabled')"
             />
-            <span class="provider-name">{{ provider.name }}</span>
+            <span class="provider-name">{{ displayProviderName(provider) }}</span>
           </span>
         </button>
       </div>
@@ -214,7 +233,7 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
     <section v-if="selectedProvider" class="provider-detail">
       <div class="detail-header">
         <div>
-          <h3 class="detail-title">{{ selectedProvider.name }}</h3>
+          <h3 class="detail-title">{{ displayProviderName(selectedProvider) }}</h3>
           <p class="detail-desc">{{ t("aiSettings.configDesc") }}</p>
         </div>
         <div class="detail-actions">
@@ -280,7 +299,7 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
               :key="model.id"
               :value="model.id"
             >
-              {{ model.name }}
+              {{ displayModelName(selectedProvider, model) }}
             </option>
           </select>
         </label>
@@ -354,7 +373,7 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
                   @change="toggleModelEnabled(model.id, ($event.target as HTMLInputElement).checked)"
                 />
                 <span>
-                  <strong>{{ model.name }}</strong>
+                  <strong>{{ displayModelName(selectedProvider, model) }}</strong>
                   <small>{{ model.id }}</small>
                 </span>
               </label>

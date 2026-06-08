@@ -1,7 +1,8 @@
 import {
   defaultApiUrlForProvider,
   defaultProviderTemplateForId,
-  defaultProviderTemplates,
+  getDefaultProviderTemplates,
+  staleDefaultModelIdsByProviderId,
 } from "./catalog";
 import { readModelCapabilities } from "./capabilities";
 import type {
@@ -22,7 +23,7 @@ export function createDefaultAiSettings(): AiProviderSettings {
   return {
     agentDefaultModelId: "gpt-4o",
     agentDefaultProviderId: "openai",
-    providers: defaultProviderTemplates.map(cloneProvider),
+    providers: getDefaultProviderTemplates().map(cloneProvider),
     webSearchEnabled: true,
     webSearchMaxResults: 4,
   };
@@ -64,11 +65,10 @@ export function normalizeAiSettings(value: unknown): AiProviderSettings {
       providers[0];
     const storedModelId =
       typeof value.agentDefaultModelId === "string" ? value.agentDefaultModelId : "";
-    const agentDefaultModelId = selectedProvider?.models.some(
-      (model) => model.id === storedModelId && model.enabled,
-    )
-      ? storedModelId
-      : resolveDefaultTextModelId(selectedProvider);
+    const agentDefaultModelId = resolveAgentDefaultModelId(
+      selectedProvider,
+      storedModelId,
+    );
 
     const maxResults =
       typeof value.webSearchMaxResults === "number" && value.webSearchMaxResults >= 1
@@ -150,20 +150,26 @@ function normalizeProvider(value: unknown): AiProviderConfig | null {
         .map(normalizeModel)
         .filter((model): model is AiProviderModel => Boolean(model))
     : [];
-  const models =
+  const models = mergeBuiltinProviderModels(
+    providerId,
     normalizedStoredModels.length > 0
       ? normalizedStoredModels
       : defaultProvider?.models.map(cloneModel) ?? [
           { capabilities: ["text"], enabled: true, id: "default", name: "Default model" },
-        ];
+        ],
+  );
 
   const storedDefaultModelId =
     typeof value.defaultModelId === "string" ? value.defaultModelId : "";
-  const defaultModelId = models.some((model) => model.id === storedDefaultModelId)
-    ? storedDefaultModelId
-    : defaultProvider?.defaultModelId && models.some((model) => model.id === defaultProvider.defaultModelId)
-      ? defaultProvider.defaultModelId
-      : models[0]?.id;
+  const staleModelIds = staleDefaultModelIdsByProviderId[providerId];
+  const defaultModelId =
+    models.some((model) => model.id === storedDefaultModelId) &&
+    !staleModelIds?.includes(storedDefaultModelId)
+      ? storedDefaultModelId
+      : defaultProvider?.defaultModelId &&
+          models.some((model) => model.id === defaultProvider.defaultModelId)
+        ? defaultProvider.defaultModelId
+        : models[0]?.id;
 
   const storedBaseUrl = typeof value.baseUrl === "string" ? value.baseUrl : "";
 
@@ -210,6 +216,49 @@ function resolveDefaultTextModelId(provider?: AiProviderConfig) {
   const enabledModels = provider.models.filter((model) => model.enabled);
   const textModel = enabledModels.find((model) => model.capabilities.includes("text"));
   return textModel?.id ?? enabledModels[0]?.id ?? provider.defaultModelId;
+}
+
+function resolveAgentDefaultModelId(provider: AiProviderConfig | undefined, storedModelId: string) {
+  if (!provider) return undefined;
+  const staleModelIds = staleDefaultModelIdsByProviderId[provider.id];
+  if (
+    storedModelId &&
+    provider.models.some((model) => model.id === storedModelId && model.enabled) &&
+    !staleModelIds?.includes(storedModelId)
+  ) {
+    return storedModelId;
+  }
+  return resolveDefaultTextModelId(provider);
+}
+
+function shouldRefreshStoredDefaultModels(providerId: string, models: AiProviderModel[]) {
+  const staleModelIds = staleDefaultModelIdsByProviderId[providerId];
+  if (!staleModelIds || models.length === 0 || providerId.startsWith("custom-provider-")) {
+    return false;
+  }
+  const staleModelIdSet = new Set(staleModelIds);
+  return models.every((model) => staleModelIdSet.has(model.id));
+}
+
+function mergeBuiltinProviderModels(
+  providerId: string,
+  storedModels: AiProviderModel[],
+): AiProviderModel[] {
+  const template = defaultProviderTemplateForId(providerId);
+  if (!template || providerId.startsWith("custom-provider-")) return storedModels;
+
+  if (shouldRefreshStoredDefaultModels(providerId, storedModels)) {
+    return template.models.map(cloneModel);
+  }
+
+  const storedIds = new Set(storedModels.map((model) => model.id));
+  const missing = template.models.filter((model) => !storedIds.has(model.id));
+  if (missing.length === 0) return storedModels;
+
+  const merged = [...storedModels, ...missing.map(cloneModel)];
+  const order = new Map(template.models.map((model, index) => [model.id, index]));
+  merged.sort((left, right) => (order.get(left.id) ?? 99) - (order.get(right.id) ?? 99));
+  return merged;
 }
 
 function cloneProvider(provider: AiProviderConfigSeed): AiProviderConfig {
@@ -270,7 +319,7 @@ export function patchProviderInSettings(
 
 function mergeMissingBuiltinProviders(providers: AiProviderConfig[]) {
   const existingIds = new Set(providers.map((provider) => provider.id));
-  const missing = defaultProviderTemplates
+  const missing = getDefaultProviderTemplates()
     .filter((template) => !existingIds.has(template.id))
     .map(cloneProvider);
   return missing.length > 0 ? [...providers, ...missing] : providers;

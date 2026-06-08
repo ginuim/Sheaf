@@ -152,6 +152,31 @@ console.log(greeting);
   file: {
     untitled: "未命名",
   },
+  aiProviders: {
+    providers: {
+      "minimax-cn": "MiniMax（国内）",
+      "minimax-global": "MiniMax（国际）",
+      "aliyun-bailian": "通义千问",
+    },
+    models: {
+      deepseek: {
+        v4: "DeepSeek V4",
+        v4Flash: "DeepSeek V4 Flash",
+        chat: "DeepSeek Chat（将于 2026/07/24 弃用）",
+        reasoner: "DeepSeek Reasoner（将于 2026/07/24 弃用）",
+      },
+    },
+  },
+  imageGeneration: {
+    downloadFailed: "下载图片失败 ({status})",
+    minimaxFailed: "MiniMax 生图失败 ({status}): {detail}",
+    minimaxNoData: "未返回图片数据",
+    minimaxFailedMessage: "MiniMax 生图失败: {message}",
+    generateFailed: "生图失败 ({status}): {detail}",
+    apiNoImage: "生图 API 未返回图片",
+    apiUnknownFormat: "生图 API 返回格式无法识别",
+    emptyPrompt: "图片描述不能为空",
+  },
   aiSettings: {
     searchProvider: "搜索服务商",
     enabled: "已启用",
@@ -210,6 +235,8 @@ console.log(greeting);
     agentPlaceholder: "让 AI 帮你查证、改写或续写这篇稿子...",
     editPlaceholder: "描述要应用到正文的修改...",
     charCount: "{count} 字",
+    model: "模型",
+    noModelConfigured: "请先在设置中启用服务商并填写 API Key",
     sending: "执行中…",
     send: "发送",
     resize: "调整 AI 面板宽度",

@@ -1,4 +1,5 @@
 import { isMinimaxProvider } from "../ai-providers/catalog";
+import { translate } from "../composables/useLocale";
 import type { ResolvedImageModel } from "../ai-providers/types";
 
 export type GeneratedImage = {
@@ -29,7 +30,7 @@ function decodeBase64Image(value: string): Uint8Array {
 async function fetchImageBytes(url: string): Promise<Uint8Array> {
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`下载图片失败 (${response.status})`);
+    throw new Error(translate("imageGeneration.downloadFailed", { status: response.status }));
   }
   const buffer = await response.arrayBuffer();
   return new Uint8Array(buffer);
@@ -58,7 +59,9 @@ async function generateMinimaxImage(
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`MiniMax 生图失败 (${response.status}): ${errText}`);
+    throw new Error(
+      translate("imageGeneration.minimaxFailed", { status: response.status, detail: errText }),
+    );
   }
 
   const body = (await response.json()) as {
@@ -68,8 +71,8 @@ async function generateMinimaxImage(
 
   const base64 = body.data?.image_base64?.[0];
   if (!base64) {
-    const message = body.base_resp?.status_msg ?? "未返回图片数据";
-    throw new Error(`MiniMax 生图失败: ${message}`);
+    const message = body.base_resp?.status_msg ?? translate("imageGeneration.minimaxNoData");
+    throw new Error(translate("imageGeneration.minimaxFailedMessage", { message }));
   }
 
   return { bytes: decodeBase64Image(base64), mimeType: "image/png" };
@@ -99,14 +102,16 @@ async function generateOpenAiCompatibleImage(
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`生图失败 (${response.status}): ${errText}`);
+    throw new Error(
+      translate("imageGeneration.generateFailed", { status: response.status, detail: errText }),
+    );
   }
 
   const body = (await response.json()) as {
     data?: Array<{ b64_json?: string; url?: string }>;
   };
   const item = body.data?.[0];
-  if (!item) throw new Error("生图 API 未返回图片");
+  if (!item) throw new Error(translate("imageGeneration.apiNoImage"));
 
   if (item.b64_json) {
     return { bytes: decodeBase64Image(item.b64_json), mimeType: "image/png" };
@@ -115,7 +120,7 @@ async function generateOpenAiCompatibleImage(
     return { bytes: await fetchImageBytes(item.url), mimeType: "image/png" };
   }
 
-  throw new Error("生图 API 返回格式无法识别");
+  throw new Error(translate("imageGeneration.apiUnknownFormat"));
 }
 
 function aspectRatioToOpenAiSize(aspectRatio?: string) {
@@ -138,7 +143,7 @@ export async function generateImageFromConfig(
   options?: { aspectRatio?: string },
 ): Promise<GeneratedImage> {
   const trimmedPrompt = prompt.trim();
-  if (!trimmedPrompt) throw new Error("图片描述不能为空");
+  if (!trimmedPrompt) throw new Error(translate("imageGeneration.emptyPrompt"));
 
   if (isMinimaxProvider(config.providerId)) {
     return generateMinimaxImage(config, trimmedPrompt, options?.aspectRatio);

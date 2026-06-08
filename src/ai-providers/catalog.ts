@@ -1,4 +1,24 @@
+import { translate } from "../composables/useLocale";
 import type { AiProviderConfigSeed } from "./types";
+
+const BUILTIN_PROVIDER_NAME_KEYS: Partial<Record<string, string>> = {
+  "aliyun-bailian": "aiProviders.providers.aliyun-bailian",
+  "minimax-cn": "aiProviders.providers.minimax-cn",
+  "minimax-global": "aiProviders.providers.minimax-global",
+};
+
+const BUILTIN_MODEL_NAME_KEYS: Partial<Record<string, Partial<Record<string, string>>>> = {
+  deepseek: {
+    "deepseek-chat": "aiProviders.models.deepseek.chat",
+    "deepseek-reasoner": "aiProviders.models.deepseek.reasoner",
+    "deepseek-v4-flash": "aiProviders.models.deepseek.v4Flash",
+    "deepseek-v4-pro": "aiProviders.models.deepseek.v4",
+  },
+};
+
+export const staleDefaultModelIdsByProviderId: Partial<Record<string, string[]>> = {
+  deepseek: ["deepseek-chat", "deepseek-reasoner"],
+};
 
 export const defaultProviderTemplates: AiProviderConfigSeed[] = [
   {
@@ -79,7 +99,7 @@ export const defaultProviderTemplates: AiProviderConfigSeed[] = [
   {
     apiKey: "",
     baseUrl: "https://api.deepseek.com",
-    defaultModelId: "deepseek-chat",
+    defaultModelId: "deepseek-v4-flash",
     enabled: false,
     id: "deepseek",
     name: "DeepSeek",
@@ -88,14 +108,26 @@ export const defaultProviderTemplates: AiProviderConfigSeed[] = [
       {
         capabilities: ["text", "reasoning", "tools"],
         enabled: true,
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+      },
+      {
+        capabilities: ["text", "reasoning", "tools"],
+        enabled: true,
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4",
+      },
+      {
+        capabilities: ["text", "reasoning", "tools"],
+        enabled: true,
         id: "deepseek-chat",
-        name: "DeepSeek Chat",
+        name: "DeepSeek Chat (deprecated 2026/07/24)",
       },
       {
         capabilities: ["text", "reasoning", "tools"],
         enabled: true,
         id: "deepseek-reasoner",
-        name: "DeepSeek Reasoner",
+        name: "DeepSeek Reasoner (deprecated 2026/07/24)",
       },
     ],
   },
@@ -105,7 +137,7 @@ export const defaultProviderTemplates: AiProviderConfigSeed[] = [
     defaultModelId: "MiniMax-M2.7",
     enabled: false,
     id: "minimax-cn",
-    name: "MiniMax（国内）",
+    name: "MiniMax (China)",
     apiStyle: "openai-compatible",
     models: [
       {
@@ -134,7 +166,7 @@ export const defaultProviderTemplates: AiProviderConfigSeed[] = [
     defaultModelId: "MiniMax-M2.7",
     enabled: false,
     id: "minimax-global",
-    name: "MiniMax（国际）",
+    name: "MiniMax (Global)",
     apiStyle: "openai-compatible",
     models: [
       {
@@ -163,7 +195,7 @@ export const defaultProviderTemplates: AiProviderConfigSeed[] = [
     defaultModelId: "qwen-plus",
     enabled: false,
     id: "aliyun-bailian",
-    name: "通义千问",
+    name: "Qwen (Alibaba Cloud)",
     apiStyle: "openai-compatible",
     models: [
       {
@@ -234,8 +266,41 @@ export const defaultProviderTemplates: AiProviderConfigSeed[] = [
   },
 ];
 
+export function isBuiltinProvider(providerId: string) {
+  return defaultProviderTemplates.some((provider) => provider.id === providerId);
+}
+
+export function localizedBuiltinProviderName(providerId: string, fallback: string) {
+  const key = BUILTIN_PROVIDER_NAME_KEYS[providerId];
+  return key ? translate(key) : fallback;
+}
+
+export function localizedBuiltinModelName(
+  providerId: string,
+  modelId: string,
+  fallback: string,
+) {
+  const key = BUILTIN_MODEL_NAME_KEYS[providerId]?.[modelId];
+  return key ? translate(key) : fallback;
+}
+
+function cloneProviderTemplate(provider: AiProviderConfigSeed): AiProviderConfigSeed {
+  return {
+    ...provider,
+    models: provider.models.map((model) => ({
+      ...model,
+      name: localizedBuiltinModelName(provider.id, model.id, model.name),
+    })),
+    name: localizedBuiltinProviderName(provider.id, provider.name),
+  };
+}
+
+export function getDefaultProviderTemplates(): AiProviderConfigSeed[] {
+  return defaultProviderTemplates.map(cloneProviderTemplate);
+}
+
 export function defaultProviderTemplateForId(providerId: string) {
-  return defaultProviderTemplates.find((provider) => provider.id === providerId);
+  return getDefaultProviderTemplates().find((provider) => provider.id === providerId);
 }
 
 export function defaultApiUrlForProvider(providerId: string) {
