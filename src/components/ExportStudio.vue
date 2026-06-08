@@ -224,10 +224,21 @@ function compactPaginatedCardBlocks(blocks: string[]) {
   const compacted: string[] = [];
   for (let index = 0; index < blocks.length; index++) {
     const block = blocks[index];
-    const next = blocks[index + 1];
-    if (next && isHeadingBlock(block) && !isHeadingBlock(next)) {
-      compacted.push(block + next);
-      index += 1;
+    if (isHeadingBlock(block)) {
+      let group = block;
+      let cursor = index + 1;
+      while (cursor < blocks.length && isHeadingBlock(blocks[cursor])) {
+        group += blocks[cursor];
+        cursor += 1;
+      }
+      if (cursor < blocks.length) {
+        group += blocks[cursor];
+        compacted.push(group);
+        index = cursor;
+      } else {
+        compacted.push(group);
+        index = cursor - 1;
+      }
       continue;
     }
     compacted.push(block);
@@ -305,6 +316,128 @@ function splitOversizedCardBlock(html: string, heightRatio: number) {
     paragraph.textContent = chunk;
     return paragraph.outerHTML;
   });
+}
+
+function buildSplitCardBlock(original: HTMLElement, text: string, prefixHtml = "") {
+  const tagName = original.tagName.toLowerCase();
+  if (tagName === "ul" || tagName === "ol") {
+    const list = original.cloneNode(false) as HTMLElement;
+    const item = document.createElement("li");
+    item.textContent = text;
+    list.appendChild(item);
+    return prefixHtml + list.outerHTML;
+  }
+  if (tagName === "blockquote") {
+    const quote = original.cloneNode(false) as HTMLElement;
+    quote.textContent = text;
+    return prefixHtml + quote.outerHTML;
+  }
+  const paragraph = document.createElement("p");
+  paragraph.textContent = text;
+  return prefixHtml + paragraph.outerHTML;
+}
+
+function readSplittableCardBlock(html: string) {
+  const root = document.createElement("div");
+  root.innerHTML = html.trim();
+  const elements = Array.from(root.children) as HTMLElement[];
+  if (elements.length > 1 && /^H[1-6]$/.test(elements[0].tagName)) {
+    const bodyElements = elements.slice(1);
+    if (!bodyElements.length || bodyElements.some((element) => element.tagName.toLowerCase() === "table")) {
+      return null;
+    }
+    const text = bodyElements.map((element) => element.textContent ?? "").join(" ").replace(/\s+/g, " ").trim();
+    if (text.length < 24) return null;
+    return {
+      element: bodyElements[0],
+      prefixHtml: elements[0].outerHTML,
+      text,
+    };
+  }
+
+  if (elements.length !== 1) return null;
+
+  const element = elements[0];
+  const tagName = element.tagName.toLowerCase();
+  if (["table", "pre", "h1", "h2", "h3", "h4", "h5", "h6"].includes(tagName)) {
+    return null;
+  }
+
+  const text = (element.textContent ?? "").replace(/\s+/g, " ").trim();
+  if (text.length < 24) return null;
+
+  return { element, prefixHtml: "", text };
+}
+
+function snapCardSplitIndex(text: string, index: number) {
+  const minIndex = Math.max(1, index - 18);
+  const windowText = text.slice(0, index);
+  const breakIndex = Math.max(
+    windowText.lastIndexOf("。"),
+    windowText.lastIndexOf("；"),
+    windowText.lastIndexOf(";"),
+    windowText.lastIndexOf(". "),
+    windowText.lastIndexOf("，"),
+    windowText.lastIndexOf(", "),
+    windowText.lastIndexOf(" "),
+  );
+  return breakIndex >= minIndex ? breakIndex + 1 : index;
+}
+
+function normalizeCardSplitText(head: string, tail: string) {
+  let normalizedHead = head.trim();
+  let normalizedTail = tail.trim();
+  while (/^[。；;，,、.!?！？]/.test(normalizedTail)) {
+    normalizedHead += normalizedTail[0];
+    normalizedTail = normalizedTail.slice(1).trim();
+  }
+  return { head: normalizedHead, tail: normalizedTail };
+}
+
+async function splitCardBlockToFitPage(
+  currentHtml: string,
+  block: string,
+  targetHeight: number,
+  runId: number,
+) {
+  const parsed = readSplittableCardBlock(block);
+  if (!parsed) return null;
+
+  let low = 1;
+  let high = parsed.text.length;
+  let bestIndex = 0;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = buildSplitCardBlock(
+      parsed.element,
+      parsed.text.slice(0, mid),
+      parsed.prefixHtml,
+    );
+    const candidateHeight = await measureContentHeight(currentHtml + candidate, runId);
+    if (runId !== paginationRunId) return null;
+
+    if (candidateHeight <= targetHeight) {
+      bestIndex = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  const splitIndex = snapCardSplitIndex(parsed.text, bestIndex);
+  if (splitIndex < Math.min(18, parsed.text.length)) return null;
+
+  const { head: headText, tail: tailText } = normalizeCardSplitText(
+    parsed.text.slice(0, splitIndex),
+    parsed.text.slice(splitIndex),
+  );
+  if (!headText || !tailText) return null;
+
+  return [
+    buildSplitCardBlock(parsed.element, headText, parsed.prefixHtml),
+    buildSplitCardBlock(parsed.element, tailText),
+  ];
 }
 
 function ensureMeasureSurface() {
@@ -385,8 +518,8 @@ async function paginateXiaohongshuCards(
   if (runId !== paginationRunId) return null;
 
   const availableHeight = contentEl.clientHeight;
-  const targetHeight = Math.floor(availableHeight * 0.9);
-  const hardHeight = Math.floor(availableHeight * 0.94);
+  const targetHeight = Math.floor(availableHeight * 0.985);
+  const hardHeight = Math.floor(availableHeight);
 
   let currentBlocks: string[] = [];
   let currentRenderedHtml = "";
@@ -410,6 +543,19 @@ async function paginateXiaohongshuCards(
     }
 
     if (currentBlocks.length) {
+      const splitBlocks = await splitCardBlockToFitPage(
+        currentRenderedHtml || currentBlocks.join(""),
+        block,
+        targetHeight,
+        runId,
+      );
+      if (runId !== paginationRunId) return null;
+      if (splitBlocks && splitBlocks.length > 1) {
+        blocks.splice(blockIndex, 1, ...splitBlocks);
+        blockIndex -= 1;
+        continue;
+      }
+
       pages.push(currentRenderedHtml || currentBlocks.join(""));
       currentBlocks = [];
       currentRenderedHtml = "";
@@ -1760,6 +1906,57 @@ const cardThemes = [
 .card-main-content :deep(pre code) {
   background: none;
   padding: 0;
+}
+
+.card-main-content :deep(table) {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0 0 0.9em;
+  overflow: hidden;
+  border: 1px solid rgba(46, 42, 36, 0.16);
+  border-radius: 6px;
+  font-size: 0.86em;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.theme-dark .card-main-content :deep(table) {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.card-main-content :deep(th),
+.card-main-content :deep(td) {
+  padding: 6px 7px;
+  vertical-align: top;
+  border-right: 1px solid rgba(46, 42, 36, 0.12);
+  border-bottom: 1px solid rgba(46, 42, 36, 0.12);
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.theme-dark .card-main-content :deep(th),
+.theme-dark .card-main-content :deep(td) {
+  border-color: rgba(255, 255, 255, 0.13);
+}
+
+.card-main-content :deep(th) {
+  font-weight: 700;
+  background: rgba(46, 42, 36, 0.06);
+}
+
+.theme-dark .card-main-content :deep(th) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.card-main-content :deep(tr > :last-child) {
+  border-right: 0;
+}
+
+.card-main-content :deep(tbody tr:last-child > td) {
+  border-bottom: 0;
 }
 
 .card-main-content :deep(img) {
