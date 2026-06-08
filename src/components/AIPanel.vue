@@ -2,6 +2,7 @@
 import { ref, computed, nextTick, onMounted, onUnmounted } from "vue";
 import {
   Bot,
+  ChevronDown,
   Clock3,
   GitCompare,
   Plus,
@@ -744,22 +745,28 @@ onUnmounted(() => {
         @keydown="onKeydown"
       />
       <div v-if="availableAgentModels.length > 0" class="ai-model-row">
-        <label class="ai-model-label" for="ai-model-select">{{ t("ai.model") }}</label>
-        <select
-          id="ai-model-select"
-          v-model="selectedAgentModelValue"
-          class="ai-model-select"
-          :disabled="isLoading"
-          :aria-label="t('ai.model')"
-        >
-          <option
-            v-for="option in availableAgentModels"
-            :key="agentModelValue(option.providerId, option.modelId)"
-            :value="agentModelValue(option.providerId, option.modelId)"
+        <label class="ai-model-control" for="ai-model-select">
+          <span class="ai-model-label">
+            <Bot :size="12" aria-hidden="true" />
+            {{ t("ai.model") }}
+          </span>
+          <select
+            id="ai-model-select"
+            v-model="selectedAgentModelValue"
+            class="ai-model-select"
+            :disabled="isLoading"
+            :aria-label="t('ai.model')"
           >
-            {{ option.label }}
-          </option>
-        </select>
+            <option
+              v-for="option in availableAgentModels"
+              :key="agentModelValue(option.providerId, option.modelId)"
+              :value="agentModelValue(option.providerId, option.modelId)"
+            >
+              {{ option.label }}
+            </option>
+          </select>
+          <ChevronDown class="ai-model-chevron" :size="14" aria-hidden="true" />
+        </label>
       </div>
       <p v-else class="ai-model-empty">{{ t("ai.noModelConfigured") }}</p>
       <div class="ai-actions">
@@ -1553,12 +1560,12 @@ onUnmounted(() => {
 .ai-input-area {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
   flex-shrink: 0;
   padding: 12px;
   border-top: 1px solid var(--ink-border);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--ink-surface) 76%, transparent), var(--ink-surface)),
+    linear-gradient(180deg, color-mix(in srgb, var(--ink-surface) 84%, transparent), var(--ink-surface)),
     var(--ink-surface);
   box-shadow: 0 -10px 20px color-mix(in srgb, var(--ink-shadow) 18%, transparent);
 }
@@ -1567,17 +1574,21 @@ onUnmounted(() => {
   width: 100%;
   min-height: 84px;
   max-height: 150px;
-  padding: 10px 11px;
+  padding: 11px 12px;
   resize: vertical;
   color: var(--ink-text);
   font-family: inherit;
   font-size: 12px;
-  line-height: 1.55;
-  border: 1px solid var(--ink-border-strong);
+  line-height: 1.6;
+  border: 1px solid color-mix(in srgb, var(--ink-border-strong) 86%, var(--ink-border));
   border-radius: var(--ai-radius);
   outline: none;
-  background: color-mix(in srgb, var(--ink-bg) 84%, var(--ink-surface));
-  box-shadow: inset 0 1px 0 var(--ink-inset);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--ink-surface) 96%, var(--ink-bg)), color-mix(in srgb, var(--ink-bg) 88%, var(--ink-surface))),
+    var(--ink-bg);
+  box-shadow:
+    inset 0 1px 0 var(--ink-inset),
+    0 1px 2px color-mix(in srgb, var(--ink-shadow) 16%, transparent);
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
@@ -1590,7 +1601,8 @@ onUnmounted(() => {
   background: var(--ink-surface);
   box-shadow:
     inset 0 1px 0 var(--ink-inset),
-    0 0 0 3px color-mix(in srgb, var(--ink-accent-soft) 80%, transparent);
+    0 0 0 3px color-mix(in srgb, var(--ink-accent-soft) 84%, transparent),
+    0 8px 18px color-mix(in srgb, var(--ink-shadow) 14%, transparent);
 }
 
 .ai-input:disabled {
@@ -1600,35 +1612,73 @@ onUnmounted(() => {
 .ai-model-row {
   display: flex;
   align-items: center;
-  gap: 8px;
   min-width: 0;
+}
+
+.ai-model-control {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  gap: 8px;
+  padding: 3px 8px 3px 9px;
+  color: var(--ink-text);
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--ink-surface) 94%, var(--ink-bg)), color-mix(in srgb, var(--ink-bg) 86%, var(--ink-surface))),
+    var(--ink-bg);
+  box-shadow: inset 0 1px 0 var(--ink-inset);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.ai-model-control:hover {
+  border-color: color-mix(in srgb, var(--ink-accent) 28%, var(--ink-border));
+  background: color-mix(in srgb, var(--ink-surface) 92%, var(--ink-accent-soft));
 }
 
 .ai-model-label {
-  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: max-content;
   color: var(--ink-text-muted);
   font-size: 10px;
-  font-weight: 650;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .ai-model-select {
-  flex: 1;
+  width: 100%;
   min-width: 0;
-  min-height: 28px;
-  padding: 4px 8px;
+  min-height: 24px;
+  padding: 2px 20px 2px 0;
   color: var(--ink-text);
   font-size: 11px;
-  border: 1px solid var(--ink-border);
-  border-radius: var(--ai-radius-sm);
-  background: var(--ink-surface);
+  font-weight: 600;
+  line-height: 1.3;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   outline: none;
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
-.ai-model-select:focus-visible {
+.ai-model-select option {
+  color: var(--ink-text);
+  background: var(--ink-surface);
+}
+
+.ai-model-control:focus-within {
   border-color: color-mix(in srgb, var(--ink-accent) 70%, var(--ink-border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink-accent-soft) 80%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--ink-inset),
+    0 0 0 3px color-mix(in srgb, var(--ink-accent-soft) 84%, transparent);
 }
 
 .ai-model-select:disabled {
@@ -1636,11 +1686,32 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
+.ai-model-control:has(.ai-model-select:disabled) {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.ai-model-control:has(.ai-model-select:disabled) .ai-model-label,
+.ai-model-control:has(.ai-model-select:disabled) .ai-model-chevron {
+  opacity: 0.72;
+}
+
+.ai-model-chevron {
+  position: absolute;
+  right: 8px;
+  color: var(--ink-text-muted);
+  pointer-events: none;
+}
+
 .ai-model-empty {
   margin: 0;
+  padding: 8px 9px;
   color: var(--ink-text-muted);
   font-size: 10px;
   line-height: 1.5;
+  border: 1px dashed var(--ink-border);
+  border-radius: var(--ai-radius);
+  background: color-mix(in srgb, var(--ink-bg) 72%, var(--ink-surface));
 }
 
 .ai-actions {
