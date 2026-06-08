@@ -219,7 +219,7 @@ async function refreshLongImageQrCode() {
     longImageQrDataUrl.value = await QRCode.toDataURL(target, {
       width: 128,
       margin: 1,
-      errorCorrectionLevel: "M",
+      errorCorrectionLevel: "L",
       color: {
         dark: "#111111",
         light: "#ffffff",
@@ -991,7 +991,7 @@ async function handleCopyPlain() {
   }
 }
 
-// 导出为图片（支持长图与小红书卡片）
+// 导出为图片（支持长图与分享卡片）
 async function handleDownloadImage() {
   if (exportingImage.value) return;
   const el = exportCaptureRef.value;
@@ -1149,7 +1149,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
               </div>
             </div>
 
-            <!-- 小红书或长图大预览（包含真实的渲染与截图定位容器） -->
+            <!-- 分享卡片或长图大预览（包含真实的渲染与截图定位容器） -->
             <div v-else class="preview-image-wrapper">
               <div class="capture-stack">
                 <div
@@ -1400,7 +1400,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
             </template>
           </section>
 
-          <!-- 4. 小红书卡片配置 -->
+          <!-- 4. 分享卡片配置 -->
           <section v-if="config.type === 'xiaohongshu'" class="control-section">
             <h3 class="section-label">{{ t("export.cardSettings") }}</h3>
             <p class="section-hint">{{ t("export.cardSettingsHint") }}</p>
@@ -1895,7 +1895,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   border-radius: 8px;
 }
 
-/* 小红书卡片 / 长图大预览容器 */
+/* 分享卡片 / 长图大预览容器 */
 .preview-image-wrapper {
   display: flex;
   flex-direction: column;
@@ -1999,7 +1999,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   );
 }
 
-/* 小红书非截图状态下正文溢出滚动 */
+/* 分享卡片非截图状态下正文溢出滚动 */
 .capture-box.type-xiaohongshu .card-main-content {
   flex: 1;
   min-height: 0;

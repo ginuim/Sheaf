@@ -325,7 +325,7 @@ const demoScenarios: Record<DemoScenarioId, DemoScenario> = {
       {
         target: ".type-btn:nth-child(2)",
         click: true,
-        caption: "切到小红书卡片",
+        caption: "切到分享卡片",
         action: () => clickTarget(".type-btn:nth-child(2)"),
       },
       {
