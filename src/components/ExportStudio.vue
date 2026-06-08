@@ -20,6 +20,7 @@ import {
   loadExportCardSettings,
   saveExportCardSettings,
 } from "../lib/exportCardSettings";
+import { splitLeadingH1Title } from "../lib/wechatHtml";
 
 const props = defineProps<{
   docFilePath?: string | null;
@@ -78,6 +79,7 @@ const XIAOHONGSHU_CAPTURE_SIZE = {
 
 const exporting = ref(false);
 const exportingImage = ref(false);
+const copyingWechatTitle = ref(false);
 const exportCaptureRef = ref<HTMLElement | null>(null);
 const wechatRendererRef = ref<HTMLElement | null>(null);
 const cardContentRef = ref<HTMLElement | null>(null);
@@ -108,6 +110,9 @@ const wechatPreviewHtml = computed(() => {
     props.docFilePath ?? null,
   );
 });
+const wechatCopyParts = computed(() => splitLeadingH1Title(modelValue.value));
+const wechatCopyTitle = computed(() => wechatCopyParts.value.title);
+const wechatCopyBody = computed(() => wechatCopyParts.value.body);
 
 // 格式化当前日期为 2026/05/29 样式
 const formattedDate = computed(() => {
@@ -798,12 +803,31 @@ async function handleCopyWechatHtml() {
   }
 }
 
+async function handleCopyWechatTitle() {
+  if (exporting.value || copyingWechatTitle.value || !wechatCopyTitle.value) return;
+  copyingWechatTitle.value = true;
+  try {
+    const result = await copyPlainText(wechatCopyTitle.value);
+    if (result.ok) {
+      await studioMessage("已复制微信公众号标题。");
+    } else {
+      await studioMessage(result.message, "error");
+    }
+  } finally {
+    copyingWechatTitle.value = false;
+  }
+}
+
 // 复制纯文本
 async function handleCopyPlain() {
   if (exporting.value) return;
   exporting.value = true;
   try {
-    const result = await copyPlainText(modelValue.value);
+    const text =
+      config.value.type === "wechat" && wechatCopyTitle.value
+        ? wechatCopyBody.value
+        : modelValue.value;
+    const result = await copyPlainText(text);
     if (result.ok) {
       await studioMessage("已复制 Markdown 纯文本至剪贴板。");
     } else {
@@ -1195,6 +1219,21 @@ const cardThemes = [
 
         <!-- 6. 底部主操作区 -->
         <footer class="controls-footer">
+          <div v-if="config.type === 'wechat'" class="wechat-title-copy">
+            <div class="wechat-title-copy-meta">
+              <span class="wechat-title-copy-label">公众号标题</span>
+              <span class="wechat-title-copy-value">
+                {{ wechatCopyTitle || "首行不是一级标题" }}
+              </span>
+            </div>
+            <button
+              class="btn-ghost title-copy-btn"
+              :disabled="exporting || copyingWechatTitle || !wechatCopyTitle"
+              @click="handleCopyWechatTitle"
+            >
+              {{ copyingWechatTitle ? "复制中…" : "复制标题" }}
+            </button>
+          </div>
           <button
             v-if="config.type === 'wechat'"
             class="btn-primary"
@@ -2269,6 +2308,47 @@ const cardThemes = [
   flex-direction: column;
   gap: 8px;
   margin-top: auto;
+}
+
+.wechat-title-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--ink-border);
+  border-radius: 8px;
+  background: var(--ink-bg);
+}
+
+.wechat-title-copy-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wechat-title-copy-label {
+  font-size: 10px;
+  color: var(--ink-text-muted);
+}
+
+.wechat-title-copy-value {
+  overflow: hidden;
+  color: var(--ink-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title-copy-btn {
+  width: auto;
+  padding: 7px 10px;
+  border: 1px solid var(--ink-border);
+  background: var(--ink-surface);
+  white-space: nowrap;
 }
 
 .btn-primary {

@@ -580,7 +580,15 @@ function handleKeydown(e: KeyboardEvent) {
 
   if (e.key === "f" && !e.shiftKey && !showStartPage.value) {
     e.preventDefault();
+    e.stopImmediatePropagation();
     editorRef.value?.openSearch();
+    return;
+  }
+
+  if (e.key === "h" && !e.shiftKey && !showStartPage.value) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    editorRef.value?.openReplace();
     return;
   }
 
@@ -610,7 +618,7 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 onMounted(async () => {
-  window.addEventListener("keydown", handleKeydown);
+  window.addEventListener("keydown", handleKeydown, true);
 
   if (hasTauriRuntime()) {
     await setupAppMenu({
@@ -657,7 +665,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  window.removeEventListener("keydown", handleKeydown);
+  window.removeEventListener("keydown", handleKeydown, true);
   unlistenOpened?.();
   unlistenDragDrop?.();
 });
