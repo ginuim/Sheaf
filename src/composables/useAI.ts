@@ -7,6 +7,7 @@ import {
   saveAiSettings,
   type AiProviderSettings,
 } from "../ai-providers/settings";
+import type { ProofreadIssue, ProofreadResult } from "../types/proofreading";
 
 export type AISettings = AiProviderSettings;
 
@@ -41,7 +42,7 @@ export interface AIHistoryItem {
   id: string;
   timestamp: number;
   instruction: string;
-  status: "loading" | "done" | "no-changes" | "error" | "applied" | "discarded";
+  status: "loading" | "done" | "no-changes" | "error" | "applied" | "discarded" | "proofread";
   mode?: AIHistoryMode;
   conversationId?: string;
   errorMsg?: string;
@@ -49,6 +50,7 @@ export interface AIHistoryItem {
   originalDoc: string;
   resultDoc?: string;
   changes: EditChange[];
+  proofreadIssues?: ProofreadIssue[];
   rawResponse: string;
   assistantText?: string;
   agentActivities?: AgentActivity[];
@@ -82,6 +84,30 @@ const SYSTEM_PROMPT = `你是 Markdown 文档编辑助手。根据用户指令�
 
 若需替换全文或修改幅度极大，请不要使用 SEARCH/REPLACE 块，直接输出修改后的完整新文档。
 若确实无需改动，只输出：NO_CHANGES`;
+
+const PROOFREAD_SYSTEM_PROMPT = `你是中文 Markdown 文档校对助手。只检查明确的错别字、别字、重复字、漏字、明显误用词，不做风格润色，不改写句式。
+必须只输出 JSON，不要输出 Markdown、解释、前言或代码块。
+JSON 格式：
+{
+  "issues": [
+    {
+      "original": "文档中一字不差的错误原文，尽量只包含错字或短词",
+      "suggestion": "建议替换文本",
+      "reason": "简短原因",
+      "context": "包含 original 的连续原句或短上下文",
+      "line": 1
+    }
+  ]
+}
+如果没有明确问题，输出 {"issues": []}。`;
+
+type RawProofreadIssue = {
+  original?: unknown;
+  suggestion?: unknown;
+  reason?: unknown;
+  context?: unknown;
+  line?: unknown;
+};
 
 function cleanDocumentMarkers(text: string): string {
   let lines = text.split("\n");
@@ -226,6 +252,138 @@ function resolveChanges(doc: string, accumulated: string): EditChange[] {
   if (blockChanges.length > 0) return blockChanges;
 
   return fullDocumentChange(doc, extractResponseBody(accumulated));
+}
+
+function extractJsonPayload(text: string): string {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const body = fenced ? fenced[1].trim() : trimmed;
+  const start = body.indexOf("{");
+  const end = body.lastIndexOf("}");
+  if (start >= 0 && end > start) return body.slice(start, end + 1);
+  return body;
+}
+
+function parseProofreadItems(rawResponse: string): RawProofreadIssue[] {
+  const parsed = JSON.parse(extractJsonPayload(rawResponse)) as unknown;
+  if (!parsed || typeof parsed !== "object") return [];
+  const issues = (parsed as { issues?: unknown }).issues;
+  return Array.isArray(issues) ? (issues as RawProofreadIssue[]) : [];
+}
+
+function allIndexesOf(text: string, search: string, from = 0): number[] {
+  const indexes: number[] = [];
+  if (!search) return indexes;
+
+  let index = text.indexOf(search, from);
+  while (index !== -1) {
+    indexes.push(index);
+    index = text.indexOf(search, index + Math.max(1, search.length));
+  }
+  return indexes;
+}
+
+function lineStartOffset(doc: string, lineNumber: number): number | null {
+  if (!Number.isInteger(lineNumber) || lineNumber < 1) return null;
+  if (lineNumber === 1) return 0;
+
+  let line = 1;
+  for (let i = 0; i < doc.length; i++) {
+    if (doc.charCodeAt(i) !== 10) continue;
+    line += 1;
+    if (line === lineNumber) return i + 1;
+  }
+  return null;
+}
+
+function rangeOverlaps(from: number, to: number, occupied: Array<{ from: number; to: number }>) {
+  return occupied.some((range) => from < range.to && to > range.from);
+}
+
+function findProofreadRange(
+  doc: string,
+  original: string,
+  context: string | undefined,
+  line: number | undefined,
+  occupied: Array<{ from: number; to: number }>,
+): { from: number; to: number } | null {
+  const candidates: number[] = [];
+
+  if (context) {
+    for (const contextFrom of allIndexesOf(doc, context)) {
+      const local = context.indexOf(original);
+      if (local >= 0) candidates.push(contextFrom + local);
+    }
+  }
+
+  if (line) {
+    const lineFrom = lineStartOffset(doc, line);
+    if (lineFrom !== null) {
+      const lineEnd = doc.indexOf("\n", lineFrom);
+      const lineText = doc.slice(lineFrom, lineEnd === -1 ? doc.length : lineEnd);
+      const local = lineText.indexOf(original);
+      if (local >= 0) candidates.push(lineFrom + local);
+    }
+  }
+
+  candidates.push(...allIndexesOf(doc, original));
+
+  for (const from of candidates) {
+    const to = from + original.length;
+    if (from < 0 || to > doc.length) continue;
+    if (rangeOverlaps(from, to, occupied)) continue;
+    return { from, to };
+  }
+
+  return null;
+}
+
+function proofreadIssueId(issue: Omit<ProofreadIssue, "id">, index: number) {
+  return `proofread:${issue.from}:${issue.to}:${index}`;
+}
+
+function normalizeProofreadIssues(doc: string, rawResponse: string): ProofreadIssue[] {
+  let rawIssues: RawProofreadIssue[] = [];
+  try {
+    rawIssues = parseProofreadItems(rawResponse);
+  } catch {
+    return [];
+  }
+
+  const issues: ProofreadIssue[] = [];
+  const occupied: Array<{ from: number; to: number }> = [];
+
+  rawIssues.forEach((item) => {
+    const original = typeof item.original === "string" ? item.original.trim() : "";
+    const suggestion = typeof item.suggestion === "string" ? item.suggestion.trim() : "";
+    const reason = typeof item.reason === "string" ? item.reason.trim() : "";
+    const context = typeof item.context === "string" ? item.context.trim() : undefined;
+    const line = typeof item.line === "number" && Number.isFinite(item.line)
+      ? Math.trunc(item.line)
+      : undefined;
+
+    if (!original || !suggestion || original === suggestion) return;
+
+    const range = findProofreadRange(doc, original, context, line, occupied);
+    if (!range) return;
+
+    const issueWithoutId: Omit<ProofreadIssue, "id"> = {
+      ...range,
+      original,
+      suggestion,
+      reason: reason || "疑似错别字",
+      context,
+      line,
+    };
+
+    issues.push({
+      id: proofreadIssueId(issueWithoutId, issues.length),
+      ...issueWithoutId,
+    });
+    occupied.push(range);
+  });
+
+  return issues.sort((left, right) => left.from - right.from);
 }
 
 export function explainNoChanges(doc: string, accumulated: string): string {
@@ -485,7 +643,8 @@ function normalizeStoredHistoryItem(value: unknown): AIHistoryItem | null {
     item.status !== "no-changes" &&
     item.status !== "error" &&
     item.status !== "applied" &&
-    item.status !== "discarded"
+    item.status !== "discarded" &&
+    item.status !== "proofread"
   ) {
     return null;
   }
@@ -509,6 +668,26 @@ function normalizeStoredHistoryItem(value: unknown): AIHistoryItem | null {
     originalDoc: item.originalDoc,
     resultDoc: typeof item.resultDoc === "string" ? item.resultDoc : undefined,
     changes,
+    proofreadIssues: Array.isArray(item.proofreadIssues)
+      ? item.proofreadIssues.filter(
+          (issue): issue is ProofreadIssue =>
+            !!issue &&
+            typeof issue === "object" &&
+            typeof (issue as ProofreadIssue).id === "string" &&
+            typeof (issue as ProofreadIssue).from === "number" &&
+            typeof (issue as ProofreadIssue).to === "number" &&
+            typeof (issue as ProofreadIssue).original === "string" &&
+            typeof (issue as ProofreadIssue).suggestion === "string" &&
+            typeof (issue as ProofreadIssue).reason === "string",
+        )
+          .map((issue) => ({
+            ...issue,
+            status:
+              issue.status === "applied" || issue.status === "ignored"
+                ? issue.status
+                : "pending",
+          }))
+      : undefined,
     rawResponse: item.rawResponse,
     mode: item.mode === "agent" || item.mode === "quick" ? item.mode : undefined,
     conversationId: typeof item.conversationId === "string" ? item.conversationId : undefined,
@@ -758,6 +937,49 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     return resolveChanges(doc, accumulated);
   }
 
+  async function proofreadDocument(
+    doc: string,
+    signal: AbortSignal,
+  ): Promise<ProofreadResult> {
+    const resolved = resolveAgentModel(settings);
+    if (!resolved) throw new Error("请先在设置中启用服务商并填写 API Key");
+
+    const url = `${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resolved.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: resolved.model,
+        temperature: 0,
+        messages: [
+          { role: "system", content: PROOFREAD_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: `---文档开始---\n${doc}\n---文档结束---\n\n请检查这篇 Markdown 文档中的明确错别字，并按指定 JSON 格式返回。`,
+          },
+        ],
+      }),
+      signal,
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`API 错误 ${res.status}: ${errText}`);
+    }
+
+    const payload = await res.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const rawResponse = payload.choices?.[0]?.message?.content?.trim() ?? "";
+    return {
+      issues: normalizeProofreadIssues(doc, rawResponse),
+      rawResponse,
+    };
+  }
+
   async function runAgent(
     instruction: string,
     doc: string,
@@ -796,6 +1018,7 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
   return {
     settings,
     streamEdit,
+    proofreadDocument,
     runAgent,
     historyList,
     activeConversationId,

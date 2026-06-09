@@ -11,29 +11,38 @@ import {
   searchPanelOpen,
   setSearchQuery,
 } from "@codemirror/search";
-import { Prec, EditorSelection } from "@codemirror/state";
+import { EditorSelection, Prec, StateEffect, StateField } from "@codemirror/state";
 import { EditorState } from "@codemirror/state";
 import {
+  Decoration,
   EditorView,
   keymap,
   lineNumbers,
   highlightActiveLine,
   type Panel,
+  type DecorationSet,
 } from "@codemirror/view";
 import EditorSearchReplace from "./EditorSearchReplace.vue";
 import { editorHighlightStyle } from "../lib/editorHighlightStyle";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useLocale } from "../composables/useLocale";
+import type { ProofreadIssue } from "../types/proofreading";
 
 const props = defineProps<{
   modelValue: string;
+  proofreadIssues?: ProofreadIssue[];
+  activeProofreadIssueId?: string | null;
 }>();
 
 const emit = defineEmits<{
   "update:modelValue": [value: string];
   scroll: [];
+  "proofread-select": [issueId: string];
+  "proofread-apply": [issueId: string];
+  "proofread-dismiss": [issueId: string];
 }>();
 
+const root = ref<HTMLElement | null>(null);
 const container = ref<HTMLElement | null>(null);
 const searchReplaceRef = ref<InstanceType<typeof EditorSearchReplace> | null>(null);
 const searchOpen = ref(false);
@@ -44,10 +53,61 @@ const replaceText = ref("");
 const caseSensitive = ref(false);
 const matchTotal = ref(0);
 const matchCurrent = ref(0);
+const proofreadPopoverStyle = ref<Record<string, string> | null>(null);
 let view: EditorView | null = null;
 let syncing = false;
+let proofreadPopoverFrame = 0;
 
 type MatchRange = { from: number; to: number };
+type ProofreadDecorationPayload = {
+  issues: ProofreadIssue[];
+  activeId: string | null;
+};
+
+const setProofreadDecorationsEffect =
+  StateEffect.define<ProofreadDecorationPayload>();
+
+function buildProofreadDecorations(payload: ProofreadDecorationPayload, docLength: number) {
+  const ranges = payload.issues
+    .filter((issue) =>
+      issue.status !== "applied" &&
+      issue.status !== "ignored" &&
+      issue.from >= 0 &&
+      issue.to > issue.from &&
+      issue.to <= docLength,
+    )
+    .sort((left, right) => left.from - right.from)
+    .map((issue) =>
+      Decoration.mark({
+        class: [
+          "cm-proofread-issue",
+          issue.id === payload.activeId ? "cm-proofread-issue-active" : "",
+        ].filter(Boolean).join(" "),
+        attributes: {
+          "data-proofread-id": issue.id,
+          title: `${issue.original} -> ${issue.suggestion}`,
+        },
+      }).range(issue.from, issue.to),
+    );
+
+  return Decoration.set(ranges, true);
+}
+
+const proofreadDecorationField = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none;
+  },
+  update(decorations, transaction) {
+    let next = decorations.map(transaction.changes);
+    for (const effect of transaction.effects) {
+      if (effect.is(setProofreadDecorationsEffect)) {
+        next = buildProofreadDecorations(effect.value, transaction.state.doc.length);
+      }
+    }
+    return next;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
 
 function buildSearchQuery() {
   return new SearchQuery({
@@ -103,6 +163,17 @@ const searchCountText = computed(() => {
   if (matchTotal.value === 0) return t("search.noMatch");
   const current = matchCurrent.value > 0 ? matchCurrent.value : 0;
   return t("search.matchCount", { current, total: matchTotal.value });
+});
+
+const activeProofreadIssue = computed(() => {
+  const activeId = props.activeProofreadIssueId;
+  if (!activeId) return null;
+  return (props.proofreadIssues ?? []).find(
+    (issue) =>
+      issue.id === activeId &&
+      issue.status !== "applied" &&
+      issue.status !== "ignored",
+  ) ?? null;
 });
 
 function applySearchQuery() {
@@ -293,7 +364,110 @@ function runReplaceAll() {
   refreshMatchCount();
 }
 
+function syncProofreadDecorations() {
+  if (!view) return;
+  view.dispatch({
+    effects: setProofreadDecorationsEffect.of({
+      issues: props.proofreadIssues ?? [],
+      activeId: props.activeProofreadIssueId ?? null,
+    }),
+  });
+  updateProofreadPopover();
+}
+
+function updateProofreadPopover() {
+  const issue = activeProofreadIssue.value;
+  if (!view || !root.value || !issue) {
+    proofreadPopoverStyle.value = null;
+    return;
+  }
+
+  const fromCoords = view.coordsAtPos(issue.from);
+  const toCoords = view.coordsAtPos(issue.to);
+  if (!fromCoords) {
+    proofreadPopoverStyle.value = null;
+    return;
+  }
+
+  const rootRect = root.value.getBoundingClientRect();
+  const issueTop = fromCoords.top;
+  const issueBottom = Math.max(fromCoords.bottom, toCoords?.bottom ?? fromCoords.bottom);
+  if (issueBottom < rootRect.top + 8 || issueTop > rootRect.bottom - 8) {
+    proofreadPopoverStyle.value = null;
+    return;
+  }
+
+  const width = 236;
+  const left = Math.min(
+    Math.max(12, fromCoords.left - rootRect.left - 18),
+    Math.max(12, rootRect.width - width - 12),
+  );
+  const belowTop = issueBottom - rootRect.top + 10;
+  const aboveTop = issueTop - rootRect.top - 148;
+  const top = belowTop + 148 <= rootRect.height - 12
+    ? belowTop
+    : Math.max(12, aboveTop);
+
+  proofreadPopoverStyle.value = {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+  };
+}
+
+function scheduleProofreadPopoverUpdate() {
+  if (proofreadPopoverFrame) cancelAnimationFrame(proofreadPopoverFrame);
+  proofreadPopoverFrame = requestAnimationFrame(() => {
+    proofreadPopoverFrame = 0;
+    updateProofreadPopover();
+  });
+}
+
+function selectProofreadIssue(issueId: string) {
+  const issue = (props.proofreadIssues ?? []).find(
+    (item) =>
+      item.id === issueId &&
+      item.status !== "applied" &&
+      item.status !== "ignored",
+  );
+  if (!view || !issue) return;
+
+  emit("proofread-select", issue.id);
+  view.dispatch({
+    selection: EditorSelection.single(issue.from, issue.to),
+    effects: EditorView.scrollIntoView(issue.from, { y: "center", yMargin: 80 }),
+    userEvent: "select.proofread",
+  });
+  void nextTick(scheduleProofreadPopoverUpdate);
+}
+
+function handleEditorScroll() {
+  emit("scroll");
+  scheduleProofreadPopoverUpdate();
+}
+
+function handleProofreadClick(event: MouseEvent) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return false;
+
+  const marker = target.closest<HTMLElement>(".cm-proofread-issue");
+  const issueId = marker?.dataset.proofreadId;
+  if (!issueId) return false;
+
+  event.preventDefault();
+  selectProofreadIssue(issueId);
+  return true;
+}
+
 watch([searchText, replaceText, caseSensitive], applySearchQuery);
+watch(
+  [() => props.proofreadIssues, () => props.activeProofreadIssueId],
+  () => syncProofreadDecorations(),
+  { deep: true },
+);
+watch(activeProofreadIssue, () => {
+  void nextTick(scheduleProofreadPopoverUpdate);
+});
 
 const editorTheme = EditorView.theme({
   "&": {
@@ -371,6 +545,7 @@ onMounted(() => {
         syntaxHighlighting(editorHighlightStyle, { fallback: true }),
         EditorView.lineWrapping,
         editorTheme,
+        proofreadDecorationField,
         search({ createPanel: createHiddenSearchPanel, top: true }),
         Prec.highest(
           keymap.of([
@@ -385,6 +560,9 @@ onMounted(() => {
           ]),
         ),
         keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap]),
+        EditorView.domEventHandlers({
+          click: handleProofreadClick,
+        }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !syncing) {
             emit("update:modelValue", update.state.doc.toString());
@@ -395,16 +573,22 @@ onMounted(() => {
           ) {
             refreshMatchCount();
           }
+          if (update.geometryChanged || update.viewportChanged) {
+            scheduleProofreadPopoverUpdate();
+          }
         }),
       ],
     }),
     parent: container.value,
   });
 
-  view.scrollDOM.addEventListener("scroll", () => emit("scroll"), { passive: true });
+  syncProofreadDecorations();
+  view.scrollDOM.addEventListener("scroll", handleEditorScroll, { passive: true });
 });
 
 onUnmounted(() => {
+  if (proofreadPopoverFrame) cancelAnimationFrame(proofreadPopoverFrame);
+  view?.scrollDOM.removeEventListener("scroll", handleEditorScroll);
   view?.destroy();
 });
 
@@ -452,11 +636,14 @@ defineExpose({
     if (!view || changes.length === 0) return;
     view.dispatch({ changes });
   },
+  revealProofreadIssue(issueId: string) {
+    selectProofreadIssue(issueId);
+  },
 });
 </script>
 
 <template>
-  <div class="editor-root">
+  <div ref="root" class="editor-root">
     <EditorSearchReplace
       v-if="searchOpen"
       ref="searchReplaceRef"
@@ -473,6 +660,30 @@ defineExpose({
       @close="closeSearch"
     />
     <div ref="container" class="editor-container" />
+    <div
+      v-if="activeProofreadIssue && proofreadPopoverStyle"
+      class="proofread-popover"
+      :style="proofreadPopoverStyle"
+    >
+      <div class="proofread-popover-label">{{ t("proofread.fixLabel") }}</div>
+      <button
+        type="button"
+        class="proofread-suggestion"
+        @click="emit('proofread-apply', activeProofreadIssue.id)"
+      >
+        {{ activeProofreadIssue.suggestion }}
+      </button>
+      <div v-if="activeProofreadIssue.reason" class="proofread-reason">
+        {{ activeProofreadIssue.reason }}
+      </div>
+      <button
+        type="button"
+        class="proofread-ignore"
+        @click="emit('proofread-dismiss', activeProofreadIssue.id)"
+      >
+        {{ t("proofread.ignore") }}
+      </button>
+    </div>
   </div>
 </template>
 
@@ -496,5 +707,81 @@ defineExpose({
 
 .editor-root :deep(.cm-editor.cm-focused) {
   outline: none;
+}
+
+.editor-root :deep(.cm-proofread-issue) {
+  background: color-mix(in srgb, #e53e3e 14%, transparent);
+  border-radius: 2px;
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: #e53e3e;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.editor-root :deep(.cm-proofread-issue-active) {
+  background: color-mix(in srgb, #e53e3e 24%, transparent);
+  outline: 1px solid color-mix(in srgb, #e53e3e 58%, transparent);
+}
+
+.proofread-popover {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  color: var(--ink-text);
+  border: 1px solid var(--ink-border-strong);
+  border-radius: 8px;
+  background: var(--ink-surface);
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--ink-shadow) 42%, transparent);
+}
+
+.proofread-popover-label {
+  color: var(--ink-text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.proofread-suggestion {
+  width: 100%;
+  padding: 6px 0;
+  color: #2f855a;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 750;
+  text-align: left;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.proofread-suggestion:hover {
+  color: #276749;
+}
+
+.proofread-reason {
+  color: var(--ink-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.proofread-ignore {
+  width: 100%;
+  padding: 8px 0 2px;
+  color: var(--ink-text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  border: none;
+  border-top: 1px solid var(--ink-border);
+  background: transparent;
+  cursor: pointer;
+}
+
+.proofread-ignore:hover {
+  color: var(--ink-text);
 }
 </style>
