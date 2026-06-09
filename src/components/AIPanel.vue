@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onUnmounted } from "vue";
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
+import { gsap } from "gsap";
 import {
   Bot,
+  CheckCircle2,
   ChevronDown,
   Clock3,
   GitCompare,
+  LocateFixed,
   Plus,
   Send,
+  SpellCheck,
   Square,
   Trash2,
+  X,
 } from "@lucide/vue";
 import {
   explainNoChanges,
@@ -25,6 +30,7 @@ import {
   type EditChange,
   type AIHistoryItem,
 } from "../composables/useAI";
+import type { ProofreadIssue } from "../types/proofreading";
 import { useDocumentVersions } from "../composables/useDocumentVersions";
 import { modelHasCapability } from "../ai-providers/capabilities";
 import {
@@ -33,6 +39,7 @@ import {
   localizedBuiltinProviderName,
 } from "../ai-providers/catalog";
 import { useLocale } from "../composables/useLocale";
+import { renderMarkdown } from "../composables/useMarkdown";
 import AgentActivityList from "./AgentActivityList.vue";
 
 type AgentModelOption = {
@@ -47,6 +54,7 @@ const iconSize = 14;
 const DEFAULT_PANEL_WIDTH = 320;
 const MIN_PANEL_WIDTH = 280;
 const MAX_PANEL_WIDTH = 560;
+const MAX_INSTRUCTION_CHARS = 10_000;
 const PANEL_WIDTH_STORAGE_KEY = "sheaf:ai-panel-width";
 
 const props = defineProps<{
@@ -55,17 +63,25 @@ const props = defineProps<{
   documentPath?: string | null;
   workspacePaths?: string[];
   readWorkspaceFile?: (path: string) => Promise<string>;
+  proofreadIssues?: ProofreadIssue[];
+  currentProofreadItemId?: string | null;
+  activeProofreadIssueId?: string | null;
 }>();
 
 const emit = defineEmits<{
   apply: [changes: EditChange[]];
   restore: [content: string];
+  proofread: [issues: ProofreadIssue[], itemId: string];
+  "proofread-navigate": [issueId: string];
+  "proofread-apply": [issueId: string];
+  "proofread-dismiss": [issueId: string];
 }>();
 
 const resolvedDocumentKey = computed(() => props.documentKey?.trim() || "__untitled__");
 const {
   settings,
   streamEdit,
+  proofreadDocument,
   runAgent,
   historyList,
   activeConversationId,
@@ -80,17 +96,30 @@ const aiMode = ref<AIHistoryMode>("agent");
 const instruction = ref("");
 const listRef = ref<HTMLElement | null>(null);
 const expandedDiffId = ref<string | null>(null);
+const expandedMessageIds = ref(new Set<string>());
+const expandedLongMessageIds = ref(new Set<string>());
 const panelWidth = ref(DEFAULT_PANEL_WIDTH);
 const isResizing = ref(false);
+const reduceMotion = ref(false);
 let activeAbortController: AbortController | null = null;
 let imeComposing = false;
 let resizeStartX = 0;
 let resizeStartWidth = DEFAULT_PANEL_WIDTH;
 let previousBodyCursor = "";
 let previousBodyUserSelect = "";
+let motionMedia: ReturnType<typeof gsap.matchMedia> | null = null;
+let lastStreamPreviewAnimation = 0;
+let previousActiveConversationId = activeConversationId.value;
 
 const isLoading = computed(() => historyList.value.some((item: AIHistoryItem) => item.status === "loading"));
-const canSubmit = computed(() => instruction.value.trim().length > 0 && !isLoading.value);
+const instructionCharCount = computed(() => instruction.value.length);
+const canSubmit = computed(
+  () =>
+    instruction.value.trim().length > 0 &&
+    instructionCharCount.value <= MAX_INSTRUCTION_CHARS &&
+    !isLoading.value,
+);
+const canProofread = computed(() => props.doc.trim().length > 0 && !isLoading.value);
 
 function agentModelValue(providerId: string, modelId: string) {
   return `${providerId}::${modelId}`;
@@ -175,6 +204,36 @@ const pastConversationSummaries = computed(() =>
   conversationSummaries.value.filter((conversation) => conversation.id !== activeConversationId.value),
 );
 
+watch(
+  () => [props.currentProofreadItemId, props.proofreadIssues] as const,
+  ([itemId, issues]) => {
+    if (!itemId || !issues) return;
+    const target = historyList.value.find((item) => item.id === itemId);
+    if (!target) return;
+    target.proofreadIssues = issues;
+  },
+  { deep: true },
+);
+
+watch(
+  () => visibleHistoryList.value.map((item) => item.id).join("|"),
+  () => {
+    const visibleIds = new Set(visibleHistoryList.value.map((item) => item.id));
+    expandedMessageIds.value = new Set(
+      Array.from(expandedMessageIds.value).filter((id) => visibleIds.has(id)),
+    );
+    expandedLongMessageIds.value = new Set(
+      Array.from(expandedLongMessageIds.value).filter((id) => visibleIds.has(id)),
+    );
+
+    if (previousActiveConversationId !== activeConversationId.value) {
+      previousActiveConversationId = activeConversationId.value;
+      collapsePastMessages(false);
+    }
+  },
+  { flush: "post" },
+);
+
 function shouldHideHistoryItem(_item: AIHistoryItem) {
   return false;
 }
@@ -192,6 +251,168 @@ function scrollToBottom() {
   if (listRef.value) {
     listRef.value.scrollTop = listRef.value.scrollHeight;
   }
+}
+
+function getHistoryCardElement(itemId: string) {
+  const list = listRef.value;
+  if (!list) return null;
+  return Array.from(list.querySelectorAll<HTMLElement>(".history-card"))
+    .find((card) => card.dataset.historyId === itemId) ?? null;
+}
+
+function getMessageBodyElement(itemId: string) {
+  return getHistoryCardElement(itemId)?.querySelector<HTMLElement>(".history-card-body-wrap") ?? null;
+}
+
+function isPastMessage(item: AIHistoryItem) {
+  const visibleIndex = visibleHistoryList.value.findIndex((entry) => entry.id === item.id);
+  return visibleIndex >= 0 && visibleIndex < visibleHistoryList.value.length - 1 && item.status !== "loading";
+}
+
+function isMessageExpanded(item: AIHistoryItem) {
+  return !isPastMessage(item) || expandedMessageIds.value.has(item.id);
+}
+
+function setMessageExpandedState(itemId: string, expanded: boolean) {
+  const next = new Set(expandedMessageIds.value);
+  if (expanded) {
+    next.add(itemId);
+  } else {
+    next.delete(itemId);
+  }
+  expandedMessageIds.value = next;
+}
+
+function setLongMessageExpandedState(itemId: string, expanded: boolean) {
+  const next = new Set(expandedLongMessageIds.value);
+  if (expanded) {
+    next.add(itemId);
+  } else {
+    next.delete(itemId);
+  }
+  expandedLongMessageIds.value = next;
+}
+
+function isLongMessageExpanded(item: AIHistoryItem) {
+  return expandedLongMessageIds.value.has(item.id);
+}
+
+function shouldClampLongMessage(item: AIHistoryItem) {
+  return !isLongMessageExpanded(item) && item.status !== "loading";
+}
+
+function animateMessageBody(itemId: string, expanded: boolean) {
+  if (reduceMotion.value) return;
+  const body = getMessageBodyElement(itemId);
+  if (!body) return;
+
+  gsap.killTweensOf(body);
+  if (expanded) {
+    gsap.fromTo(
+      body,
+      { height: 0, autoAlpha: 0, y: -4 },
+      {
+        height: "auto",
+        autoAlpha: 1,
+        y: 0,
+        duration: 0.22,
+        ease: "power1.out",
+        overwrite: "auto",
+        clearProps: "height,opacity,visibility,transform",
+      },
+    );
+    return;
+  }
+
+  gsap.to(body, {
+    height: 0,
+    autoAlpha: 0,
+    y: -4,
+    duration: 0.2,
+    ease: "power1.in",
+    overwrite: "auto",
+  });
+}
+
+function animateHistoryCard(itemId: string) {
+  if (reduceMotion.value) return;
+  const card = getHistoryCardElement(itemId);
+  if (!card) return;
+
+  gsap.fromTo(
+    card,
+    { autoAlpha: 0, y: 8, scale: 0.985 },
+    {
+      autoAlpha: 1,
+      y: 0,
+      scale: 1,
+      duration: 0.24,
+      ease: "power1.out",
+      overwrite: "auto",
+      clearProps: "transform,opacity,visibility",
+    },
+  );
+}
+
+function animateStreamPreview() {
+  if (reduceMotion.value) return;
+  const now = performance.now();
+  if (now - lastStreamPreviewAnimation < 320) return;
+  lastStreamPreviewAnimation = now;
+
+  const preview = listRef.value?.querySelector<HTMLElement>(".agent-stream-preview");
+  if (!preview) return;
+
+  gsap.fromTo(
+    preview,
+    { autoAlpha: 0.78, y: 2 },
+    {
+      autoAlpha: 1,
+      y: 0,
+      duration: 0.18,
+      ease: "power1.out",
+      overwrite: "auto",
+      clearProps: "transform,opacity,visibility",
+    },
+  );
+}
+
+async function toggleMessage(item: AIHistoryItem) {
+  const nextExpanded = !isMessageExpanded(item);
+  if (!nextExpanded) {
+    animateMessageBody(item.id, false);
+    if (reduceMotion.value) {
+      setMessageExpandedState(item.id, false);
+      return;
+    }
+    window.setTimeout(() => {
+      setMessageExpandedState(item.id, false);
+    }, 200);
+    return;
+  }
+
+  setMessageExpandedState(item.id, nextExpanded);
+  await nextTick();
+  animateMessageBody(item.id, true);
+}
+
+function toggleLongMessage(item: AIHistoryItem) {
+  setLongMessageExpandedState(item.id, !isLongMessageExpanded(item));
+}
+
+function collapsePastMessages(shouldAnimate = true) {
+  const pastIds = visibleHistoryList.value
+    .filter((item) => isPastMessage(item))
+    .map((item) => item.id);
+
+  expandedMessageIds.value = new Set();
+  if (!shouldAnimate || reduceMotion.value) return;
+
+  nextTick(() => {
+    for (const id of pastIds) {
+      animateMessageBody(id, false);
+    }
+  });
 }
 
 function upsertAgentActivity(item: AIHistoryItem, activity: AgentActivity) {
@@ -225,11 +446,13 @@ async function submit() {
   };
 
   historyList.value.push(newItem);
+  collapsePastMessages();
   instruction.value = "";
   activeAbortController = new AbortController();
 
   await nextTick();
   scrollToBottom();
+  animateHistoryCard(id);
 
   try {
     if (aiMode.value === "agent") {
@@ -250,7 +473,10 @@ async function submit() {
           if (!target) return;
           target.rawResponse = assistantText;
           target.assistantText = assistantText;
-          nextTick(scrollToBottom);
+          nextTick(() => {
+            scrollToBottom();
+            animateStreamPreview();
+          });
         },
         onActivity: (activity) => {
           const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
@@ -286,7 +512,10 @@ async function submit() {
           const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
           if (target) {
             target.rawResponse += delta;
-            nextTick(scrollToBottom);
+            nextTick(() => {
+              scrollToBottom();
+              animateStreamPreview();
+            });
           }
         },
         activeAbortController.signal,
@@ -303,6 +532,64 @@ async function submit() {
           finalizeSuccessfulEdit(target);
         }
       }
+    }
+  } catch (e: unknown) {
+    const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
+    if (target) {
+      if ((e as Error).name === "AbortError") {
+        target.status = "discarded";
+      } else {
+        target.errorMsg = (e as Error).message;
+        target.status = "error";
+      }
+    }
+  } finally {
+    activeAbortController = null;
+    await nextTick();
+    scrollToBottom();
+  }
+}
+
+async function proofread() {
+  if (!canProofread.value) return;
+
+  const id = Math.random().toString(36).slice(2, 9);
+  const newItem: AIHistoryItem = {
+    id,
+    timestamp: Date.now(),
+    instruction: t("ai.proofreadInstruction"),
+    status: "loading",
+    mode: "quick",
+    conversationId: activeConversationId.value,
+    originalDoc: props.doc,
+    changes: [],
+    rawResponse: "",
+  };
+
+  historyList.value.push(newItem);
+  collapsePastMessages();
+  activeAbortController = new AbortController();
+
+  await nextTick();
+  scrollToBottom();
+  animateHistoryCard(id);
+
+  try {
+    const result = await proofreadDocument(props.doc, activeAbortController.signal);
+    const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
+    if (!target) return;
+
+    target.rawResponse = result.rawResponse;
+    target.proofreadIssues = result.issues;
+
+    if (result.issues.length > 0) {
+      target.status = "proofread";
+      expandedDiffId.value = id;
+      emit("proofread", result.issues, id);
+    } else {
+      target.status = "no-changes";
+      target.noChangesHint = t("ai.proofreadNoIssues");
+      emit("proofread", [], id);
     }
   } catch (e: unknown) {
     const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
@@ -339,6 +626,8 @@ function handleStartNewConversation() {
   if (isLoading.value) return;
   startNewConversation();
   expandedDiffId.value = null;
+  expandedMessageIds.value = new Set();
+  expandedLongMessageIds.value = new Set();
 }
 
 function clearHistory() {
@@ -346,13 +635,18 @@ function clearHistory() {
   clearAllConversations();
   documentVersions.clearSnapshots();
   expandedDiffId.value = null;
+  expandedMessageIds.value = new Set();
+  expandedLongMessageIds.value = new Set();
 }
 
 function selectConversation(conversationId: string) {
   if (isLoading.value || conversationId === activeConversationId.value) return;
   switchConversation(conversationId);
   expandedDiffId.value = null;
-  nextTick(scrollToBottom);
+  nextTick(() => {
+    collapsePastMessages(false);
+    scrollToBottom();
+  });
 }
 
 function stop() {
@@ -396,6 +690,12 @@ function formatTime(timestamp: number): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+function renderAgentMarkdown(source: string | undefined) {
+  const text = source?.trim();
+  if (!text) return "";
+  return renderMarkdown(text, props.documentPath ?? props.documentKey ?? null);
+}
+
 function getFullDocDiff(item: AIHistoryItem) {
   const newDoc = applyChangesToDoc(item.originalDoc, item.changes);
   const diffs = lineDiff(item.originalDoc, newDoc);
@@ -411,11 +711,51 @@ function getChangeDiff(change: EditChange, originalDoc: string) {
 function statusLabel(item: AIHistoryItem) {
   if (item.status === "applied") return t("ai.statusApplied");
   if (item.status === "done") return t("ai.statusDone");
+  if (item.status === "proofread") return t("ai.statusProofread");
   if (item.status === "no-changes") return t("ai.statusNoChanges");
   if (item.status === "error") return t("ai.statusError");
   if (item.status === "discarded") return t("ai.statusDiscarded");
   if (item.status === "loading") return t("ai.statusLoading");
   return "";
+}
+
+function proofreadSummaryLabel(item: AIHistoryItem) {
+  const count = getDisplayProofreadIssues(item).length;
+  return count === 0
+    ? t("ai.proofreadNoIssues")
+    : t("ai.proofreadIssueCount", { count });
+}
+
+function getDisplayProofreadIssues(item: AIHistoryItem) {
+  if (item.id === props.currentProofreadItemId) {
+    return props.proofreadIssues ?? [];
+  }
+  return item.proofreadIssues ?? [];
+}
+
+function proofreadIssueIsHandled(issue: ProofreadIssue) {
+  return issue.status === "applied" || issue.status === "ignored";
+}
+
+function proofreadIssueStatusLabel(issue: ProofreadIssue) {
+  if (issue.status === "applied") return t("ai.proofreadStatusApplied");
+  if (issue.status === "ignored") return t("ai.proofreadStatusIgnored");
+  return t("ai.proofreadStatusPending");
+}
+
+function navigateProofreadIssue(issue: ProofreadIssue) {
+  if (proofreadIssueIsHandled(issue)) return;
+  emit("proofread-navigate", issue.id);
+}
+
+function applyProofreadIssue(issue: ProofreadIssue) {
+  if (proofreadIssueIsHandled(issue)) return;
+  emit("proofread-apply", issue.id);
+}
+
+function dismissProofreadIssue(issue: ProofreadIssue) {
+  if (proofreadIssueIsHandled(issue)) return;
+  emit("proofread-dismiss", issue.id);
 }
 
 function diffSummaryLabel(item: AIHistoryItem) {
@@ -506,10 +846,18 @@ function onResizeKeydown(event: KeyboardEvent) {
 
 onMounted(() => {
   loadPanelWidth();
+  motionMedia = gsap.matchMedia();
+  motionMedia.add(
+    { reduceMotion: "(prefers-reduced-motion: reduce)" },
+    (context) => {
+      reduceMotion.value = Boolean(context.conditions?.reduceMotion);
+    },
+  );
   scrollToBottom();
 });
 
 onUnmounted(() => {
+  motionMedia?.revert();
   stopResize();
 });
 </script>
@@ -609,6 +957,7 @@ onUnmounted(() => {
         v-for="item in visibleHistoryList"
         :key="item.id"
         class="history-card"
+        :data-history-id="item.id"
         :class="[`status-${item.status}`, { 'is-diff-expanded': expandedDiffId === item.id }]"
       >
         <div class="card-header">
@@ -619,11 +968,33 @@ onUnmounted(() => {
               <span class="card-time">{{ formatTime(item.timestamp) }}</span>
             </div>
           </div>
-          <p class="card-instruction-text">{{ item.instruction }}</p>
+          <p
+            class="card-instruction-text"
+            :class="{ 'is-long-clamped': shouldClampLongMessage(item) }"
+          >
+            {{ item.instruction }}
+          </p>
+          <button
+            v-if="isPastMessage(item)"
+            type="button"
+            class="message-collapse-toggle"
+            :aria-expanded="isMessageExpanded(item)"
+            @click="toggleMessage(item)"
+          >
+            <span>{{ isMessageExpanded(item) ? t("ai.collapseMessage") : t("ai.expandMessage") }}</span>
+            <span class="diff-toggle-chevron" :class="{ expanded: isMessageExpanded(item) }">›</span>
+          </button>
         </div>
 
-        <div class="card-body">
-          <div v-if="item.status === 'loading'" class="ai-loading-box">
+        <div
+          class="history-card-body-wrap"
+          :class="{
+            'is-old-collapsed': !isMessageExpanded(item),
+            'is-long-clamped': shouldClampLongMessage(item),
+          }"
+        >
+          <div class="card-body">
+            <div v-if="item.status === 'loading'" class="ai-loading-box">
             <span class="ai-loading-text">
               {{ item.mode === 'agent' ? t('ai.agentRunning') : t('ai.generating') }}
             </span>
@@ -631,37 +1002,120 @@ onUnmounted(() => {
               v-if="item.agentActivities?.length"
               :activities="item.agentActivities"
             />
-            <pre v-else-if="item.mode === 'agent' && item.rawResponse" class="agent-stream-preview">{{ item.rawResponse }}</pre>
+            <div
+              v-else-if="item.mode === 'agent' && item.rawResponse"
+              class="agent-stream-preview agent-markdown"
+              v-html="renderAgentMarkdown(item.rawResponse)"
+            />
             <button class="ai-btn ai-btn-stop" type="button" @click="stop">
               <Square :size="12" aria-hidden="true" />
               {{ t("ai.stop") }}
             </button>
-          </div>
+            </div>
 
-          <div v-else-if="item.status === 'error'" class="ai-error-box">
+            <div v-else-if="item.status === 'error'" class="ai-error-box">
             <span class="error-label">{{ t("ai.error") }}</span>
             <div class="error-msg">{{ item.errorMsg }}</div>
-          </div>
+            </div>
 
-          <div v-else-if="item.status === 'no-changes'" class="ai-muted-box">
+            <div v-else-if="item.status === 'no-changes'" class="ai-muted-box">
             <span class="muted-label">
               {{ item.assistantText && item.mode === 'agent' ? t('ai.reply') : t('ai.noChangesNeeded') }}
             </span>
-            <div class="muted-msg agent-reply-text">
-              {{ item.assistantText || item.noChangesHint || t("ai.noChangesDefault") }}
-            </div>
+            <div
+              class="muted-msg agent-reply-text agent-markdown"
+              v-html="renderAgentMarkdown(item.assistantText || item.noChangesHint || t('ai.noChangesDefault'))"
+            />
             <AgentActivityList
               v-if="item.agentActivities?.length"
               :activities="item.agentActivities"
               done
             />
-          </div>
+            </div>
 
-          <div v-else-if="item.status === 'discarded'" class="ai-muted-box">
+            <div v-else-if="item.status === 'discarded'" class="ai-muted-box">
             <span class="muted-label">{{ t("ai.discarded") }}</span>
-          </div>
+            </div>
 
-          <div v-else-if="item.status === 'done' || item.status === 'applied'" class="ai-diff-box">
+            <div v-else-if="item.status === 'proofread'" class="ai-proofread-box">
+            <button
+              class="proofread-toggle"
+              type="button"
+              :aria-expanded="expandedDiffId === item.id"
+              @click="toggleDiff(item)"
+            >
+              <span class="proofread-toggle-label">
+                <SpellCheck :size="13" aria-hidden="true" />
+                {{ t("ai.proofreadResult") }}
+              </span>
+              <span class="proofread-toggle-summary">{{ proofreadSummaryLabel(item) }}</span>
+              <span class="diff-toggle-chevron" :class="{ expanded: expandedDiffId === item.id }">›</span>
+            </button>
+
+            <div v-if="expandedDiffId === item.id" class="proofread-list">
+              <div
+                v-for="issue in getDisplayProofreadIssues(item)"
+                :key="issue.id"
+                class="proofread-item"
+                :class="{
+                  active: issue.id === props.activeProofreadIssueId,
+                  handled: proofreadIssueIsHandled(issue),
+                  applied: issue.status === 'applied',
+                  ignored: issue.status === 'ignored',
+                }"
+              >
+                <button
+                  type="button"
+                  class="proofread-main"
+                  :disabled="proofreadIssueIsHandled(issue)"
+                  @click="navigateProofreadIssue(issue)"
+                >
+                  <span class="proofread-change">
+                    <span class="proofread-original">{{ issue.original }}</span>
+                    <span class="proofread-arrow">→</span>
+                    <span class="proofread-fix">{{ issue.suggestion }}</span>
+                  </span>
+                  <span class="proofread-meta-row">
+                    <span class="proofread-reason">{{ issue.reason }}</span>
+                    <span class="proofread-status-badge">
+                      {{ proofreadIssueStatusLabel(issue) }}
+                    </span>
+                  </span>
+                </button>
+                <div class="proofread-actions">
+                  <button
+                    type="button"
+                    class="proofread-icon-btn"
+                    :title="t('ai.proofreadLocate')"
+                    :disabled="proofreadIssueIsHandled(issue)"
+                    @click="navigateProofreadIssue(issue)"
+                  >
+                    <LocateFixed :size="13" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    class="proofread-icon-btn apply"
+                    :title="t('ai.proofreadApply')"
+                    :disabled="proofreadIssueIsHandled(issue)"
+                    @click="applyProofreadIssue(issue)"
+                  >
+                    <CheckCircle2 :size="13" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    class="proofread-icon-btn"
+                    :title="t('ai.proofreadDismiss')"
+                    :disabled="proofreadIssueIsHandled(issue)"
+                    @click="dismissProofreadIssue(issue)"
+                  >
+                    <X :size="13" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            </div>
+            </div>
+
+            <div v-else-if="item.status === 'done' || item.status === 'applied'" class="ai-diff-box">
             <AgentActivityList
               v-if="item.mode === 'agent' && item.agentActivities?.length"
               :activities="item.agentActivities"
@@ -730,6 +1184,16 @@ onUnmounted(() => {
               <span v-else class="applied-badge">{{ t("ai.applied") }}</span>
             </div>
           </div>
+          </div>
+          <button
+            v-if="item.status !== 'loading'"
+            type="button"
+            class="message-expand-toggle"
+            :aria-expanded="isLongMessageExpanded(item)"
+            @click="toggleLongMessage(item)"
+          >
+            {{ isLongMessageExpanded(item) ? t("ai.showLess") : t("ai.showMore") }}
+          </button>
         </div>
       </div>
     </div>
@@ -739,6 +1203,7 @@ onUnmounted(() => {
         v-model="instruction"
         class="ai-input"
         :placeholder="aiMode === 'agent' ? t('ai.agentPlaceholder') : t('ai.editPlaceholder')"
+        :maxlength="MAX_INSTRUCTION_CHARS"
         :disabled="isLoading"
         @compositionstart="onCompositionStart"
         @compositionend="onCompositionEnd"
@@ -770,7 +1235,18 @@ onUnmounted(() => {
       </div>
       <p v-else class="ai-model-empty">{{ t("ai.noModelConfigured") }}</p>
       <div class="ai-actions">
-        <span class="ai-input-meta">{{ t("ai.charCount", { count: instruction.trim().length }) }}</span>
+        <span class="ai-input-meta">
+          {{ t("ai.charCount", { count: instructionCharCount, max: MAX_INSTRUCTION_CHARS }) }}
+        </span>
+        <button
+          class="ai-btn ai-btn-proofread"
+          type="button"
+          :disabled="!canProofread"
+          @click="proofread"
+        >
+          <SpellCheck :size="13" aria-hidden="true" />
+          {{ t("ai.proofread") }}
+        </button>
         <button
           class="ai-btn ai-btn-primary"
           :class="{ 'is-loading': isLoading }"
@@ -1140,12 +1616,12 @@ onUnmounted(() => {
   border-color: color-mix(in srgb, #e53e3e 34%, var(--ink-border));
 }
 
-.status-error::before {
-  background: #e53e3e;
-}
-
 .status-applied {
   border-color: color-mix(in srgb, #38a169 26%, var(--ink-border));
+}
+
+.status-proofread {
+  border-color: color-mix(in srgb, #e53e3e 26%, var(--ink-border));
 }
 
 .status-discarded {
@@ -1172,6 +1648,13 @@ onUnmounted(() => {
   font-weight: 600;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.card-instruction-text.is-long-clamped {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
 }
 
 .user-tag {
@@ -1213,6 +1696,11 @@ onUnmounted(() => {
   background: color-mix(in srgb, #38a169 13%, transparent);
 }
 
+.status-tag-proofread {
+  color: #c53030;
+  background: color-mix(in srgb, #e53e3e 11%, transparent);
+}
+
 .status-tag-loading,
 .status-tag-no-changes,
 .status-tag-discarded {
@@ -1229,6 +1717,70 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.history-card-body-wrap {
+  position: relative;
+  overflow: hidden;
+}
+
+.history-card-body-wrap.is-old-collapsed {
+  height: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.history-card-body-wrap.is-long-clamped {
+  max-height: 320px;
+}
+
+.history-card-body-wrap.is-long-clamped::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 56px;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, var(--ai-surface-raised));
+}
+
+.message-collapse-toggle,
+.message-expand-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  color: var(--ink-text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius-sm);
+  background: var(--ink-surface);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.message-collapse-toggle {
+  align-self: flex-start;
+  padding: 5px 8px;
+}
+
+.message-expand-toggle {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+}
+
+.message-collapse-toggle:hover,
+.message-expand-toggle:hover {
+  color: var(--ink-text);
+  border-color: var(--ink-border-strong);
+  background: var(--ink-accent-soft);
 }
 
 .ai-loading-box,
@@ -1294,7 +1846,7 @@ onUnmounted(() => {
 }
 
 .agent-reply-text {
-  white-space: pre-wrap;
+  color: var(--ink-text-muted);
 }
 
 .agent-stream-preview {
@@ -1303,13 +1855,137 @@ onUnmounted(() => {
   padding: 9px 10px;
   overflow: auto;
   color: var(--ink-text);
-  font-family: var(--font-editor);
   font-size: 11px;
   line-height: 1.55;
-  white-space: pre-wrap;
   border: 1px solid var(--ink-border);
   border-radius: var(--ai-radius-sm);
   background: var(--ai-surface-subtle);
+}
+
+.agent-markdown {
+  overflow-wrap: anywhere;
+}
+
+.agent-markdown :deep(*) {
+  max-width: 100%;
+}
+
+.agent-markdown :deep(p),
+.agent-markdown :deep(ul),
+.agent-markdown :deep(ol),
+.agent-markdown :deep(blockquote),
+.agent-markdown :deep(pre),
+.agent-markdown :deep(table),
+.agent-markdown :deep(hr) {
+  margin: 0 0 8px;
+}
+
+.agent-markdown :deep(p:last-child),
+.agent-markdown :deep(ul:last-child),
+.agent-markdown :deep(ol:last-child),
+.agent-markdown :deep(blockquote:last-child),
+.agent-markdown :deep(pre:last-child),
+.agent-markdown :deep(table:last-child),
+.agent-markdown :deep(hr:last-child) {
+  margin-bottom: 0;
+}
+
+.agent-markdown :deep(h1),
+.agent-markdown :deep(h2),
+.agent-markdown :deep(h3),
+.agent-markdown :deep(h4),
+.agent-markdown :deep(h5),
+.agent-markdown :deep(h6) {
+  margin: 12px 0 6px;
+  color: var(--ink-text);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+
+.agent-markdown :deep(h1:first-child),
+.agent-markdown :deep(h2:first-child),
+.agent-markdown :deep(h3:first-child),
+.agent-markdown :deep(h4:first-child),
+.agent-markdown :deep(h5:first-child),
+.agent-markdown :deep(h6:first-child) {
+  margin-top: 0;
+}
+
+.agent-markdown :deep(ul),
+.agent-markdown :deep(ol) {
+  padding-left: 18px;
+}
+
+.agent-markdown :deep(li + li) {
+  margin-top: 3px;
+}
+
+.agent-markdown :deep(strong) {
+  color: var(--ink-text);
+  font-weight: 750;
+}
+
+.agent-markdown :deep(a) {
+  color: var(--ink-accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.agent-markdown :deep(code) {
+  padding: 1px 4px;
+  color: var(--ink-text);
+  font-family: var(--font-editor);
+  font-size: 0.95em;
+  border: 1px solid var(--ink-border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink-bg) 76%, var(--ink-surface));
+}
+
+.agent-markdown :deep(pre) {
+  max-height: 180px;
+  padding: 8px 9px;
+  overflow: auto;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius-sm);
+  background: color-mix(in srgb, var(--ink-bg) 76%, var(--ink-surface));
+}
+
+.agent-markdown :deep(pre code) {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  white-space: pre;
+}
+
+.agent-markdown :deep(blockquote) {
+  padding: 2px 0 2px 9px;
+  color: var(--ink-text-muted);
+  border-left: 2px solid var(--ink-border-strong);
+}
+
+.agent-markdown :deep(hr) {
+  border: 0;
+  border-top: 1px solid var(--ink-border);
+}
+
+.agent-markdown :deep(table) {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.agent-markdown :deep(th),
+.agent-markdown :deep(td) {
+  padding: 4px 6px;
+  border: 1px solid var(--ink-border);
+}
+
+.agent-markdown :deep(img) {
+  height: auto;
+  border-radius: var(--ai-radius-sm);
 }
 
 .ai-diff-box {
@@ -1318,7 +1994,14 @@ onUnmounted(() => {
   gap: 9px;
 }
 
-.diff-toggle {
+.ai-proofread-box {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.diff-toggle,
+.proofread-toggle {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -1334,18 +2017,24 @@ onUnmounted(() => {
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.diff-toggle:hover {
+.diff-toggle:hover,
+.proofread-toggle:hover {
   background: var(--ink-inset-hover);
   border-color: var(--ink-border-strong);
 }
 
-.diff-toggle-label {
+.diff-toggle-label,
+.proofread-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: var(--ink-text);
   font-size: 11px;
   font-weight: 700;
 }
 
-.diff-toggle-summary {
+.diff-toggle-summary,
+.proofread-toggle-summary {
   min-width: 0;
   overflow: hidden;
   color: var(--ink-text-muted);
@@ -1452,6 +2141,162 @@ onUnmounted(() => {
   opacity: 0.62;
 }
 
+.proofread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.proofread-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius-sm);
+  background: var(--ink-inset);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.proofread-item.active {
+  border-color: color-mix(in srgb, #e53e3e 48%, var(--ink-border));
+  background: color-mix(in srgb, #e53e3e 8%, var(--ink-inset));
+}
+
+.proofread-item.handled {
+  opacity: 0.68;
+}
+
+.proofread-item.handled .proofread-change {
+  text-decoration-line: line-through;
+  text-decoration-color: color-mix(in srgb, var(--ink-text-muted) 70%, transparent);
+  text-decoration-thickness: 1px;
+}
+
+.proofread-item.applied {
+  border-color: color-mix(in srgb, #38a169 22%, var(--ink-border));
+}
+
+.proofread-item.ignored {
+  border-color: color-mix(in srgb, var(--ink-text-muted) 22%, var(--ink-border));
+}
+
+.proofread-main {
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.proofread-main:disabled {
+  cursor: default;
+}
+
+.proofread-change {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.proofread-original {
+  color: #c53030;
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: #e53e3e;
+  text-underline-offset: 3px;
+}
+
+.proofread-arrow,
+.proofread-reason {
+  color: var(--ink-text-muted);
+}
+
+.proofread-fix {
+  color: #2f855a;
+}
+
+.proofread-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 3px;
+}
+
+.proofread-reason {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proofread-status-badge {
+  flex-shrink: 0;
+  padding: 2px 5px;
+  color: var(--ink-text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.2;
+  border: 1px solid var(--ink-border);
+  border-radius: 999px;
+  background: var(--ink-surface);
+}
+
+.proofread-item.applied .proofread-status-badge {
+  color: #2f855a;
+  border-color: color-mix(in srgb, #38a169 24%, var(--ink-border));
+  background: color-mix(in srgb, #38a169 10%, var(--ink-surface));
+}
+
+.proofread-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.proofread-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  color: var(--ink-text-muted);
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius-sm);
+  background: var(--ink-surface);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.proofread-icon-btn:hover {
+  color: var(--ink-text);
+  border-color: var(--ink-border-strong);
+  background: var(--ink-accent-soft);
+}
+
+.proofread-icon-btn.apply {
+  color: #2f855a;
+}
+
+.proofread-icon-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.proofread-icon-btn:disabled:hover {
+  color: var(--ink-text-muted);
+  border-color: var(--ink-border);
+  background: var(--ink-surface);
+}
+
 .card-actions {
   display: flex;
   align-items: center;
@@ -1555,6 +2400,17 @@ onUnmounted(() => {
   color: var(--ink-text);
   background: var(--ink-accent-soft);
   border-color: color-mix(in srgb, var(--ink-accent) 20%, var(--ink-border));
+}
+
+.ai-btn-proofread {
+  color: var(--ink-text);
+  background: var(--ink-surface);
+  border-color: var(--ink-border);
+}
+
+.ai-btn-proofread:hover:not(:disabled) {
+  background: color-mix(in srgb, #e53e3e 8%, var(--ink-surface));
+  border-color: color-mix(in srgb, #e53e3e 24%, var(--ink-border));
 }
 
 .ai-input-area {
@@ -1717,11 +2573,13 @@ onUnmounted(() => {
 .ai-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .ai-input-meta {
+  margin-right: auto;
   color: var(--ink-text-muted);
   font-size: 10px;
 }

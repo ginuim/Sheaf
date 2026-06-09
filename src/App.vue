@@ -19,6 +19,7 @@ import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
 import type { EditChange } from "./composables/useAI";
 import { migrateAiHistoryKey } from "./composables/useAI";
+import type { ProofreadIssue } from "./types/proofreading";
 import { migrateDocumentVersionsKey, useDocumentVersions } from "./composables/useDocumentVersions";
 import { refreshRecentMenu, setupAppMenu, type AppMenuHandlers } from "./composables/useAppMenu";
 import { exportPdf, type ExportPdfStage } from "./composables/usePdfExport";
@@ -68,6 +69,9 @@ const showAbout = ref(false);
 const showAI = ref(false);
 const showVersionHistory = ref(false);
 const activeVersionId = ref<string | null>(null);
+const proofreadIssues = ref<ProofreadIssue[]>([]);
+const currentProofreadItemId = ref<string | null>(null);
+const activeProofreadIssueId = ref<string | null>(null);
 const showStartPage = ref(true);
 const recentFiles = ref<string[]>(loadRecent());
 const pendingDraft = ref<UnsavedDraft | null>(loadUnsavedDraft());
@@ -76,6 +80,7 @@ const recoverableDraft = computed(() =>
 );
 let draftPersistTimer: ReturnType<typeof setTimeout> | null = null;
 let scrollSyncing = false;
+let preserveProofreadIssuesOnNextContentChange = false;
 
 type DocHistoryEntry = {
   path: string;
@@ -231,6 +236,14 @@ watch(
     draftPersistTimer = setTimeout(persistDraftSnapshot, 400);
   }
 );
+
+watch(content, () => {
+  if (preserveProofreadIssuesOnNextContentChange) {
+    preserveProofreadIssuesOnNextContentChange = false;
+    return;
+  }
+  clearProofreadIssues();
+});
 
 function recoverUnsavedDraft() {
   const draft = recoverableDraft.value;
@@ -491,6 +504,98 @@ function applyAIChanges(changes: EditChange[]) {
   editorRef.value?.applyChanges(changes);
 }
 
+function clearProofreadIssues() {
+  proofreadIssues.value = [];
+  currentProofreadItemId.value = null;
+  activeProofreadIssueId.value = null;
+}
+
+function handleProofreadIssues(issues: ProofreadIssue[], itemId: string) {
+  proofreadIssues.value = issues.map((issue) => ({ ...issue, status: "pending" }));
+  currentProofreadItemId.value = itemId;
+  activeProofreadIssueId.value = proofreadIssues.value[0]?.id ?? null;
+  if (activeProofreadIssueId.value) {
+    void nextTick(() => editorRef.value?.revealProofreadIssue(activeProofreadIssueId.value!));
+  }
+}
+
+function handleProofreadSelect(issueId: string) {
+  activeProofreadIssueId.value = issueId;
+}
+
+function handleProofreadNavigate(issueId: string) {
+  activeProofreadIssueId.value = issueId;
+  void nextTick(() => editorRef.value?.revealProofreadIssue(issueId));
+}
+
+function resolveProofreadRange(issue: ProofreadIssue): { from: number; to: number } | null {
+  if (content.value.slice(issue.from, issue.to) === issue.original) {
+    return { from: issue.from, to: issue.to };
+  }
+
+  if (issue.context) {
+    const contextFrom = content.value.indexOf(issue.context);
+    const local = issue.context.indexOf(issue.original);
+    if (contextFrom >= 0 && local >= 0) {
+      const from = contextFrom + local;
+      return { from, to: from + issue.original.length };
+    }
+  }
+
+  const from = content.value.indexOf(issue.original);
+  return from >= 0 ? { from, to: from + issue.original.length } : null;
+}
+
+function setActiveProofreadIssueAfterHandling(issueId: string) {
+  const currentIndex = proofreadIssues.value.findIndex((issue) => issue.id === issueId);
+  const nextIssue =
+    proofreadIssues.value.slice(currentIndex + 1).find((issue) => issue.status !== "applied" && issue.status !== "ignored") ??
+    [...proofreadIssues.value].slice(0, currentIndex).reverse().find((issue) => issue.status !== "applied" && issue.status !== "ignored") ??
+    null;
+  activeProofreadIssueId.value = nextIssue?.id ?? null;
+}
+
+function handleProofreadApply(issueId: string) {
+  const issue = proofreadIssues.value.find((item) => item.id === issueId);
+  if (!issue) return;
+
+  const range = resolveProofreadRange(issue);
+  if (!range) {
+    showToast("error", t("proofread.issueNotFound"));
+    handleProofreadDismiss(issueId);
+    return;
+  }
+
+  const delta = issue.suggestion.length - (range.to - range.from);
+  preserveProofreadIssuesOnNextContentChange = true;
+  editorRef.value?.applyChanges([
+    { from: range.from, to: range.to, insert: issue.suggestion },
+  ]);
+
+  proofreadIssues.value = proofreadIssues.value
+    .map((item) => {
+      if (item.id === issueId) {
+        return { ...item, status: "applied" as const };
+      }
+      if (item.status === "applied" || item.status === "ignored") return item;
+      if (item.from < range.to && item.to > range.from) {
+        return { ...item, status: "ignored" as const };
+      }
+      if (item.from >= range.to) {
+        return { ...item, from: item.from + delta, to: item.to + delta };
+      }
+      return item;
+    });
+  setActiveProofreadIssueAfterHandling(issueId);
+}
+
+function handleProofreadDismiss(issueId: string) {
+  proofreadIssues.value = proofreadIssues.value.map((issue) =>
+    issue.id === issueId ? { ...issue, status: "ignored" } : issue,
+  );
+  setActiveProofreadIssueAfterHandling(issueId);
+}
+
 function openVersionHistory() {
   const latestVersion = documentVersionList.value[0];
   if (!latestVersion) {
@@ -721,7 +826,12 @@ onUnmounted(() => {
         <MarkdownEditor
           ref="editorRef"
           v-model="content"
+          :proofread-issues="proofreadIssues"
+          :active-proofread-issue-id="activeProofreadIssueId"
           @scroll="onEditorScroll"
+          @proofread-select="handleProofreadSelect"
+          @proofread-apply="handleProofreadApply"
+          @proofread-dismiss="handleProofreadDismiss"
         />
       </section>
 
@@ -748,7 +858,14 @@ onUnmounted(() => {
         :document-path="filePath"
         :workspace-paths="recentFiles"
         :read-workspace-file="readAiWorkspaceFile"
+        :proofread-issues="proofreadIssues"
+        :current-proofread-item-id="currentProofreadItemId"
+        :active-proofread-issue-id="activeProofreadIssueId"
         @apply="applyAIChanges"
+        @proofread="handleProofreadIssues"
+        @proofread-navigate="handleProofreadNavigate"
+        @proofread-apply="handleProofreadApply"
+        @proofread-dismiss="handleProofreadDismiss"
         @restore="restoreDocumentVersion"
       />
 
