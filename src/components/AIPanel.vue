@@ -98,6 +98,7 @@ const listRef = ref<HTMLElement | null>(null);
 const expandedDiffId = ref<string | null>(null);
 const expandedMessageIds = ref(new Set<string>());
 const expandedLongMessageIds = ref(new Set<string>());
+const overflowingMessageIds = ref(new Set<string>());
 const panelWidth = ref(DEFAULT_PANEL_WIDTH);
 const isResizing = ref(false);
 const reduceMotion = ref(false);
@@ -110,6 +111,7 @@ let previousBodyUserSelect = "";
 let motionMedia: ReturnType<typeof gsap.matchMedia> | null = null;
 let lastStreamPreviewAnimation = 0;
 let previousActiveConversationId = activeConversationId.value;
+let overflowMeasureFrame = 0;
 
 const isLoading = computed(() => historyList.value.some((item: AIHistoryItem) => item.status === "loading"));
 const instructionCharCount = computed(() => instruction.value.length);
@@ -225,11 +227,39 @@ watch(
     expandedLongMessageIds.value = new Set(
       Array.from(expandedLongMessageIds.value).filter((id) => visibleIds.has(id)),
     );
+    overflowingMessageIds.value = new Set(
+      Array.from(overflowingMessageIds.value).filter((id) => visibleIds.has(id)),
+    );
 
     if (previousActiveConversationId !== activeConversationId.value) {
       previousActiveConversationId = activeConversationId.value;
       collapsePastMessages(false);
     }
+    scheduleLongMessageOverflowMeasure();
+  },
+  { flush: "post" },
+);
+
+watch(
+  () => [
+    panelWidth.value,
+    visibleHistoryList.value
+      .map((item) => [
+        item.id,
+        item.status,
+        item.instruction.length,
+        item.rawResponse?.length ?? 0,
+        item.assistantText?.length ?? 0,
+        item.noChangesHint?.length ?? 0,
+        item.agentActivities?.length ?? 0,
+        item.proofreadIssues?.length ?? 0,
+        item.changes.length,
+        expandedDiffId.value === item.id ? "open" : "closed",
+      ].join(":"))
+      .join("|"),
+  ],
+  () => {
+    nextTick(scheduleLongMessageOverflowMeasure);
   },
   { flush: "post" },
 );
@@ -262,6 +292,10 @@ function getHistoryCardElement(itemId: string) {
 
 function getMessageBodyElement(itemId: string) {
   return getHistoryCardElement(itemId)?.querySelector<HTMLElement>(".history-card-body-wrap") ?? null;
+}
+
+function getMessageContentElement(itemId: string) {
+  return getHistoryCardElement(itemId)?.querySelector<HTMLElement>(".history-card-body-content") ?? null;
 }
 
 function isPastMessage(item: AIHistoryItem) {
@@ -297,8 +331,47 @@ function isLongMessageExpanded(item: AIHistoryItem) {
   return expandedLongMessageIds.value.has(item.id);
 }
 
+function hasLongMessageOverflow(item: AIHistoryItem) {
+  return overflowingMessageIds.value.has(item.id);
+}
+
 function shouldClampLongMessage(item: AIHistoryItem) {
-  return !isLongMessageExpanded(item) && item.status !== "loading";
+  return hasLongMessageOverflow(item) &&
+    !isLongMessageExpanded(item) &&
+    !isPastMessage(item) &&
+    item.status !== "loading";
+}
+
+function shouldShowLongMessageToggle(item: AIHistoryItem) {
+  return hasLongMessageOverflow(item) && !isPastMessage(item) && item.status !== "loading";
+}
+
+function measureLongMessageOverflow() {
+  overflowMeasureFrame = 0;
+  const next = new Set<string>();
+  for (const item of visibleHistoryList.value) {
+    if (isPastMessage(item) || item.status === "loading") continue;
+    const content = getMessageContentElement(item.id);
+    if (!content) continue;
+    const wasClamped = content.classList.contains("is-long-clamped");
+    if (wasClamped) {
+      content.classList.remove("is-long-clamped");
+    }
+    if (content.scrollHeight > 320) {
+      next.add(item.id);
+    }
+    if (wasClamped) {
+      content.classList.add("is-long-clamped");
+    }
+  }
+  overflowingMessageIds.value = next;
+}
+
+function scheduleLongMessageOverflowMeasure() {
+  if (overflowMeasureFrame) {
+    cancelAnimationFrame(overflowMeasureFrame);
+  }
+  overflowMeasureFrame = requestAnimationFrame(measureLongMessageOverflow);
 }
 
 function animateMessageBody(itemId: string, expanded: boolean) {
@@ -854,9 +927,13 @@ onMounted(() => {
     },
   );
   scrollToBottom();
+  nextTick(scheduleLongMessageOverflowMeasure);
 });
 
 onUnmounted(() => {
+  if (overflowMeasureFrame) {
+    cancelAnimationFrame(overflowMeasureFrame);
+  }
   motionMedia?.revert();
   stopResize();
 });
@@ -993,6 +1070,10 @@ onUnmounted(() => {
             'is-long-clamped': shouldClampLongMessage(item),
           }"
         >
+          <div
+            class="history-card-body-content"
+            :class="{ 'is-long-clamped': shouldClampLongMessage(item) }"
+          >
           <div class="card-body">
             <div v-if="item.status === 'loading'" class="ai-loading-box">
             <span class="ai-loading-text">
@@ -1185,8 +1266,9 @@ onUnmounted(() => {
             </div>
           </div>
           </div>
+          </div>
           <button
-            v-if="item.status !== 'loading'"
+            v-if="shouldShowLongMessageToggle(item)"
             type="button"
             class="message-expand-toggle"
             :aria-expanded="isLongMessageExpanded(item)"
@@ -1731,11 +1813,16 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-.history-card-body-wrap.is-long-clamped {
-  max-height: 320px;
+.history-card-body-content {
+  position: relative;
 }
 
-.history-card-body-wrap.is-long-clamped::after {
+.history-card-body-content.is-long-clamped {
+  max-height: 320px;
+  overflow: hidden;
+}
+
+.history-card-body-content.is-long-clamped::after {
   content: "";
   position: absolute;
   right: 0;
