@@ -9,6 +9,7 @@ import LandingLegal from "./components/LandingLegal.vue";
 import LandingOverlay from "./components/LandingOverlay.vue";
 import SheafProductDemo from "./components/SheafProductDemo.vue";
 import type { DemoScenarioId } from "./components/SheafProductDemo.vue";
+import { useDownloadLink } from "./composables/useDownloadLink";
 import { useLandingContent } from "./composables/useLandingContent";
 import { useLandingMotion } from "./composables/useLandingMotion";
 
@@ -20,7 +21,7 @@ useLandingMotion(landingRoot);
 const { locale, setLocale, t, tm } = useLocale();
 const { docSections, changelog, privacyPolicy, termsOfService } = useLandingContent();
 
-const downloadHref = "#download";
+const { downloadHref } = useDownloadLink();
 const demoRef = ref<InstanceType<typeof SheafProductDemo> | null>(null);
 const isDark = ref(false);
 const activeOverlay = ref<LandingOverlayPanel | null>(null);
@@ -114,7 +115,7 @@ const features = computed(() => [
     :data-theme="isDark ? 'dark' : undefined"
   >
     <header class="landing-nav">
-      <a class="landing-brand" href="/website/">
+      <a class="landing-brand" href="/">
         <span class="landing-brand-mark">S</span>
         <span>Sheaf</span>
       </a>
@@ -143,7 +144,11 @@ const features = computed(() => [
           <Moon v-else :size="18" aria-hidden="true" />
         </button>
         <a class="landing-btn landing-btn-ghost" href="#features">{{ t("landing.nav.learnMore") }}</a>
-        <a class="landing-btn landing-btn-primary" :href="downloadHref">{{ t("landing.nav.download") }}</a>
+        <a
+          class="landing-btn landing-btn-primary"
+          :href="downloadHref"
+          rel="noopener noreferrer"
+        >{{ t("landing.nav.download") }}</a>
       </div>
     </header>
 
@@ -154,7 +159,11 @@ const features = computed(() => [
         {{ t("landing.hero.lead") }}
       </p>
       <div class="landing-hero-cta">
-        <a class="landing-btn landing-btn-primary" :href="downloadHref">
+        <a
+          class="landing-btn landing-btn-primary"
+          :href="downloadHref"
+          rel="noopener noreferrer"
+        >
           {{ t("landing.hero.download") }}
         </a>
         <a class="landing-btn landing-btn-outline" href="#demo">{{ t("landing.hero.watchDemo") }}</a>
@@ -255,7 +264,11 @@ const features = computed(() => [
     <section id="download" class="landing-cta">
       <h2>{{ t("landing.cta.title") }}</h2>
       <p>{{ t("landing.cta.body") }}</p>
-      <a class="landing-btn landing-btn-primary" href="#">{{ t("landing.cta.download") }}</a>
+      <a
+        class="landing-btn landing-btn-primary"
+        :href="downloadHref"
+        rel="noopener noreferrer"
+      >{{ t("landing.cta.download") }}</a>
     </section>
 
     <footer class="landing-footer">
