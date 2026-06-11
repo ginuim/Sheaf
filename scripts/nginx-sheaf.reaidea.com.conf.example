@@ -1,0 +1,28 @@
+# 示例：/etc/nginx/sites-available/sheaf.reaidea.com
+# 启用：ln -s .../sheaf.reaidea.com /etc/nginx/sites-enabled/ && nginx -t && systemctl reload nginx
+
+server {
+    listen 80;
+    server_name sheaf.reaidea.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name sheaf.reaidea.com;
+
+    ssl_certificate     /etc/letsencrypt/live/sheaf.reaidea.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/sheaf.reaidea.com/privkey.pem;
+
+    root /var/www/html/sheaf;
+    index website.html;
+
+    location / {
+        try_files $uri $uri/ /website.html;
+    }
+
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+}

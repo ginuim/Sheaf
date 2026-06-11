@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:website": "vite --open /website/",
+    "dev:website": "vite --open /website.html",
     "build": "vue-tsc --noEmit && vite build",
     "build:website": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "preview:website": "vite preview --open /website/",
+    "preview:website": "vite preview --open /website.html",
     "tauri": "tauri",
     "build:mac": "tauri build && bash scripts/collect-dmg.sh",
     "build:mac:arm64": "tauri build --target aarch64-apple-darwin && bash scripts/collect-dmg.sh Sheaf-macos-arm64.dmg",
