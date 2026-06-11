@@ -364,4 +364,98 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
       darkDesc: "Deep black and white, for tech and night reading",
     },
   },
+  landing: {
+    nav: {
+      main: "Main navigation",
+      features: "Features",
+      demo: "Demo",
+      download: "Download",
+      learnMore: "Learn more",
+      switchLocale: "Switch language",
+      themeLight: "Switch to light mode",
+      themeDark: "Switch to dark mode",
+    },
+    hero: {
+      eyebrow: "Markdown · Local · Typography",
+      title: "A Markdown editor built for focused writing",
+      lead: "Sheaf brings editing, preview, and AI rewriting into one calm interface — whitespace, serif type, and split view for long-form writing that reads like a book.",
+      download: "Download for macOS",
+      watchDemo: "Watch product demo",
+    },
+    demo: {
+      ariaLabel: "Product demo",
+      controls: "Demo controls",
+      scenarios: {
+        outline: "Outline",
+        preview: "Preview mode",
+        ai: "AI rewrite",
+        export: "Export to social",
+      },
+      themeLight: "Light mode",
+      themeDark: "Dark mode",
+    },
+    logos: {
+      title: "Built for long writing sessions",
+      items: ["Technical docs", "Paper drafts", "Product specs", "Reading notes", "Long-form posts"],
+    },
+    features: {
+      title: "Everything you need to write",
+      split: {
+        title: "Split live preview",
+        body: "Editor and preview scroll together. Serif preview, monospace editing — easy on the eyes for long documents.",
+        linkLabel: "Try the interface →",
+      },
+      ai: {
+        title: "AI paragraph rewrite",
+        body: "Describe edits in plain language, review the diff, and apply in one click — without breaking your flow.",
+        linkLabel: "See the AI panel →",
+      },
+      local: {
+        title: "Local first",
+        body: "Files stay on your disk. Outline navigation, PDF export, and dark mode — designed for focused writing.",
+        linkLabel: "Download for macOS →",
+      },
+    },
+    quote: {
+      text: "\"Good typography lets text breathe. Whitespace is not wasted — it gives room to think.\"",
+      cite: "— Sheaf design philosophy",
+    },
+    cta: {
+      title: "Start writing now",
+      body: "A native macOS app. Open and write — your documents stay local.",
+      download: "Download for macOS",
+    },
+    footer: {
+      product: "Product",
+      resources: "Resources",
+      legal: "Legal",
+      contact: "Contact",
+      changelog: "Changelog",
+      docs: "Documentation",
+      privacy: "Privacy Policy",
+      terms: "Terms of Service",
+      copyright: "All rights reserved.",
+      meta: "Sheaf · Local Markdown editor",
+    },
+    overlay: {
+      close: "Close",
+      docs: {
+        title: "Documentation",
+        lead: "From your first document to export and share — common Sheaf workflows.",
+        nav: "Table of contents",
+      },
+      changelog: {
+        title: "Changelog",
+        lead: "What's new in each Sheaf release. Early days — feedback welcome.",
+      },
+      privacy: {
+        title: "Privacy Policy",
+        lead: "Sheaf does not collect your personal data. Documents and settings stay on your device.",
+      },
+      terms: {
+        title: "Terms of Service",
+        lead: "Please read these basics before using Sheaf.",
+      },
+    },
+  },
 } as const;

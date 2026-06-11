@@ -1,22 +1,28 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from "vue";
-import { useLandingMotion } from "./composables/useLandingMotion";
+import { Moon, Sun } from "@lucide/vue";
+import { computed, onUnmounted, ref, watch } from "vue";
+import { useLocale } from "../composables/useLocale";
+import type { AppLocale } from "../i18n";
 import LandingChangelog from "./components/LandingChangelog.vue";
 import LandingDocs from "./components/LandingDocs.vue";
 import LandingLegal from "./components/LandingLegal.vue";
 import LandingOverlay from "./components/LandingOverlay.vue";
 import SheafProductDemo from "./components/SheafProductDemo.vue";
 import type { DemoScenarioId } from "./components/SheafProductDemo.vue";
-import { PRIVACY_POLICY, TERMS_OF_SERVICE } from "./content/legal";
+import { useLandingContent } from "./composables/useLandingContent";
+import { useLandingMotion } from "./composables/useLandingMotion";
 
 type LandingOverlayPanel = "docs" | "changelog" | "privacy" | "terms";
 
 const landingRoot = ref<HTMLElement | null>(null);
 useLandingMotion(landingRoot);
 
+const { locale, setLocale, t, tm } = useLocale();
+const { docSections, changelog, privacyPolicy, termsOfService } = useLandingContent();
+
 const downloadHref = "#download";
 const demoRef = ref<InstanceType<typeof SheafProductDemo> | null>(null);
-const demoIsDark = ref(false);
+const isDark = ref(false);
 const activeOverlay = ref<LandingOverlayPanel | null>(null);
 
 function openOverlay(panel: LandingOverlayPanel) {
@@ -27,95 +33,137 @@ function closeOverlay() {
   activeOverlay.value = null;
 }
 
-function applyLandingTheme(isDark: boolean) {
-  if (isDark) {
+function applyLandingTheme(dark: boolean) {
+  if (dark) {
     document.documentElement.dataset.theme = "dark";
   } else {
     delete document.documentElement.dataset.theme;
   }
 }
 
-watch(demoIsDark, applyLandingTheme, { immediate: true });
+watch(isDark, applyLandingTheme, { immediate: true });
 
 onUnmounted(() => {
   delete document.documentElement.dataset.theme;
 });
 
-const demoScenarios: { id: DemoScenarioId; label: string }[] = [
-  { id: "outline", label: "大纲导航" },
-  { id: "preview", label: "预览模式" },
-  { id: "ai", label: "AI 改写" },
-  { id: "export", label: "导出到社交媒体" },
-];
-
-function runDemoScenario(id: DemoScenarioId) {
-  demoRef.value?.runScenario(id);
+function toggleLandingTheme() {
+  isDark.value = !isDark.value;
 }
 
 function toggleDemoTheme() {
   demoRef.value?.runThemeToggle();
 }
-const features = [
+
+function toggleLocale() {
+  const next: AppLocale = locale.value === "zh-CN" ? "en" : "zh-CN";
+  setLocale(next);
+}
+
+const localeToggleLabel = computed(() =>
+  locale.value === "zh-CN" ? "English" : "中文",
+);
+
+const themeToggleLabel = computed(() =>
+  isDark.value ? t("landing.nav.themeLight") : t("landing.nav.themeDark"),
+);
+
+const demoScenarios = computed(() => {
+  const labels = tm("landing.demo.scenarios") as Record<DemoScenarioId, string>;
+  return (["outline", "preview", "ai", "export"] as DemoScenarioId[]).map((id) => ({
+    id,
+    label: labels[id],
+  }));
+});
+
+function runDemoScenario(id: DemoScenarioId) {
+  demoRef.value?.runScenario(id);
+}
+
+const logoItems = computed(() => tm("landing.logos.items") as string[]);
+
+const features = computed(() => [
   {
-    title: "分屏实时预览",
-    body: "编辑与预览同步滚动。衬线预览、等宽编辑，长文写作不累眼。",
+    key: "split",
+    title: t("landing.features.split.title"),
+    body: t("landing.features.split.body"),
     link: "#demo",
-    linkLabel: "体验界面 →",
+    linkLabel: t("landing.features.split.linkLabel"),
   },
   {
-    title: "AI 段落改写",
-    body: "用自然语言描述修改意图，审阅 diff 后一键应用，不打断写作心流。",
+    key: "ai",
+    title: t("landing.features.ai.title"),
+    body: t("landing.features.ai.body"),
     link: "#demo",
-    linkLabel: "查看 AI 面板 →",
+    linkLabel: t("landing.features.ai.linkLabel"),
   },
   {
-    title: "本地优先",
-    body: "文件保存在你的磁盘。大纲导航、PDF 导出、暗色模式，专为专注写作设计。",
+    key: "local",
+    title: t("landing.features.local.title"),
+    body: t("landing.features.local.body"),
     link: "#download",
-    linkLabel: "下载 macOS 版 →",
+    linkLabel: t("landing.features.local.linkLabel"),
   },
-];
+]);
 </script>
 
 <template>
   <div
     ref="landingRoot"
     class="landing"
-    :data-theme="demoIsDark ? 'dark' : undefined"
+    :data-theme="isDark ? 'dark' : undefined"
   >
     <header class="landing-nav">
       <a class="landing-brand" href="/website/">
         <span class="landing-brand-mark">S</span>
         <span>Sheaf</span>
       </a>
-      <nav class="landing-nav-links" aria-label="主导航">
-        <a href="#features">功能</a>
-        <a href="#demo">演示</a>
-        <a href="#download">下载</a>
+      <nav class="landing-nav-links" :aria-label="t('landing.nav.main')">
+        <a href="#features">{{ t("landing.nav.features") }}</a>
+        <a href="#demo">{{ t("landing.nav.demo") }}</a>
+        <a href="#download">{{ t("landing.nav.download") }}</a>
       </nav>
       <div class="landing-nav-actions">
-        <a class="landing-btn landing-btn-ghost" href="#features">了解更多</a>
-        <a class="landing-btn landing-btn-primary" :href="downloadHref">下载</a>
+        <button
+          type="button"
+          class="landing-nav-icon-btn landing-nav-locale-btn"
+          :aria-label="t('landing.nav.switchLocale')"
+          @click="toggleLocale"
+        >
+          {{ localeToggleLabel }}
+        </button>
+        <button
+          type="button"
+          class="landing-nav-icon-btn"
+          :aria-label="themeToggleLabel"
+          :aria-pressed="isDark"
+          @click="toggleLandingTheme"
+        >
+          <Sun v-if="isDark" :size="18" aria-hidden="true" />
+          <Moon v-else :size="18" aria-hidden="true" />
+        </button>
+        <a class="landing-btn landing-btn-ghost" href="#features">{{ t("landing.nav.learnMore") }}</a>
+        <a class="landing-btn landing-btn-primary" :href="downloadHref">{{ t("landing.nav.download") }}</a>
       </div>
     </header>
 
     <section class="landing-hero">
-      <span class="landing-eyebrow">Markdown · 本地 · 排版</span>
-      <h1>为专注写作而生的 Markdown 编辑器</h1>
+      <span class="landing-eyebrow">{{ t("landing.hero.eyebrow") }}</span>
+      <h1>{{ t("landing.hero.title") }}</h1>
       <p class="landing-hero-lead">
-        Sheaf 把编辑、预览与 AI 改写放在同一界面。留白、衬线与分屏，让长文写作像阅读纸书一样舒服。
+        {{ t("landing.hero.lead") }}
       </p>
       <div class="landing-hero-cta">
         <a class="landing-btn landing-btn-primary" :href="downloadHref">
-          下载 macOS 版
+          {{ t("landing.hero.download") }}
         </a>
-        <a class="landing-btn landing-btn-outline" href="#demo">查看产品演示</a>
+        <a class="landing-btn landing-btn-outline" href="#demo">{{ t("landing.hero.watchDemo") }}</a>
       </div>
     </section>
 
-    <section id="demo" class="landing-demo-wrap" aria-label="产品演示">
-      <SheafProductDemo ref="demoRef" v-model:dark="demoIsDark" />
-      <div class="landing-demo-controls" role="group" aria-label="演示控制">
+    <section id="demo" class="landing-demo-wrap" :aria-label="t('landing.demo.ariaLabel')">
+      <SheafProductDemo ref="demoRef" v-model:dark="isDark" />
+      <div class="landing-demo-controls" role="group" :aria-label="t('landing.demo.controls')">
         <button
           v-for="item in demoScenarios"
           :key="item.id"
@@ -128,32 +176,28 @@ const features = [
         <button
           type="button"
           class="landing-demo-scenario-btn landing-demo-theme-btn"
-          :class="{ active: demoIsDark }"
-          :aria-pressed="demoIsDark"
+          :class="{ active: isDark }"
+          :aria-pressed="isDark"
           @click="toggleDemoTheme"
         >
-          {{ demoIsDark ? "浅色模式" : "暗黑模式" }}
+          {{ isDark ? t("landing.demo.themeLight") : t("landing.demo.themeDark") }}
         </button>
       </div>
     </section>
 
     <section class="landing-logos" aria-hidden="true">
-      <p>为需要长时间写作的人设计</p>
+      <p>{{ t("landing.logos.title") }}</p>
       <div class="landing-logo-row">
-        <span>技术文档</span>
-        <span>论文草稿</span>
-        <span>产品说明</span>
-        <span>读书笔记</span>
-        <span>博客长文</span>
+        <span v-for="item in logoItems" :key="item">{{ item }}</span>
       </div>
     </section>
 
     <section id="features" class="landing-features">
-      <h2 class="landing-section-title">写作所需，尽在一处</h2>
+      <h2 class="landing-section-title">{{ t("landing.features.title") }}</h2>
       <div class="landing-feature-grid">
         <article
           v-for="item in features"
-          :key="item.title"
+          :key="item.key"
           class="landing-feature-card"
         >
           <h3>{{ item.title }}</h3>
@@ -164,100 +208,98 @@ const features = [
     </section>
 
     <section class="landing-quote">
-      <blockquote>
-        「好的排版让文字呼吸。留白不是浪费，是给思考的空间。」
-      </blockquote>
-      <cite>— Sheaf 设计理念</cite>
+      <blockquote>{{ t("landing.quote.text") }}</blockquote>
+      <cite>{{ t("landing.quote.cite") }}</cite>
     </section>
 
     <LandingOverlay
       :open="activeOverlay === 'docs'"
-      title="使用文档"
+      :title="t('landing.overlay.docs.title')"
       title-id="landing-docs-title"
-      lead="从打开第一篇稿子到导出分享，这里是 Sheaf 的常用操作说明。"
+      :lead="t('landing.overlay.docs.lead')"
       @close="closeOverlay"
     >
-      <LandingDocs />
+      <LandingDocs :sections="docSections" :nav-label="t('landing.overlay.docs.nav')" />
     </LandingOverlay>
 
     <LandingOverlay
       :open="activeOverlay === 'changelog'"
-      title="更新日志"
+      :title="t('landing.overlay.changelog.title')"
       title-id="landing-changelog-title"
-      lead="记录 Sheaf 每个版本的新增与改进。当前为早期版本，欢迎反馈。"
+      :lead="t('landing.overlay.changelog.lead')"
       @close="closeOverlay"
     >
-      <LandingChangelog />
+      <LandingChangelog :entries="changelog" />
     </LandingOverlay>
 
     <LandingOverlay
       :open="activeOverlay === 'privacy'"
-      title="隐私政策"
+      :title="t('landing.overlay.privacy.title')"
       title-id="landing-privacy-title"
-      lead="Sheaf 不收集你的个人数据，文稿与设置均保存在本地。"
+      :lead="t('landing.overlay.privacy.lead')"
       @close="closeOverlay"
     >
-      <LandingLegal :sections="PRIVACY_POLICY" />
+      <LandingLegal :sections="privacyPolicy" />
     </LandingOverlay>
 
     <LandingOverlay
       :open="activeOverlay === 'terms'"
-      title="服务条款"
+      :title="t('landing.overlay.terms.title')"
       title-id="landing-terms-title"
-      lead="使用 Sheaf 前，请了解以下基本约定。"
+      :lead="t('landing.overlay.terms.lead')"
       @close="closeOverlay"
     >
-      <LandingLegal :sections="TERMS_OF_SERVICE" />
+      <LandingLegal :sections="termsOfService" />
     </LandingOverlay>
 
     <section id="download" class="landing-cta">
-      <h2>现在开始写作</h2>
-      <p>macOS 原生应用，打开即写。你的文稿留在本地。</p>
-      <a class="landing-btn landing-btn-primary" href="#">下载 for macOS</a>
+      <h2>{{ t("landing.cta.title") }}</h2>
+      <p>{{ t("landing.cta.body") }}</p>
+      <a class="landing-btn landing-btn-primary" href="#">{{ t("landing.cta.download") }}</a>
     </section>
 
     <footer class="landing-footer">
       <div class="landing-footer-grid">
         <div>
-          <h4>产品</h4>
+          <h4>{{ t("landing.footer.product") }}</h4>
           <ul>
-            <li><a href="#features">功能</a></li>
-            <li><a href="#demo">演示</a></li>
-            <li><a href="#download">下载</a></li>
+            <li><a href="#features">{{ t("landing.nav.features") }}</a></li>
+            <li><a href="#demo">{{ t("landing.nav.demo") }}</a></li>
+            <li><a href="#download">{{ t("landing.nav.download") }}</a></li>
           </ul>
         </div>
         <div>
-          <h4>资源</h4>
+          <h4>{{ t("landing.footer.resources") }}</h4>
           <ul>
             <li>
               <button type="button" class="landing-footer-link" @click="openOverlay('changelog')">
-                更新日志
+                {{ t("landing.footer.changelog") }}
               </button>
             </li>
             <li>
               <button type="button" class="landing-footer-link" @click="openOverlay('docs')">
-                使用文档
+                {{ t("landing.footer.docs") }}
               </button>
             </li>
           </ul>
         </div>
         <div>
-          <h4>法律</h4>
+          <h4>{{ t("landing.footer.legal") }}</h4>
           <ul>
             <li>
               <button type="button" class="landing-footer-link" @click="openOverlay('privacy')">
-                隐私政策
+                {{ t("landing.footer.privacy") }}
               </button>
             </li>
             <li>
               <button type="button" class="landing-footer-link" @click="openOverlay('terms')">
-                服务条款
+                {{ t("landing.footer.terms") }}
               </button>
             </li>
           </ul>
         </div>
         <div>
-          <h4>联系</h4>
+          <h4>{{ t("landing.footer.contact") }}</h4>
           <ul>
             <li><a href="mailto:webmaster@reaidea.com">webmaster@reaidea.com</a></li>
           </ul>
@@ -271,9 +313,9 @@ const features = [
             href="https://reaidea.com"
             target="_blank"
             rel="noopener noreferrer"
-          >reaidea</a> 版权所有。
+          >reaidea</a> {{ t("landing.footer.copyright") }}
         </p>
-        <p class="landing-footer-meta">Sheaf · 本地 Markdown 编辑器</p>
+        <p class="landing-footer-meta">{{ t("landing.footer.meta") }}</p>
       </div>
     </footer>
   </div>

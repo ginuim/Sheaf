@@ -364,4 +364,98 @@ console.log(greeting);
       darkDesc: "深空黑白，适合科技与夜读",
     },
   },
+  landing: {
+    nav: {
+      main: "主导航",
+      features: "功能",
+      demo: "演示",
+      download: "下载",
+      learnMore: "了解更多",
+      switchLocale: "切换语言",
+      themeLight: "切换浅色模式",
+      themeDark: "切换暗色模式",
+    },
+    hero: {
+      eyebrow: "Markdown · 本地 · 排版",
+      title: "为专注写作而生的 Markdown 编辑器",
+      lead: "Sheaf 把编辑、预览与 AI 改写放在同一界面。留白、衬线与分屏，让长文写作像阅读纸书一样舒服。",
+      download: "下载 macOS 版",
+      watchDemo: "查看产品演示",
+    },
+    demo: {
+      ariaLabel: "产品演示",
+      controls: "演示控制",
+      scenarios: {
+        outline: "大纲导航",
+        preview: "预览模式",
+        ai: "AI 改写",
+        export: "导出到社交媒体",
+      },
+      themeLight: "浅色模式",
+      themeDark: "暗黑模式",
+    },
+    logos: {
+      title: "为需要长时间写作的人设计",
+      items: ["技术文档", "论文草稿", "产品说明", "读书笔记", "博客长文"],
+    },
+    features: {
+      title: "写作所需，尽在一处",
+      split: {
+        title: "分屏实时预览",
+        body: "编辑与预览同步滚动。衬线预览、等宽编辑，长文写作不累眼。",
+        linkLabel: "体验界面 →",
+      },
+      ai: {
+        title: "AI 段落改写",
+        body: "用自然语言描述修改意图，审阅 diff 后一键应用，不打断写作心流。",
+        linkLabel: "查看 AI 面板 →",
+      },
+      local: {
+        title: "本地优先",
+        body: "文件保存在你的磁盘。大纲导航、PDF 导出、暗色模式，专为专注写作设计。",
+        linkLabel: "下载 macOS 版 →",
+      },
+    },
+    quote: {
+      text: "「好的排版让文字呼吸。留白不是浪费，是给思考的空间。」",
+      cite: "— Sheaf 设计理念",
+    },
+    cta: {
+      title: "现在开始写作",
+      body: "macOS 原生应用，打开即写。你的文稿留在本地。",
+      download: "下载 for macOS",
+    },
+    footer: {
+      product: "产品",
+      resources: "资源",
+      legal: "法律",
+      contact: "联系",
+      changelog: "更新日志",
+      docs: "使用文档",
+      privacy: "隐私政策",
+      terms: "服务条款",
+      copyright: "版权所有。",
+      meta: "Sheaf · 本地 Markdown 编辑器",
+    },
+    overlay: {
+      close: "关闭",
+      docs: {
+        title: "使用文档",
+        lead: "从打开第一篇稿子到导出分享，这里是 Sheaf 的常用操作说明。",
+        nav: "文档目录",
+      },
+      changelog: {
+        title: "更新日志",
+        lead: "记录 Sheaf 每个版本的新增与改进。当前为早期版本，欢迎反馈。",
+      },
+      privacy: {
+        title: "隐私政策",
+        lead: "Sheaf 不收集你的个人数据，文稿与设置均保存在本地。",
+      },
+      terms: {
+        title: "服务条款",
+        lead: "使用 Sheaf 前，请了解以下基本约定。",
+      },
+    },
+  },
 } as const;

@@ -1,3 +1,5 @@
+import type { AppLocale } from "../../i18n";
+
 export type ChangelogEntry = {
   version: string;
   date: string;
@@ -5,7 +7,7 @@ export type ChangelogEntry = {
   items: string[];
 };
 
-export const CHANGELOG: ChangelogEntry[] = [
+const CHANGELOG_ZH: ChangelogEntry[] = [
   {
     version: "0.1.0",
     date: "2026-06",
@@ -23,3 +25,26 @@ export const CHANGELOG: ChangelogEntry[] = [
     ],
   },
 ];
+
+const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.1.0",
+    date: "2026-06",
+    title: "First public release",
+    items: [
+      "Native macOS Markdown editor — files stay on your disk",
+      "Split editing and live preview with synchronized scrolling",
+      "Outline panel with click-to-jump headings",
+      "Three view modes: split, edit-only, preview-only",
+      "AI rewriting: natural-language instructions, diff review, one-click apply",
+      "Export PDF, WeChat HTML, social share cards, and long images",
+      "Automatic CJK spacing with one-click full-document formatting",
+      "Version snapshots with diff compare and restore",
+      "Light / dark themes; interface in Chinese and English",
+    ],
+  },
+];
+
+export function getChangelog(locale: AppLocale): ChangelogEntry[] {
+  return locale === "zh-CN" ? CHANGELOG_ZH : CHANGELOG_EN;
+}
