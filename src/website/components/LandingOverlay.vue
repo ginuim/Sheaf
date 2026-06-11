@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onUnmounted, watch } from "vue";
+import { useLocale } from "../../composables/useLocale";
 import { lockBodyScroll, unlockBodyScroll } from "../composables/useBodyScrollLock";
 
 const props = defineProps<{
@@ -10,6 +11,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ close: [] }>();
+const { t } = useLocale();
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") emit("close");
@@ -52,7 +54,7 @@ onUnmounted(() => {
           <button
             type="button"
             class="landing-overlay-close"
-            aria-label="关闭"
+            :aria-label="t('landing.overlay.close')"
             @click="emit('close')"
           >
             ×

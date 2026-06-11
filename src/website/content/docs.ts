@@ -1,3 +1,5 @@
+import type { AppLocale } from "../../i18n";
+
 export type DocSection = {
   id: string;
   title: string;
@@ -6,7 +8,7 @@ export type DocSection = {
   table?: { label: string; keys: string }[];
 };
 
-export const DOC_SECTIONS: DocSection[] = [
+const DOC_SECTIONS_ZH: DocSection[] = [
   {
     id: "start",
     title: "快速开始",
@@ -80,3 +82,82 @@ export const DOC_SECTIONS: DocSection[] = [
     ],
   },
 ];
+
+const DOC_SECTIONS_EN: DocSection[] = [
+  {
+    id: "start",
+    title: "Getting started",
+    paragraphs: [
+      "After installing Sheaf, create a blank document from the start page or open a local .md file.",
+      "The left side is the Markdown editor (monospace), the right side is a serif live preview. A sample document loads on first launch — overwrite it and start writing.",
+    ],
+    list: [
+      "New: toolbar \"+\" or ⌘N",
+      "Open: folder icon or ⌘O",
+      "Save: ⌘S; Save As: ⌘⇧S",
+    ],
+  },
+  {
+    id: "edit",
+    title: "Editing & preview",
+    paragraphs: [
+      "Use the toolbar to switch between split, edit-only, and preview-only views. The outline panel lists heading levels — click to jump.",
+      "Preview supports standard Markdown, syntax highlighting, math (KaTeX), Mermaid diagrams, and more.",
+    ],
+    list: [
+      "Find: ⌘F",
+      "Replace: ⌘H",
+      "Back to previous document: ⌘[",
+      "Format CJK spacing: ⌘⇧Space (also in the Edit menu)",
+    ],
+  },
+  {
+    id: "ai",
+    title: "AI rewriting",
+    paragraphs: [
+      "Click \"AI\" in the toolbar or press ⌘⇧A. Describe your edit in plain language, e.g. \"make paragraph two more conversational\" or \"check for typos\".",
+      "AI suggestions appear as a diff. Review and click Apply to write changes into the document. A version snapshot is saved before each apply.",
+      "Enable a provider and enter your API key under Settings → AI. Supports MiniMax, Qwen, and custom OpenAI-compatible endpoints.",
+    ],
+  },
+  {
+    id: "export",
+    title: "Export",
+    paragraphs: [
+      "The Export menu offers several outputs, all based on the current preview layout.",
+    ],
+    list: [
+      "Social export: WeChat HTML, Xiaohongshu share cards, or long images with inlined styles",
+      "Export PDF: opens the system print dialog — choose Save as PDF",
+      "Copy WeChat HTML: also available in the File menu",
+    ],
+  },
+  {
+    id: "settings",
+    title: "Settings",
+    paragraphs: [
+      "Press ⌘, to open Settings. Switch light / dark / system theme and interface language on the Appearance tab.",
+      "With CJK spacing enabled, preview, export, and PDF automatically add typographic space between Chinese and English or numbers.",
+    ],
+  },
+  {
+    id: "shortcuts",
+    title: "Keyboard shortcuts",
+    table: [
+      { label: "New document", keys: "⌘N" },
+      { label: "Open file", keys: "⌘O" },
+      { label: "Save", keys: "⌘S" },
+      { label: "Save As", keys: "⌘⇧S" },
+      { label: "Find", keys: "⌘F" },
+      { label: "Replace", keys: "⌘H" },
+      { label: "Format CJK spacing", keys: "⌘⇧Space" },
+      { label: "Toggle AI panel", keys: "⌘⇧A" },
+      { label: "Back to previous document", keys: "⌘[" },
+      { label: "Settings", keys: "⌘," },
+    ],
+  },
+];
+
+export function getDocSections(locale: AppLocale): DocSection[] {
+  return locale === "zh-CN" ? DOC_SECTIONS_ZH : DOC_SECTIONS_EN;
+}

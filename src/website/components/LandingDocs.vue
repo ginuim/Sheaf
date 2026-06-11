@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import { DOC_SECTIONS } from "../content/docs";
+import type { DocSection } from "../content/docs";
+
+defineProps<{
+  sections: DocSection[];
+  navLabel: string;
+}>();
 </script>
 
 <template>
   <div class="docs-layout">
-    <nav class="docs-nav" aria-label="文档目录">
-      <a v-for="section in DOC_SECTIONS" :key="section.id" :href="`#docs-${section.id}`">
+    <nav class="docs-nav" :aria-label="navLabel">
+      <a v-for="section in sections" :key="section.id" :href="`#docs-${section.id}`">
         {{ section.title }}
       </a>
     </nav>
     <div class="docs-content">
       <article
-        v-for="section in DOC_SECTIONS"
+        v-for="section in sections"
         :id="`docs-${section.id}`"
         :key="section.id"
         class="docs-article"

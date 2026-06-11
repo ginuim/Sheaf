@@ -1,10 +1,12 @@
+import type { AppLocale } from "../../i18n";
+
 export type LegalSection = {
   title: string;
   paragraphs: string[];
   list?: string[];
 };
 
-export const PRIVACY_POLICY: LegalSection[] = [
+const PRIVACY_POLICY_ZH: LegalSection[] = [
   {
     title: "概述",
     paragraphs: [
@@ -49,7 +51,54 @@ export const PRIVACY_POLICY: LegalSection[] = [
   },
 ];
 
-export const TERMS_OF_SERVICE: LegalSection[] = [
+const PRIVACY_POLICY_EN: LegalSection[] = [
+  {
+    title: "Overview",
+    paragraphs: [
+      "Sheaf is developed by reaidea, a local-first Markdown editor. We respect your privacy and do not collect, sell, or share your personal data.",
+      "Last updated: June 2026",
+    ],
+  },
+  {
+    title: "What we do not collect",
+    paragraphs: [
+      "Sheaf has no account system and does not run user behavior tracking or analytics. We do not collect:",
+    ],
+    list: [
+      "Identity information such as name, email, or phone number",
+      "The content of your documents",
+      "Device identifiers or browsing history beyond file paths",
+      "Data for advertising or profiling",
+    ],
+  },
+  {
+    title: "Where data is stored",
+    paragraphs: [
+      "Your Markdown files live on your local disk under your control. App settings, recent documents, AI chat history, and version snapshots are also stored locally — nothing is uploaded to our servers.",
+    ],
+  },
+  {
+    title: "AI features",
+    paragraphs: [
+      "If you enable AI rewriting, you provide your own third-party API key in Settings. Document excerpts are sent to the provider you choose (e.g. MiniMax, Qwen) according to your instructions. We do not relay, store, or inspect that content.",
+      "Please also review the privacy policy of your AI provider to understand how they handle request data.",
+    ],
+  },
+  {
+    title: "This website",
+    paragraphs: [
+      "This site is for product information and downloads only. We do not use tracking cookies or third-party analytics.",
+    ],
+  },
+  {
+    title: "Contact",
+    paragraphs: [
+      "Questions about this policy? Email webmaster@reaidea.com.",
+    ],
+  },
+];
+
+const TERMS_OF_SERVICE_ZH: LegalSection[] = [
   {
     title: "接受条款",
     paragraphs: [
@@ -100,3 +149,63 @@ export const TERMS_OF_SERVICE: LegalSection[] = [
     ],
   },
 ];
+
+const TERMS_OF_SERVICE_EN: LegalSection[] = [
+  {
+    title: "Acceptance",
+    paragraphs: [
+      "By downloading, installing, or using Sheaf, you agree to these Terms of Service. If you do not agree, do not use the software.",
+      "Last updated: June 2026",
+    ],
+  },
+  {
+    title: "License",
+    paragraphs: [
+      "reaidea grants you a non-exclusive, non-transferable license to install and use Sheaf for personal or commercial purposes. You may not reverse engineer, decompile, or remove copyright notices.",
+    ],
+  },
+  {
+    title: "Your content",
+    paragraphs: [
+      "You retain full ownership of all documents you create, edit, and save with Sheaf. We do not access, copy, or claim any rights to your content.",
+    ],
+  },
+  {
+    title: "Local storage & backups",
+    paragraphs: [
+      "Sheaf does not automatically sync your files to the cloud. Please maintain your own backups to avoid data loss from device failure, accidental deletion, or system issues.",
+    ],
+  },
+  {
+    title: "Third-party services",
+    paragraphs: [
+      "AI rewriting, web search (if enabled), and similar features rely on third-party APIs that you configure yourself. You are responsible for associated costs and terms. reaidea is not liable for third-party availability, accuracy, or data handling.",
+    ],
+  },
+  {
+    title: "Disclaimer",
+    paragraphs: [
+      "Sheaf is provided \"as is\" without warranties of any kind. We do not guarantee the software is error-free and are not liable for any direct or indirect damages from use or inability to use the software.",
+    ],
+  },
+  {
+    title: "Changes",
+    paragraphs: [
+      "We may update these terms from time to time and publish revisions on this website. Continued use of Sheaf constitutes acceptance of the updated terms.",
+    ],
+  },
+  {
+    title: "Contact",
+    paragraphs: [
+      "Questions? Email webmaster@reaidea.com.",
+    ],
+  },
+];
+
+export function getPrivacyPolicy(locale: AppLocale): LegalSection[] {
+  return locale === "zh-CN" ? PRIVACY_POLICY_ZH : PRIVACY_POLICY_EN;
+}
+
+export function getTermsOfService(locale: AppLocale): LegalSection[] {
+  return locale === "zh-CN" ? TERMS_OF_SERVICE_ZH : TERMS_OF_SERVICE_EN;
+}

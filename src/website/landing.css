@@ -102,7 +102,36 @@ html.landing-scroll-locked body {
 .landing-nav-actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
+}
+
+.landing-nav-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.landing-nav-icon-btn:hover {
+  color: var(--ink-text);
+  background: var(--ink-accent-soft);
+  border-color: var(--ink-border);
+}
+
+.landing-nav-locale-btn {
+  min-width: 44px;
+  letter-spacing: 0.01em;
 }
 
 .landing-btn {
@@ -173,6 +202,14 @@ html.landing-scroll-locked body {
   letter-spacing: -0.03em;
   max-width: 18ch;
   margin: 0 auto 1.25rem;
+}
+
+html:lang(en) .landing-hero h1 {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  max-width: 22ch;
 }
 
 .landing-hero-lead {
