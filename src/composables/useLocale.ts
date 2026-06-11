@@ -1,5 +1,6 @@
 import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { setReaideaLangCookie } from "../shared/reaideaCookies";
 import {
   applyDocumentLocale,
   getStoredLocale,
@@ -15,6 +16,7 @@ watch(
   (value) => {
     i18n.global.locale.value = value;
     localStorage.setItem(LOCALE_STORAGE_KEY, value);
+    setReaideaLangCookie(value);
     applyDocumentLocale(value);
   },
   { immediate: true },

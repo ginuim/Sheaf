@@ -1,5 +1,8 @@
 import type { AppLocale } from "../../i18n";
 
+const REAIDEA_URL = "https://reaidea.com/";
+const REAIDEA_LINK = `<a href="${REAIDEA_URL}" target="_blank" rel="noopener noreferrer" class="legal-link">reaidea</a>`;
+
 export type LegalSection = {
   title: string;
   paragraphs: string[];
@@ -10,7 +13,7 @@ const PRIVACY_POLICY_ZH: LegalSection[] = [
   {
     title: "概述",
     paragraphs: [
-      "Sheaf 由 reaidea 开发，是一款本地优先的 Markdown 编辑器。我们尊重你的隐私，不会收集、出售或共享你的个人数据。",
+      `Sheaf 由 ${REAIDEA_LINK} 开发，是一款本地优先的 Markdown 编辑器。我们尊重你的隐私，不会收集、出售或共享你的个人数据。`,
       "最后更新：2026 年 6 月",
     ],
   },
@@ -55,7 +58,7 @@ const PRIVACY_POLICY_EN: LegalSection[] = [
   {
     title: "Overview",
     paragraphs: [
-      "Sheaf is developed by reaidea, a local-first Markdown editor. We respect your privacy and do not collect, sell, or share your personal data.",
+      `Sheaf is developed by ${REAIDEA_LINK}, a local-first Markdown editor. We respect your privacy and do not collect, sell, or share your personal data.`,
       "Last updated: June 2026",
     ],
   },
@@ -109,7 +112,7 @@ const TERMS_OF_SERVICE_ZH: LegalSection[] = [
   {
     title: "软件许可",
     paragraphs: [
-      "reaidea 授予你在个人或商业用途下安装和使用 Sheaf 的非独占、不可转让许可。你不得对软件进行逆向工程、反编译，或移除版权声明。",
+      `${REAIDEA_LINK} 授予你在个人或商业用途下安装和使用 Sheaf 的非独占、不可转让许可。你不得对软件进行逆向工程、反编译，或移除版权声明。`,
     ],
   },
   {
@@ -127,7 +130,7 @@ const TERMS_OF_SERVICE_ZH: LegalSection[] = [
   {
     title: "第三方服务",
     paragraphs: [
-      "AI 改写、网页搜索（若启用）等功能依赖第三方 API，由你自行配置并承担相应费用与条款约束。reaidea 不对第三方服务的可用性、准确性或数据处理行为负责。",
+      `AI 改写、网页搜索（若启用）等功能依赖第三方 API，由你自行配置并承担相应费用与条款约束。${REAIDEA_LINK} 不对第三方服务的可用性、准确性或数据处理行为负责。`,
     ],
   },
   {
@@ -161,7 +164,7 @@ const TERMS_OF_SERVICE_EN: LegalSection[] = [
   {
     title: "License",
     paragraphs: [
-      "reaidea grants you a non-exclusive, non-transferable license to install and use Sheaf for personal or commercial purposes. You may not reverse engineer, decompile, or remove copyright notices.",
+      `${REAIDEA_LINK} grants you a non-exclusive, non-transferable license to install and use Sheaf for personal or commercial purposes. You may not reverse engineer, decompile, or remove copyright notices.`,
     ],
   },
   {
@@ -179,7 +182,7 @@ const TERMS_OF_SERVICE_EN: LegalSection[] = [
   {
     title: "Third-party services",
     paragraphs: [
-      "AI rewriting, web search (if enabled), and similar features rely on third-party APIs that you configure yourself. You are responsible for associated costs and terms. reaidea is not liable for third-party availability, accuracy, or data handling.",
+      `AI rewriting, web search (if enabled), and similar features rely on third-party APIs that you configure yourself. You are responsible for associated costs and terms. ${REAIDEA_LINK} is not liable for third-party availability, accuracy, or data handling.`,
     ],
   },
   {
