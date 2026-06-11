@@ -40,6 +40,10 @@ import {
 } from "../ai-providers/catalog";
 import { useLocale } from "../composables/useLocale";
 import { renderMarkdown } from "../composables/useMarkdown";
+import {
+  DEMO_AI_CHANGES,
+  DEMO_AI_STREAM_RESPONSE,
+} from "../shared/demoAiData";
 import AgentActivityList from "./AgentActivityList.vue";
 
 type AgentModelOption = {
@@ -66,6 +70,7 @@ const props = defineProps<{
   proofreadIssues?: ProofreadIssue[];
   currentProofreadItemId?: string | null;
   activeProofreadIssueId?: string | null;
+  demoMode?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -433,7 +438,9 @@ function animateStreamPreview() {
   if (now - lastStreamPreviewAnimation < 320) return;
   lastStreamPreviewAnimation = now;
 
-  const preview = listRef.value?.querySelector<HTMLElement>(".agent-stream-preview");
+  const preview = listRef.value?.querySelector<HTMLElement>(
+    ".agent-stream-preview, .demo-stream-preview",
+  );
   if (!preview) return;
 
   gsap.fromTo(
@@ -498,6 +505,28 @@ function upsertAgentActivity(item: AIHistoryItem, activity: AgentActivity) {
   } else {
     item.agentActivities.push(activity);
   }
+}
+
+async function runDemoQuickEdit(
+  itemId: string,
+  signal: AbortSignal,
+  charDelayMs = 16,
+): Promise<EditChange[]> {
+  const target = historyList.value.find((item: AIHistoryItem) => item.id === itemId);
+  if (!target) return [];
+
+  for (const char of DEMO_AI_STREAM_RESPONSE) {
+    if (signal.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    target.rawResponse += char;
+    await new Promise((resolve) => setTimeout(resolve, charDelayMs));
+    await nextTick();
+    scrollToBottom();
+    animateStreamPreview();
+  }
+
+  return DEMO_AI_CHANGES;
 }
 
 async function submit() {
@@ -575,6 +604,19 @@ async function submit() {
         } else {
           target.noChangesHint = t("ai.noChangesHint");
           target.status = "no-changes";
+        }
+      }
+    } else if (props.demoMode) {
+      const changes = await runDemoQuickEdit(id, activeAbortController.signal);
+      const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
+      if (target) {
+        if (changes.length === 0) {
+          target.noChangesHint = t("ai.noChangesDefault");
+          target.status = "no-changes";
+        } else {
+          target.changes = changes;
+          target.resultDoc = applyChangesToDoc(target.originalDoc, changes);
+          finalizeSuccessfulEdit(target);
         }
       }
     } else {
@@ -917,7 +959,27 @@ function onResizeKeydown(event: KeyboardEvent) {
   }
 }
 
+function resetDemoState() {
+  instruction.value = "";
+  clearAllConversations();
+  documentVersions.clearSnapshots();
+  expandedDiffId.value = null;
+  expandedMessageIds.value = new Set();
+  expandedLongMessageIds.value = new Set();
+}
+
+defineExpose({
+  setInstruction(text: string) {
+    instruction.value = text;
+  },
+  resetDemo: resetDemoState,
+});
+
 onMounted(() => {
+  if (props.demoMode) {
+    aiMode.value = "quick";
+    resetDemoState();
+  }
   loadPanelWidth();
   motionMedia = gsap.matchMedia();
   motionMedia.add(
@@ -940,8 +1002,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <aside class="ai-panel" :class="{ 'is-resizing': isResizing }" :style="panelStyle">
+  <aside
+    class="ai-panel"
+    :class="{ 'is-resizing': isResizing, 'ai-panel-demo': demoMode }"
+    :style="panelStyle"
+  >
     <div
+      v-if="!demoMode"
       class="ai-resize-handle"
       role="separator"
       :aria-label="t('ai.resize')"
@@ -959,7 +1026,7 @@ onUnmounted(() => {
         <span class="ai-brand-icon"><Bot :size="15" aria-hidden="true" /></span>
         <span class="ai-title">{{ t("ai.title") }}</span>
       </div>
-      <div class="ai-mode-toggle">
+      <div v-if="!demoMode" class="ai-mode-toggle">
         <button
           type="button"
           class="ai-mode-btn"
@@ -981,7 +1048,7 @@ onUnmounted(() => {
           {{ t("ai.quick") }}
         </button>
       </div>
-      <div class="ai-header-actions">
+      <div v-if="!demoMode" class="ai-header-actions">
         <button
           type="button"
           class="ai-header-btn"
@@ -1005,7 +1072,7 @@ onUnmounted(() => {
     </header>
 
     <div ref="listRef" class="ai-history-list">
-      <section v-if="pastConversationSummaries.length > 0" class="conversation-history">
+      <section v-if="!demoMode && pastConversationSummaries.length > 0" class="conversation-history">
         <div class="conversation-history-title">
           <Clock3 :size="12" aria-hidden="true" />
           {{ t("ai.history") }}
@@ -1088,6 +1155,10 @@ onUnmounted(() => {
               class="agent-stream-preview agent-markdown"
               v-html="renderAgentMarkdown(item.rawResponse)"
             />
+            <div
+              v-else-if="demoMode && item.rawResponse"
+              class="demo-stream-preview"
+            >{{ item.rawResponse }}</div>
             <button class="ai-btn ai-btn-stop" type="button" @click="stop">
               <Square :size="12" aria-hidden="true" />
               {{ t("ai.stop") }}
@@ -1291,7 +1362,7 @@ onUnmounted(() => {
         @compositionend="onCompositionEnd"
         @keydown="onKeydown"
       />
-      <div v-if="availableAgentModels.length > 0" class="ai-model-row">
+      <div v-if="!demoMode && availableAgentModels.length > 0" class="ai-model-row">
         <label class="ai-model-control" for="ai-model-select">
           <span class="ai-model-label">
             <Bot :size="12" aria-hidden="true" />
@@ -1315,12 +1386,13 @@ onUnmounted(() => {
           <ChevronDown class="ai-model-chevron" :size="14" aria-hidden="true" />
         </label>
       </div>
-      <p v-else class="ai-model-empty">{{ t("ai.noModelConfigured") }}</p>
+      <p v-else-if="!demoMode" class="ai-model-empty">{{ t("ai.noModelConfigured") }}</p>
       <div class="ai-actions">
         <span class="ai-input-meta">
           {{ t("ai.charCount", { count: instructionCharCount, max: MAX_INSTRUCTION_CHARS }) }}
         </span>
         <button
+          v-if="!demoMode"
           class="ai-btn ai-btn-proofread"
           type="button"
           :disabled="!canProofread"
@@ -1947,6 +2019,25 @@ onUnmounted(() => {
   border: 1px solid var(--ink-border);
   border-radius: var(--ai-radius-sm);
   background: var(--ai-surface-subtle);
+}
+
+.demo-stream-preview {
+  max-height: 88px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--ink-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius-sm);
+  background: var(--ink-bg);
+}
+
+.ai-panel-demo {
+  width: 280px !important;
+  flex-shrink: 0;
 }
 
 .agent-markdown {

@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref } from "vue";
-import AIPanelDemo from "./AIPanelDemo.vue";
+import AIPanel from "../../components/AIPanel.vue";
 import ExportStudio from "../../components/ExportStudio.vue";
 import MarkdownEditor from "../../components/MarkdownEditor.vue";
 import MarkdownPreview from "../../components/MarkdownPreview.vue";
 import OutlinePanel from "../../components/OutlinePanel.vue";
 import Toolbar from "../../components/Toolbar.vue";
 import type { ViewMode } from "../../components/Toolbar.vue";
+import { applyChangesToDoc, type EditChange } from "../../composables/useAI";
 import { DEMO_MARKDOWN } from "../../shared/demoContent";
+import { DEMO_AI_INSTRUCTION } from "../../shared/demoAiData";
 import { parseOutline } from "../../composables/useOutline";
 
 export type DemoScenarioId = "outline" | "preview" | "ai" | "export";
@@ -41,6 +43,7 @@ const showExport = ref(false);
 const showAI = ref(true);
 const isDark = defineModel<boolean>("dark", { default: false });
 const demoRoot = ref<HTMLElement | null>(null);
+const aiPanelRef = ref<InstanceType<typeof AIPanel> | null>(null);
 const fakeCursor = ref<DemoPoint>({ x: 64, y: 18 });
 const fakeCursorVisible = ref(false);
 const fakeCursorClicking = ref(false);
@@ -48,13 +51,6 @@ const isDemoHovered = ref(false);
 const isDemoAnimating = ref(false);
 const demoCaption = ref("");
 const demoHighlight = ref("");
-const aiInstruction = ref("把第二段改得更简洁，保留引用块");
-const aiStreamPreview = ref(
-  "1. 「左侧编辑，右侧用 Source Serif 渲染预览，长文阅读更舒适。」\n" +
-    "   →「左侧写 Markdown，右侧即时预览排版效果，长文阅读更轻松。」\n" +
-    "2. 「好的排版让文字呼吸。」→「排版留白，文字才透气。」",
-);
-const aiApplied = ref(false);
 
 let animationRunId = 0;
 let activeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -62,18 +58,7 @@ let resolveActiveTimer: ((keepGoing: boolean) => void) | null = null;
 
 const outlineItems = computed(() => parseOutline(content.value));
 
-const aiInstructionFull = "把第二段改得更简洁，保留引用块";
-const aiStreamPreviewFull =
-  "1. 「左侧编辑，右侧用 Source Serif 渲染预览，长文阅读更舒适。」\n" +
-  "   →「左侧写 Markdown，右侧即时预览排版效果，长文阅读更轻松。」\n" +
-  "2. 「好的排版让文字呼吸。」→「排版留白，文字才透气。」";
-const aiAppliedMarkdown = DEMO_MARKDOWN.replace(
-  "左侧编辑，右侧用 **Source Serif** 渲染预览，长文阅读更舒适。",
-  "左侧写 Markdown，右侧即时预览排版效果，长文阅读更轻松。",
-).replace(
-  "> 好的排版让文字呼吸。",
-  "> 排版留白，文字才透气。",
-);
+const aiInstructionFull = DEMO_AI_INSTRUCTION;
 
 function setTheme(nextIsDark: boolean) {
   isDark.value = nextIsDark;
@@ -156,23 +141,41 @@ function scrollPreview(ratio: number) {
   });
 }
 
-async function typeText(
-  target: typeof aiInstruction | typeof aiStreamPreview,
-  value: string,
-  runId: number,
-  delay = 20,
-) {
-  target.value = "";
+async function typeInstruction(value: string, runId: number, delay = 20) {
+  aiPanelRef.value?.setInstruction("");
+  let current = "";
   for (const char of value) {
     if (!isRunActive(runId)) {
       return;
     }
-    target.value += char;
+    current += char;
+    aiPanelRef.value?.setInstruction(current);
     const shouldContinue = await waitFor(delay, runId);
     if (!shouldContinue) {
       return;
     }
   }
+}
+
+async function waitForSelector(selector: string, runId: number, timeoutMs = 12000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (!isRunActive(runId)) {
+      return false;
+    }
+    if (queryInDemo(selector)) {
+      return true;
+    }
+    const shouldContinue = await waitFor(80, runId);
+    if (!shouldContinue) {
+      return false;
+    }
+  }
+  return false;
+}
+
+function applyDemoAiChanges(changes: EditChange[]) {
+  content.value = applyChangesToDoc(content.value, changes);
 }
 
 function resetDemoSurface() {
@@ -183,9 +186,7 @@ function resetDemoSurface() {
   showOutline.value = false;
   demoHighlight.value = "";
   demoCaption.value = "";
-  aiInstruction.value = "";
-  aiStreamPreview.value = "";
-  aiApplied.value = false;
+  aiPanelRef.value?.resetDemo();
   scrollPreview(0);
 }
 
@@ -278,28 +279,23 @@ const demoScenarios: Record<DemoScenarioId, DemoScenario> = {
         target: ".ai-input",
         click: true,
         caption: "输入改写要求",
-        action: (runId) =>
-          typeText(aiInstruction, aiInstructionFull, runId, DEMO_TIMING.typeChar),
+        action: (runId) => typeInstruction(aiInstructionFull, runId, DEMO_TIMING.typeChar),
       },
       {
         target: ".ai-btn-primary",
         click: true,
         caption: "发送给 AI",
-      },
-      {
-        target: ".ai-stream",
-        caption: "模拟返回可审阅的修改",
-        wait: DEMO_TIMING.beforeStream,
-        action: (runId) =>
-          typeText(aiStreamPreview, aiStreamPreviewFull, runId, DEMO_TIMING.typeStreamChar),
+        action: () => clickTarget(".ai-btn-primary"),
       },
       {
         target: ".ai-btn-apply",
         click: true,
         caption: "确认并应用修改",
-        action: () => {
-          content.value = aiAppliedMarkdown;
-          aiApplied.value = true;
+        action: async (runId) => {
+          if (!(await waitForSelector(".ai-btn-apply", runId))) {
+            return;
+          }
+          clickTarget(".ai-btn-apply");
         },
       },
     ],
@@ -320,7 +316,27 @@ const demoScenarios: Record<DemoScenarioId, DemoScenario> = {
         target: ".export-dropdown-item:first-child",
         click: true,
         caption: "进入社交媒体导出工作台",
-        action: () => clickTarget(".export-dropdown-item:first-child"),
+        action: () => {
+          clickTarget(".export-dropdown-item:first-child");
+          showExport.value = true;
+        },
+      },
+      {
+        target: ".theme-card:nth-child(2)",
+        click: true,
+        caption: "切换公众号排版样式",
+        action: async (runId) => {
+          if (!(await waitForSelector(".theme-card:nth-child(2)", runId))) {
+            return;
+          }
+          clickTarget(".theme-card:nth-child(2)");
+        },
+      },
+      {
+        target: ".theme-card:nth-child(3)",
+        click: true,
+        caption: "再试一种公众号样式",
+        action: () => clickTarget(".theme-card:nth-child(3)"),
       },
       {
         target: ".type-btn:nth-child(2)",
@@ -329,22 +345,38 @@ const demoScenarios: Record<DemoScenarioId, DemoScenario> = {
         action: () => clickTarget(".type-btn:nth-child(2)"),
       },
       {
-        target: ".ratio-btn:nth-child(2)",
+        target: ".theme-card:nth-child(2)",
         click: true,
-        caption: "选择 3:4 长卡片比例",
-        action: () => clickTarget(".ratio-btn:nth-child(2)"),
+        caption: "切换卡片视觉风格",
+        action: async (runId) => {
+          if (!(await waitForSelector(".type-btn:nth-child(2).active", runId))) {
+            return;
+          }
+          clickTarget(".theme-card:nth-child(2)");
+        },
       },
       {
-        target: ".type-btn:nth-child(1)",
+        target: ".theme-card:nth-child(3)",
         click: true,
-        caption: "切回公众号长文预览",
-        action: () => clickTarget(".type-btn:nth-child(1)"),
+        caption: "再试一种卡片风格",
+        action: () => clickTarget(".theme-card:nth-child(3)"),
+      },
+      {
+        target: ".type-btn:nth-child(3)",
+        click: true,
+        caption: "切到分享长图",
+        action: () => clickTarget(".type-btn:nth-child(3)"),
       },
       {
         target: ".theme-card:nth-child(2)",
         click: true,
-        caption: "切换公众号排版样式",
-        action: () => clickTarget(".theme-card:nth-child(2)"),
+        caption: "切换长图视觉风格",
+        action: async (runId) => {
+          if (!(await waitForSelector(".type-btn:nth-child(3).active", runId))) {
+            return;
+          }
+          clickTarget(".theme-card:nth-child(2)");
+        },
       },
     ],
   },
@@ -501,12 +533,13 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
         <section v-show="viewMode !== 'edit'" class="pane pane-preview">
           <MarkdownPreview :source="content" />
         </section>
-        <AIPanelDemo
+        <AIPanel
           v-if="showAI"
-          :instruction="aiInstruction"
-          :stream-preview="aiStreamPreview"
-          :change-count="2"
-          :applied="aiApplied"
+          ref="aiPanelRef"
+          demo-mode
+          :doc="content"
+          document-key="__website_demo__"
+          @apply="applyDemoAiChanges"
         />
         <OutlinePanel
           v-if="showOutline"
