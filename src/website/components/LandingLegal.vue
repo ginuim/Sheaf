@@ -10,7 +10,7 @@ defineProps<{
   <div class="legal-content">
     <section v-for="(section, index) in sections" :key="index" class="legal-section">
       <h3>{{ section.title }}</h3>
-      <p v-for="(para, i) in section.paragraphs" :key="i">{{ para }}</p>
+      <p v-for="(para, i) in section.paragraphs" :key="i" v-html="para" />
       <ul v-if="section.list">
         <li v-for="item in section.list" :key="item">{{ item }}</li>
       </ul>
