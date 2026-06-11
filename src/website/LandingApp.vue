@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from "vue";
 import { useLandingMotion } from "./composables/useLandingMotion";
+import LandingChangelog from "./components/LandingChangelog.vue";
+import LandingDocs from "./components/LandingDocs.vue";
+import LandingLegal from "./components/LandingLegal.vue";
+import LandingOverlay from "./components/LandingOverlay.vue";
 import SheafProductDemo from "./components/SheafProductDemo.vue";
 import type { DemoScenarioId } from "./components/SheafProductDemo.vue";
+import { PRIVACY_POLICY, TERMS_OF_SERVICE } from "./content/legal";
+
+type LandingOverlayPanel = "docs" | "changelog" | "privacy" | "terms";
 
 const landingRoot = ref<HTMLElement | null>(null);
 useLandingMotion(landingRoot);
@@ -10,6 +17,15 @@ useLandingMotion(landingRoot);
 const downloadHref = "#download";
 const demoRef = ref<InstanceType<typeof SheafProductDemo> | null>(null);
 const demoIsDark = ref(false);
+const activeOverlay = ref<LandingOverlayPanel | null>(null);
+
+function openOverlay(panel: LandingOverlayPanel) {
+  activeOverlay.value = panel;
+}
+
+function closeOverlay() {
+  activeOverlay.value = null;
+}
 
 function applyLandingTheme(isDark: boolean) {
   if (isDark) {
@@ -154,6 +170,46 @@ const features = [
       <cite>— Sheaf 设计理念</cite>
     </section>
 
+    <LandingOverlay
+      :open="activeOverlay === 'docs'"
+      title="使用文档"
+      title-id="landing-docs-title"
+      lead="从打开第一篇稿子到导出分享，这里是 Sheaf 的常用操作说明。"
+      @close="closeOverlay"
+    >
+      <LandingDocs />
+    </LandingOverlay>
+
+    <LandingOverlay
+      :open="activeOverlay === 'changelog'"
+      title="更新日志"
+      title-id="landing-changelog-title"
+      lead="记录 Sheaf 每个版本的新增与改进。当前为早期版本，欢迎反馈。"
+      @close="closeOverlay"
+    >
+      <LandingChangelog />
+    </LandingOverlay>
+
+    <LandingOverlay
+      :open="activeOverlay === 'privacy'"
+      title="隐私政策"
+      title-id="landing-privacy-title"
+      lead="Sheaf 不收集你的个人数据，文稿与设置均保存在本地。"
+      @close="closeOverlay"
+    >
+      <LandingLegal :sections="PRIVACY_POLICY" />
+    </LandingOverlay>
+
+    <LandingOverlay
+      :open="activeOverlay === 'terms'"
+      title="服务条款"
+      title-id="landing-terms-title"
+      lead="使用 Sheaf 前，请了解以下基本约定。"
+      @close="closeOverlay"
+    >
+      <LandingLegal :sections="TERMS_OF_SERVICE" />
+    </LandingOverlay>
+
     <section id="download" class="landing-cta">
       <h2>现在开始写作</h2>
       <p>macOS 原生应用，打开即写。你的文稿留在本地。</p>
@@ -173,15 +229,31 @@ const features = [
         <div>
           <h4>资源</h4>
           <ul>
-            <li><a href="#">更新日志</a></li>
-            <li><a href="#">使用文档</a></li>
+            <li>
+              <button type="button" class="landing-footer-link" @click="openOverlay('changelog')">
+                更新日志
+              </button>
+            </li>
+            <li>
+              <button type="button" class="landing-footer-link" @click="openOverlay('docs')">
+                使用文档
+              </button>
+            </li>
           </ul>
         </div>
         <div>
           <h4>法律</h4>
           <ul>
-            <li><a href="#">隐私政策</a></li>
-            <li><a href="#">服务条款</a></li>
+            <li>
+              <button type="button" class="landing-footer-link" @click="openOverlay('privacy')">
+                隐私政策
+              </button>
+            </li>
+            <li>
+              <button type="button" class="landing-footer-link" @click="openOverlay('terms')">
+                服务条款
+              </button>
+            </li>
           </ul>
         </div>
         <div>
@@ -199,7 +271,7 @@ const features = [
             href="https://reaidea.com"
             target="_blank"
             rel="noopener noreferrer"
-          >Reaidea Studio</a> 版权所有。
+          >reaidea</a> 版权所有。
         </p>
         <p class="landing-footer-meta">Sheaf · 本地 Markdown 编辑器</p>
       </div>
