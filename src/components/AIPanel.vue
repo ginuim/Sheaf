@@ -41,8 +41,7 @@ import {
 import { useLocale } from "../composables/useLocale";
 import { renderMarkdown } from "../composables/useMarkdown";
 import {
-  DEMO_AI_CHANGES,
-  DEMO_AI_STREAM_RESPONSE,
+  getDemoAiData,
 } from "../shared/demoAiData";
 import AgentActivityList from "./AgentActivityList.vue";
 
@@ -52,7 +51,7 @@ type AgentModelOption = {
   label: string;
 };
 
-const { t } = useLocale();
+const { t, locale } = useLocale();
 
 const iconSize = 14;
 const DEFAULT_PANEL_WIDTH = 320;
@@ -515,7 +514,9 @@ async function runDemoQuickEdit(
   const target = historyList.value.find((item: AIHistoryItem) => item.id === itemId);
   if (!target) return [];
 
-  for (const char of DEMO_AI_STREAM_RESPONSE) {
+  const { streamResponse, changes } = getDemoAiData(locale.value);
+
+  for (const char of streamResponse) {
     if (signal.aborted) {
       throw new DOMException("Aborted", "AbortError");
     }
@@ -526,7 +527,7 @@ async function runDemoQuickEdit(
     animateStreamPreview();
   }
 
-  return DEMO_AI_CHANGES;
+  return changes;
 }
 
 async function submit() {
