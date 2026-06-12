@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from "vue";
-import { ChevronDown, FilePlus, FolderOpen, History, ListTree, Save, WholeWord } from "@lucide/vue";
+import { ChevronDown, FilePlus, Folder, FolderOpen, History, ListTree, Save, WholeWord } from "@lucide/vue";
 import { useLocale } from "../composables/useLocale";
 
 export type ViewMode = "split" | "edit" | "preview";
@@ -9,6 +9,7 @@ const iconSize = 16;
 
 defineProps<{
   fileName: string;
+  filePath: string | null;
   isDirty: boolean;
   viewMode: ViewMode;
   isDark: boolean;
@@ -31,6 +32,7 @@ const emit = defineEmits<{
   toggleOutline: [];
   toggleAI: [];
   toggleVersions: [];
+  revealInFolder: [];
   "update:viewMode": [mode: ViewMode];
 }>();
 
@@ -111,6 +113,15 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
     </div>
 
     <div class="toolbar-center">
+      <button
+        v-if="filePath"
+        class="btn btn-icon btn-ghost doc-reveal"
+        :title="t('toolbar.revealInFolder')"
+        :aria-label="t('toolbar.revealInFolder')"
+        @click="emit('revealInFolder')"
+      >
+        <Folder :size="14" aria-hidden="true" />
+      </button>
       <span class="doc-title">
         {{ fileName }}<span v-if="isDirty" class="dirty"> ·</span>
       </span>
@@ -273,6 +284,15 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
   font-size: 16px;
   line-height: 1;
   border-radius: 6px;
+}
+
+.doc-reveal {
+  -webkit-app-region: no-drag;
+  color: var(--ink-text-muted);
+}
+
+.doc-reveal:hover {
+  color: var(--ink-text);
 }
 
 .doc-title {

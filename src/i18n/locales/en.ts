@@ -30,6 +30,8 @@ export default {
     newDoc: "New document",
     openFile: "Open file",
     save: "Save",
+    revealInFolder: "Show in folder",
+    revealInFolderFailed: "Could not show the file in its folder.",
     formatSpacing: "Format CJK spacing",
     versionHistory: "Version history",
     aiEdit: "AI edit",

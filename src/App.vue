@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { PhysicalPosition } from "@tauri-apps/api/dpi";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, message } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import AppToast from "./components/AppToast.vue";
 import AIPanel from "./components/AIPanel.vue";
@@ -191,22 +189,21 @@ async function ensureDocumentSavedForImage(): Promise<string | null> {
   return filePath.value;
 }
 
-async function tauriDropPositionToClient(position: { x: number; y: number }) {
-  const factor = await getCurrentWindow().scaleFactor();
-  const logical = new PhysicalPosition(position.x, position.y).toLogical(factor);
-  return { x: logical.x, y: logical.y };
+async function revealCurrentFileInFolder() {
+  if (!filePath.value || !hasTauriRuntime()) return;
+
+  try {
+    await revealItemInDir(filePath.value);
+  } catch {
+    showToast("error", t("toolbar.revealInFolderFailed"));
+  }
 }
 
-async function handleDroppedImagePaths(
-  paths: string[],
-  position?: { x: number; y: number },
-) {
+async function handleDroppedImagePaths(paths: string[]) {
   if (!paths.length || showStartPage.value) return;
 
   await invoke("allow_dropped_paths", { paths });
-
-  const clientCoords = position ? await tauriDropPositionToClient(position) : undefined;
-  editorRef.value?.insertDroppedImagePaths(paths, clientCoords);
+  editorRef.value?.insertDroppedImagePaths(paths);
 }
 
 const aiDocumentKey = computed(() => filePath.value ?? draftSessionId.value);
@@ -771,7 +768,7 @@ onMounted(async () => {
         const documentPaths = filterDocumentPaths(event.payload.paths);
 
         if (imagePaths.length > 0) {
-          void handleDroppedImagePaths(imagePaths, event.payload.position);
+          void handleDroppedImagePaths(imagePaths);
         }
 
         if (documentPaths.length > 0) {
@@ -797,6 +794,7 @@ onUnmounted(() => {
       v-if="!showStartPage"
       class="editor-enter"
       :file-name="fileName"
+      :file-path="filePath"
       :is-dirty="isDirty"
       :view-mode="viewMode"
       :is-dark="isDark"
@@ -809,6 +807,7 @@ onUnmounted(() => {
       @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @save="saveFile(content)"
+      @reveal-in-folder="revealCurrentFileInFolder"
       @format-spacing="formatChineseEnglishSpacing"
       @export-pdf="handleExportPdf"
       @toggle-theme="toggleTheme"

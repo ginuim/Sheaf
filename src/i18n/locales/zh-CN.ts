@@ -30,6 +30,8 @@ export default {
     newDoc: "新建文档",
     openFile: "打开文件",
     save: "保存",
+    revealInFolder: "在文件夹中显示",
+    revealInFolderFailed: "无法在文件夹中显示该文件。",
     formatSpacing: "格式化中英文间距",
     versionHistory: "历史版本",
     aiEdit: "AI 编辑",

@@ -628,16 +628,10 @@ watch(
   },
 );
 
-function insertDroppedImagePaths(
-  paths: string[],
-  clientCoords?: { x: number; y: number },
-) {
+function insertDroppedImagePaths(paths: string[]) {
   if (!view || paths.length === 0) return;
 
-  const insertPos = clientCoords
-    ? (view.posAtCoords(clientCoords) ?? view.state.selection.main.head)
-    : view.state.selection.main.head;
-
+  const insertPos = view.state.selection.main.head;
   void insertEditorImagesFromPaths(view, insertPos, paths, imageInsertOptions);
 }
 

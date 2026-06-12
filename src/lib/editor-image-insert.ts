@@ -25,12 +25,8 @@ function imageFilesFromDataTransfer(dataTransfer: DataTransfer | null | undefine
   return images;
 }
 
-function dropInsertPosition(view: EditorView, event: DragEvent): number {
-  const position = view.posAtCoords({
-    x: event.clientX,
-    y: event.clientY,
-  });
-  return position ?? view.state.selection.main.head;
+function cursorInsertPosition(view: EditorView): number {
+  return view.state.selection.main.head;
 }
 
 function buildInsertText(images: SavedEditorImage[]): string {
@@ -106,23 +102,12 @@ export async function insertEditorImagesFromPaths(
   insertSavedImages(view, insertPos, savedImages);
 }
 
-function insertImagesAtDrop(
-  view: EditorView,
-  event: DragEvent,
-  files: File[],
-  options: EditorImageInsertOptions,
-) {
-  const insertPos = dropInsertPosition(view, event);
-  void insertEditorImagesFromFiles(view, insertPos, files, options);
-}
-
 function insertImagesAtCursor(
   view: EditorView,
   files: File[],
   options: EditorImageInsertOptions,
 ) {
-  const insertPos = view.state.selection.main.head;
-  void insertEditorImagesFromFiles(view, insertPos, files, options);
+  void insertEditorImagesFromFiles(view, cursorInsertPosition(view), files, options);
 }
 
 export function editorImageInsertExtension(options: EditorImageInsertOptions) {
@@ -136,7 +121,7 @@ export function editorImageInsertExtension(options: EditorImageInsertOptions) {
       const files = imageFilesFromDataTransfer(event.dataTransfer);
       if (!files.length) return false;
       event.preventDefault();
-      insertImagesAtDrop(view, event, files, options);
+      insertImagesAtCursor(view, files, options);
       return true;
     },
     paste(event, view) {
