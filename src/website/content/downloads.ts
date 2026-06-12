@@ -1,7 +1,7 @@
 export type MacArch = "arm64" | "x64";
 export type DownloadRegion = "cn" | "global";
 
-const GITHUB_REPO = "ginuim/Sheaf";
+import { GITHUB_REPO } from "./repo";
 const RELEASE_VERSION = "0.1.0";
 
 const DMG_NAMES: Record<MacArch, string> = {
