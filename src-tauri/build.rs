@@ -4,6 +4,7 @@ fn main() {
             tauri_build::AppManifest::new().commands(&[
                 "take_opened_files",
                 "open_dropped_files",
+                "allow_dropped_paths",
                 "export_pdf_file",
                 "fetch_url",
             ]),

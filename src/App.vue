@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { PhysicalPosition } from "@tauri-apps/api/dpi";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, message } from "@tauri-apps/plugin-dialog";
@@ -37,6 +39,7 @@ import {
 import { useTheme } from "./composables/useTheme";
 import { translate, useLocale } from "./composables/useLocale";
 import { applyChineseEnglishSpacingToMarkdownSource } from "./lib/cjkSpacing";
+import { filterDocumentPaths, filterImagePaths } from "./lib/dropped-paths";
 import {
   clearUnsavedDraft,
   hasRecoverableDraft,
@@ -181,6 +184,30 @@ const { filePath, fileName, openFile, openFileAtPath, newFile, saveFile, saveFil
       pendingDraft.value = null;
     },
   );
+
+async function ensureDocumentSavedForImage(): Promise<string | null> {
+  if (filePath.value) return filePath.value;
+  await saveFile(content.value);
+  return filePath.value;
+}
+
+async function tauriDropPositionToClient(position: { x: number; y: number }) {
+  const factor = await getCurrentWindow().scaleFactor();
+  const logical = new PhysicalPosition(position.x, position.y).toLogical(factor);
+  return { x: logical.x, y: logical.y };
+}
+
+async function handleDroppedImagePaths(
+  paths: string[],
+  position?: { x: number; y: number },
+) {
+  if (!paths.length || showStartPage.value) return;
+
+  await invoke("allow_dropped_paths", { paths });
+
+  const clientCoords = position ? await tauriDropPositionToClient(position) : undefined;
+  editorRef.value?.insertDroppedImagePaths(paths, clientCoords);
+}
 
 const aiDocumentKey = computed(() => filePath.value ?? draftSessionId.value);
 const documentVersions = useDocumentVersions(() => aiDocumentKey.value);
@@ -383,15 +410,6 @@ function handleClearRecent() {
 function handleRemoveRecent(path: string) {
   recentFiles.value = removeRecent(path);
   void refreshRecentMenu(recentFiles.value);
-}
-
-const SUPPORTED_DOC_EXT = new Set(["md", "markdown", "txt"]);
-
-function filterDocPaths(paths: string[]): string[] {
-  return paths.filter((path) => {
-    const ext = path.split(".").pop()?.toLowerCase() ?? "";
-    return SUPPORTED_DOC_EXT.has(ext);
-  });
 }
 
 let unlistenOpened: UnlistenFn | null = null;
@@ -749,10 +767,16 @@ onMounted(async () => {
       unlistenDragDrop = await getCurrentWebview().onDragDropEvent((event) => {
         if (event.payload.type !== "drop") return;
 
-        const paths = filterDocPaths(event.payload.paths);
-        if (paths.length === 0) return;
+        const imagePaths = filterImagePaths(event.payload.paths);
+        const documentPaths = filterDocumentPaths(event.payload.paths);
 
-        void invoke("open_dropped_files", { paths });
+        if (imagePaths.length > 0) {
+          void handleDroppedImagePaths(imagePaths, event.payload.position);
+        }
+
+        if (documentPaths.length > 0) {
+          void invoke("open_dropped_files", { paths: documentPaths });
+        }
       });
     } catch (error) {
       console.warn("Drag-and-drop listener unavailable in this environment:", error);
@@ -826,6 +850,8 @@ onUnmounted(() => {
         <MarkdownEditor
           ref="editorRef"
           v-model="content"
+          :document-path="filePath"
+          :ensure-document-saved="ensureDocumentSavedForImage"
           :proofread-issues="proofreadIssues"
           :active-proofread-issue-id="activeProofreadIssueId"
           @scroll="onEditorScroll"

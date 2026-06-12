@@ -5,8 +5,8 @@ import {
   Bot,
   CheckCircle2,
   ChevronDown,
-  Clock3,
   GitCompare,
+  History,
   LocateFixed,
   Plus,
   Send,
@@ -104,6 +104,7 @@ const expandedMessageIds = ref(new Set<string>());
 const expandedLongMessageIds = ref(new Set<string>());
 const overflowingMessageIds = ref(new Set<string>());
 const panelWidth = ref(DEFAULT_PANEL_WIDTH);
+const showConversationHistory = ref(false);
 const isResizing = ref(false);
 const reduceMotion = ref(false);
 let activeAbortController: AbortController | null = null;
@@ -206,8 +207,11 @@ const visibleHistoryList = computed(() =>
   ),
 );
 
-const pastConversationSummaries = computed(() =>
-  conversationSummaries.value.filter((conversation) => conversation.id !== activeConversationId.value),
+const hasConversationHistory = computed(() =>
+  conversationSummaries.value.some(
+    (conversation) =>
+      conversation.id !== activeConversationId.value || conversation.turnCount > 0,
+  ),
 );
 
 watch(
@@ -738,9 +742,15 @@ function discardItem(item: AIHistoryItem) {
   if (expandedDiffId.value === item.id) expandedDiffId.value = null;
 }
 
+function toggleConversationHistory() {
+  if (isLoading.value) return;
+  showConversationHistory.value = !showConversationHistory.value;
+}
+
 function handleStartNewConversation() {
   if (isLoading.value) return;
   startNewConversation();
+  showConversationHistory.value = false;
   expandedDiffId.value = null;
   expandedMessageIds.value = new Set();
   expandedLongMessageIds.value = new Set();
@@ -756,8 +766,13 @@ function clearHistory() {
 }
 
 function selectConversation(conversationId: string) {
-  if (isLoading.value || conversationId === activeConversationId.value) return;
+  if (isLoading.value) return;
+  if (conversationId === activeConversationId.value) {
+    showConversationHistory.value = false;
+    return;
+  }
   switchConversation(conversationId);
+  showConversationHistory.value = false;
   expandedDiffId.value = null;
   nextTick(() => {
     collapsePastMessages(false);
@@ -1053,6 +1068,17 @@ onUnmounted(() => {
         <button
           type="button"
           class="ai-header-btn"
+          :class="{ active: showConversationHistory }"
+          :title="t('ai.openHistory')"
+          :disabled="isLoading"
+          :aria-pressed="showConversationHistory"
+          @click="toggleConversationHistory"
+        >
+          <History :size="iconSize" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="ai-header-btn"
           :title="t('ai.newConversation')"
           :disabled="isLoading"
           @click="handleStartNewConversation"
@@ -1073,26 +1099,53 @@ onUnmounted(() => {
     </header>
 
     <div ref="listRef" class="ai-history-list">
-      <section v-if="!demoMode && pastConversationSummaries.length > 0" class="conversation-history">
-        <div class="conversation-history-title">
-          <Clock3 :size="12" aria-hidden="true" />
-          {{ t("ai.history") }}
+      <section v-if="!demoMode && showConversationHistory" class="conversation-history-panel">
+        <div class="conversation-history-panel-header">
+          <div class="conversation-history-panel-title">
+            <History :size="13" aria-hidden="true" />
+            {{ t("ai.history") }}
+          </div>
+          <button
+            type="button"
+            class="ai-header-btn"
+            :title="t('ai.closeHistory')"
+            :disabled="isLoading"
+            @click="showConversationHistory = false"
+          >
+            <X :size="iconSize" aria-hidden="true" />
+          </button>
         </div>
+
+        <div v-if="!hasConversationHistory" class="conversation-history-empty">
+          <div class="ai-empty-title">{{ t("ai.historyEmptyTitle") }}</div>
+          <div class="ai-empty-desc">{{ t("ai.historyEmptyDesc") }}</div>
+        </div>
+
         <button
-          v-for="conversation in pastConversationSummaries"
+          v-for="conversation in conversationSummaries"
           :key="conversation.id"
           type="button"
           class="conversation-history-item"
+          :class="{ active: conversation.id === activeConversationId }"
           :disabled="isLoading"
           @click="selectConversation(conversation.id)"
         >
-          <span class="conversation-history-item-title">{{ conversation.title }}</span>
+          <span class="conversation-history-item-row">
+            <span class="conversation-history-item-title">{{ conversation.title }}</span>
+            <span
+              v-if="conversation.id === activeConversationId"
+              class="conversation-active-badge"
+            >
+              {{ t("ai.currentConversation") }}
+            </span>
+          </span>
           <span class="conversation-history-item-meta">
             {{ conversationTurnLabel(conversation.turnCount) }} · {{ formatShortTime(conversation.updatedAt) }}
           </span>
         </button>
       </section>
 
+      <template v-else>
       <div v-if="visibleHistoryList.length === 0" class="ai-empty">
         <div class="ai-empty-title">{{ t("ai.emptyTitle") }}</div>
         <div class="ai-empty-desc">{{ t("ai.emptyDesc") }}</div>
@@ -1350,6 +1403,7 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
+      </template>
     </div>
 
     <div class="ai-input-area">
@@ -1583,10 +1637,15 @@ onUnmounted(() => {
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-.ai-header-btn:hover:not(:disabled) {
+.ai-header-btn:hover:not(:disabled),
+.ai-header-btn.active {
   color: var(--ink-text);
   background: var(--ink-accent-soft);
   border-color: color-mix(in srgb, var(--ink-accent) 16%, var(--ink-border));
+}
+
+.ai-header-btn.active {
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ink-shadow) 42%, transparent);
 }
 
 .ai-header-btn:disabled {
@@ -1663,21 +1722,62 @@ onUnmounted(() => {
   opacity: 0.82;
 }
 
-.conversation-history {
-  padding: 10px;
-  border: 1px solid var(--ink-border);
-  border-radius: var(--ai-radius);
-  background: var(--ai-surface-subtle);
+.conversation-history-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
 }
 
-.conversation-history-title {
+.conversation-history-panel-header {
   display: flex;
   align-items: center;
-  gap: 5px;
-  margin-bottom: 8px;
-  color: var(--ink-text-muted);
-  font-size: 11px;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--ink-border);
+}
+
+.conversation-history-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-text);
+  font-size: 12px;
   font-weight: 650;
+}
+
+.conversation-history-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  padding: 32px 18px;
+  color: var(--ink-text-muted);
+  text-align: center;
+}
+
+.conversation-history-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.conversation-active-badge {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  color: var(--ink-accent);
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1.2;
+  border: 1px solid color-mix(in srgb, var(--ink-accent) 24%, var(--ink-border));
+  border-radius: 999px;
+  background: var(--ink-accent-soft);
 }
 
 .conversation-history-item {
@@ -1703,11 +1803,19 @@ onUnmounted(() => {
   margin-bottom: 0;
 }
 
-.conversation-history-item:hover:not(:disabled) {
+.conversation-history-item:hover:not(:disabled),
+.conversation-history-item.active {
   border-color: color-mix(in srgb, var(--ink-accent) 34%, var(--ink-border));
   background: color-mix(in srgb, var(--ink-accent-soft) 52%, var(--ink-surface));
+}
+
+.conversation-history-item:hover:not(:disabled) {
   box-shadow: 0 4px 12px color-mix(in srgb, var(--ink-shadow) 32%, transparent);
   transform: translateY(-1px);
+}
+
+.conversation-history-item.active {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ink-accent-soft) 88%, transparent);
 }
 
 .conversation-history-item:disabled {
