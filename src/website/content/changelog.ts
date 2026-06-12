@@ -9,6 +9,18 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.0",
+    date: "2026-06",
+    title: "AI 与编辑体验增强",
+    items: [
+      "设置页 AI 分区拆分为「模型」与「工具」两个标签",
+      "Agent 结构化文档编辑工具，支持段落级改写与 diff 审阅",
+      "编辑器支持拖拽与粘贴插入图片",
+      "当前文件可在 Finder 中快速定位",
+      "官网新增平台下载选择器，README 补充产品截图",
+    ],
+  },
+  {
     version: "0.1.0",
     date: "2026-06",
     title: "首个公开版本",
@@ -27,6 +39,18 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.0",
+    date: "2026-06",
+    title: "AI and editing improvements",
+    items: [
+      "Settings AI tab split into Models and Tools",
+      "Agent structured document editing with paragraph-level rewrite and diff review",
+      "Editor image insertion via drag-and-drop and paste",
+      "Reveal current file in Finder",
+      "Website platform download picker and README product screenshots",
+    ],
+  },
   {
     version: "0.1.0",
     date: "2026-06",
