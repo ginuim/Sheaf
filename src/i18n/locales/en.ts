@@ -489,7 +489,7 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
       },
       terms: {
         title: "Terms of Service",
-        lead: "Please read these basics before using Sheaf.",
+        lead: "Sheaf source code is released under AGPL-3.0. Please review the following terms.",
       },
     },
   },

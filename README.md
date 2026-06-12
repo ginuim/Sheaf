@@ -78,12 +78,10 @@ pnpm build:mac:x64      # Intel
 │   ├── main.ts         # Desktop app
 │   └── website/        # Landing page, docs, changelog
 ├── src-tauri/          # Tauri Rust backend
-├── scripts/
-│   ├── collect-dmg.sh
-│   ├── deploy-website.sh
-│   └── nginx-sheaf.reaidea.com.conf.example
 └── markra/             # Reference project (read-only)
 ```
+
+macOS DMG output: `src-tauri/target/release/bundle/dmg/` (or under the matching target triple).
 
 ## Release
 
@@ -100,16 +98,14 @@ The workflow builds and notarizes both `Sheaf-macos-arm64.dmg` and `Sheaf-macos-
 
 Required repository secrets: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `KEYCHAIN_PASSWORD`, `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PRIVATE_KEY`.
 
-## Website Deployment
-
-```bash
-bash scripts/deploy-website.sh
-```
-
-Nginx example: `scripts/nginx-sheaf.reaidea.com.conf.example`.
-
 ## Development Notes
 
 - Use `pnpm` for package management
 - Prefer `@lucide/vue` for icons
-- `markra/` is a read-only reference project; implement changes in `src/` and `src-tauri/`
+- `scripts/` is gitignored (local deploy/nginx helpers); CI does not rely on it
+
+## License
+
+Sheaf is licensed under [AGPL-3.0](LICENSE). You may use, modify, and distribute the source code under the terms of that license, including for commercial purposes. Derivative works must remain open source under the same license.
+
+The **Sheaf** name and logo are trademarks of [reaidea](https://reaidea.com/). Forks must not use these marks to distribute apps on the App Store or other channels in a way that suggests an official product.

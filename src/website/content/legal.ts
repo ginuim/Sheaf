@@ -1,7 +1,11 @@
 import type { AppLocale } from "../../i18n";
 
 const REAIDEA_URL = "https://reaidea.com/";
+const GITHUB_REPO = "https://github.com/ginuim/Sheaf";
 const REAIDEA_LINK = `<a href="${REAIDEA_URL}" target="_blank" rel="noopener noreferrer" class="legal-link">reaidea</a>`;
+const LICENSE_LINK = `<a href="${GITHUB_REPO}/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" class="legal-link">AGPL-3.0</a>`;
+const GITHUB_LINK = `<a href="${GITHUB_REPO}" target="_blank" rel="noopener noreferrer" class="legal-link">GitHub 仓库</a>`;
+const GITHUB_LINK_EN = `<a href="${GITHUB_REPO}" target="_blank" rel="noopener noreferrer" class="legal-link">GitHub repository</a>`;
 
 export type LegalSection = {
   title: string;
@@ -110,9 +114,16 @@ const TERMS_OF_SERVICE_ZH: LegalSection[] = [
     ],
   },
   {
-    title: "软件许可",
+    title: "开源许可",
     paragraphs: [
-      `${REAIDEA_LINK} 授予你在个人或商业用途下安装和使用 Sheaf 的非独占、不可转让许可。你不得对软件进行逆向工程、反编译，或移除版权声明。`,
+      `Sheaf 源代码以 GNU Affero General Public License v3.0（${LICENSE_LINK}）发布。你可以在遵守该许可证的前提下自由使用、修改和分发源代码，包括商业用途。`,
+      `基于 Sheaf 源代码的修改版或衍生作品必须以相同许可证开源，并保留版权声明与许可证全文。完整许可证文本见 ${GITHUB_LINK}。`,
+    ],
+  },
+  {
+    title: "商标",
+    paragraphs: [
+      `"Sheaf" 名称及相关标识（Logo）归 ${REAIDEA_LINK} 所有。Fork 或衍生版本不得使用该商标上架 App Store、应用市场或进行其他可能误导用户的推广。`,
     ],
   },
   {
@@ -162,9 +173,16 @@ const TERMS_OF_SERVICE_EN: LegalSection[] = [
     ],
   },
   {
-    title: "License",
+    title: "Open source license",
     paragraphs: [
-      `${REAIDEA_LINK} grants you a non-exclusive, non-transferable license to install and use Sheaf for personal or commercial purposes. You may not reverse engineer, decompile, or remove copyright notices.`,
+      `Sheaf source code is released under the GNU Affero General Public License v3.0 (${LICENSE_LINK}). You may use, modify, and distribute the source code under that license, including for commercial purposes.`,
+      `Modified or derivative works based on Sheaf source code must remain open source under the same license and preserve copyright notices and the full license text. See the ${GITHUB_LINK_EN} for the complete license.`,
+    ],
+  },
+  {
+    title: "Trademark",
+    paragraphs: [
+      `The "Sheaf" name and related marks (logo) are trademarks of ${REAIDEA_LINK}. Forks or derivative versions must not use these marks to distribute apps on the App Store, other app marketplaces, or in promotions that could mislead users.`,
     ],
   },
   {

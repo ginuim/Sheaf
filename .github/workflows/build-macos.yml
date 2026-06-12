@@ -90,10 +90,18 @@ jobs:
 
       - name: Collect DMG
         run: |
-          chmod +x scripts/collect-dmg.sh
-          DMG_PATH=$(bash scripts/collect-dmg.sh "${{ matrix.artifact }}.dmg")
-          echo "DMG_PATH=$GITHUB_WORKSPACE/$DMG_PATH" >> "$GITHUB_ENV"
-          echo "Collected DMG: $DMG_PATH"
+          OUT_DIR="$GITHUB_WORKSPACE/release"
+          mkdir -p "$OUT_DIR"
+          DMG=$(find "$GITHUB_WORKSPACE/src-tauri/target" -path '*/release/bundle/dmg/*.dmg' -print -quit)
+          if [ -z "$DMG" ]; then
+            echo "DMG not found under src-tauri/target" >&2
+            find "$GITHUB_WORKSPACE/src-tauri/target" -type f -name '*.dmg' 2>/dev/null || true
+            exit 1
+          fi
+          DMG_PATH="$OUT_DIR/${{ matrix.artifact }}.dmg"
+          cp -f "$DMG" "$DMG_PATH"
+          echo "DMG_PATH=$DMG_PATH" >> "$GITHUB_ENV"
+          echo "Collected DMG: release/${{ matrix.artifact }}.dmg"
 
       - name: Notarize and staple DMG
         run: |

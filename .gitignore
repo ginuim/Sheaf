@@ -31,3 +31,6 @@ AGENTS.md
 *.cer
 docs/superpowers/
 src-tauri/docs/ARCHIVED_MAC_APP_STORE.md
+
+# Local ops scripts (deploy, nginx, etc.) — not part of the public repo
+scripts/

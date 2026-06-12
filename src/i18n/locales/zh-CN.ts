@@ -489,7 +489,7 @@ console.log(greeting);
       },
       terms: {
         title: "服务条款",
-        lead: "使用 Sheaf 前，请了解以下基本约定。",
+        lead: "Sheaf 源代码以 AGPL-3.0 发布。使用前请了解以下约定。",
       },
     },
   },
