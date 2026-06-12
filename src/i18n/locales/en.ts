@@ -4,6 +4,8 @@ export default {
     tabs: {
       appearance: "Appearance",
       ai: "AI",
+      aiModels: "AI Models",
+      aiTools: "AI Tools",
     },
     appearance: {
       theme: "Theme",
@@ -157,6 +159,7 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
       "minimax-cn": "MiniMax (China)",
       "minimax-global": "MiniMax (Global)",
       "aliyun-bailian": "Qwen (Alibaba Cloud)",
+      mimo: "Xiaomi MiMo",
     },
     models: {
       deepseek: {
@@ -194,10 +197,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     displayNamePlaceholder: "Display name",
     saveModel: "Save model",
     save: "Save",
+    saveProvider: "Save configuration",
     edit: "Edit",
-    webSearch: "Web search",
-    webSearchDesc: "No API key required. Agent can search the web.",
-    searchResultCount: "Results per search",
     capability: {
       text: "Text",
       vision: "Vision",
@@ -206,6 +207,12 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
       tools: "Tools",
       web: "Web",
     },
+  },
+  aiTools: {
+    configDesc: "Configure tools available to the Agent.",
+    webSearch: "Web search",
+    webSearchDesc: "No API key required. Agent can search the web.",
+    searchResultCount: "Results per search",
   },
   ai: {
     title: "AI Assistant",

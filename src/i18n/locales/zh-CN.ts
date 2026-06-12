@@ -4,6 +4,8 @@ export default {
     tabs: {
       appearance: "外观",
       ai: "AI",
+      aiModels: "AI 模型",
+      aiTools: "AI 工具",
     },
     appearance: {
       theme: "主题",
@@ -157,6 +159,7 @@ console.log(greeting);
       "minimax-cn": "MiniMax（国内）",
       "minimax-global": "MiniMax（国际）",
       "aliyun-bailian": "通义千问",
+      mimo: "小米 MiMo",
     },
     models: {
       deepseek: {
@@ -194,10 +197,8 @@ console.log(greeting);
     displayNamePlaceholder: "显示名称",
     saveModel: "保存模型",
     save: "保存",
+    saveProvider: "保存配置",
     edit: "编辑",
-    webSearch: "网页搜索",
-    webSearchDesc: "无需 API Key，Agent 可联网查资料。",
-    searchResultCount: "每次搜索条数",
     capability: {
       text: "文本",
       vision: "视觉",
@@ -206,6 +207,12 @@ console.log(greeting);
       tools: "工具",
       web: "联网",
     },
+  },
+  aiTools: {
+    configDesc: "配置 Agent 可用的工具能力。",
+    webSearch: "网页搜索",
+    webSearchDesc: "无需 API Key，Agent 可联网查资料。",
+    searchResultCount: "每次搜索条数",
   },
   ai: {
     title: "AI 助手",

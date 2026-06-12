@@ -817,8 +817,10 @@ export function summarizeItemDiff(item: AIHistoryItem) {
   return { added, removed, changeCount: item.changes.length };
 }
 
+const settings = reactive(loadSettings());
+watch(settings, (s) => saveSettings(s), { deep: true });
+
 export function useAI(getDocumentKey: () => string = () => "__untitled__") {
-  const settings = reactive(loadSettings());
   const historyList = ref<AIHistoryItem[]>(
     normalizeHistoryConversationIds(loadHistoryList(getDocumentKey())),
   );
@@ -829,8 +831,6 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     buildConversationSummaries(historyList.value, activeConversationId.value),
   );
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
-
-  watch(settings, (s) => saveSettings(s), { deep: true });
 
   watch(
     () => getDocumentKey(),

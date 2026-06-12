@@ -8,6 +8,7 @@ import type { AppLocale } from "../i18n";
 import { useAI } from "../composables/useAI";
 import { useExportTypography } from "../composables/useExportTypography";
 import AiProviderSettingsPanel from "./AiProviderSettingsPanel.vue";
+import AiToolsSettingsPanel from "./AiToolsSettingsPanel.vue";
 
 defineProps<{
   open: boolean;
@@ -22,13 +23,14 @@ const { locale, setLocale, t } = useLocale();
 const { settings: aiSettings } = useAI();
 const { settings: exportTypographySettings } = useExportTypography();
 
-type SettingsTab = "appearance" | "ai";
+type SettingsTab = "appearance" | "aiModels" | "aiTools";
 
 const activeTab = ref<SettingsTab>("appearance");
 
 const tabs = computed(() => [
   { id: "appearance" as const, label: t("settings.tabs.appearance"), icon: "◐" },
-  { id: "ai" as const, label: t("settings.tabs.ai"), icon: "✦" },
+  { id: "aiModels" as const, label: t("settings.tabs.aiModels"), icon: "✦" },
+  { id: "aiTools" as const, label: t("settings.tabs.aiTools"), icon: "⚙" },
 ]);
 
 const appearanceOptions = computed(() => [
@@ -48,7 +50,8 @@ const activeHint = computed(
 
 const tabTitles = computed<Record<SettingsTab, string>>(() => ({
   appearance: t("settings.tabs.appearance"),
-  ai: t("settings.tabs.ai"),
+  aiModels: t("settings.tabs.aiModels"),
+  aiTools: t("settings.tabs.aiTools"),
 }));
 </script>
 
@@ -138,8 +141,12 @@ const tabTitles = computed<Record<SettingsTab, string>>(() => ({
             </div>
           </section>
 
-          <section v-else class="settings-section ai-settings-section">
+          <section v-else-if="activeTab === 'aiModels'" class="settings-section ai-settings-section">
             <AiProviderSettingsPanel v-model="aiSettings" />
+          </section>
+
+          <section v-else class="settings-section ai-settings-section">
+            <AiToolsSettingsPanel v-model="aiSettings" />
           </section>
         </div>
       </div>

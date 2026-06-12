@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   isBuiltinProvider,
   localizedBuiltinModelName,
@@ -15,6 +15,15 @@ import type { AISettings } from "../composables/useAI";
 import { useLocale } from "../composables/useLocale";
 import type { AiProviderConfig, AiProviderModel } from "../ai-providers/types";
 
+type ProviderDraft = {
+  apiKey: string;
+  baseUrl: string;
+  name: string;
+  enabled: boolean;
+  agentDefaultModelId: string;
+  models: AiProviderModel[];
+};
+
 const settings = defineModel<AISettings>({ required: true });
 const { t } = useLocale();
 
@@ -22,6 +31,7 @@ const selectedProviderId = ref(settings.value.agentDefaultProviderId ?? settings
 const providerSearch = ref("");
 const editingModelId = ref<string | null>(null);
 const isAddingModel = ref(false);
+const providerDraft = ref<ProviderDraft | null>(null);
 
 const modelDraft = ref({
   id: "",
@@ -73,17 +83,44 @@ const selectedProvider = computed(() =>
 );
 
 const enabledAgentModels = computed(() => {
-  const provider = selectedProvider.value;
-  if (!provider) return [];
-  return provider.models.filter((model) => model.enabled && model.capabilities.includes("text"));
+  const draft = providerDraft.value;
+  if (!draft) return [];
+  return draft.models.filter((model) => model.enabled && model.capabilities.includes("text"));
 });
 
 const selectedProviderEnabled = computed({
-  get: () => selectedProvider.value?.enabled ?? false,
+  get: () => providerDraft.value?.enabled ?? false,
   set: (enabled: boolean) => {
-    updateSelectedProvider((provider) => ({ ...provider, enabled }));
+    if (!providerDraft.value) return;
+    providerDraft.value.enabled = enabled;
   },
 });
+
+function syncDraftFromProvider(provider: AiProviderConfig) {
+  const isCurrentDefault = settings.value.agentDefaultProviderId === provider.id;
+  providerDraft.value = {
+    apiKey: provider.apiKey ?? "",
+    baseUrl: provider.baseUrl ?? "",
+    name: provider.name,
+    enabled: provider.enabled,
+    agentDefaultModelId: isCurrentDefault
+      ? (settings.value.agentDefaultModelId ?? provider.defaultModelId ?? "")
+      : (provider.defaultModelId ?? ""),
+    models: provider.models.map((model) => ({
+      ...model,
+      capabilities: [...model.capabilities],
+    })),
+  };
+}
+
+watch(
+  () => selectedProvider.value?.id,
+  () => {
+    const provider = selectedProvider.value;
+    if (provider) syncDraftFromProvider(provider);
+  },
+  { immediate: true },
+);
 
 function selectProvider(providerId: string) {
   selectedProviderId.value = providerId;
@@ -91,10 +128,48 @@ function selectProvider(providerId: string) {
   isAddingModel.value = false;
 }
 
-function updateSelectedProvider(updater: (provider: AiProviderConfig) => AiProviderConfig) {
+function updateDraftApiKey(value: string) {
+  if (!providerDraft.value) return;
+  providerDraft.value.apiKey = value;
+  if (value.trim()) {
+    providerDraft.value.enabled = true;
+  }
+}
+
+function saveProviderDraft() {
   const provider = selectedProvider.value;
-  if (!provider) return;
-  patchProviderInSettings(settings.value, provider.id, updater);
+  const draft = providerDraft.value;
+  if (!provider || !draft) return;
+
+  const apiKey = draft.apiKey.trim();
+  const enabled = apiKey.length > 0 ? true : draft.enabled;
+  const agentDefaultModelId =
+    draft.agentDefaultModelId ||
+    enabledAgentModels.value[0]?.id ||
+    provider.defaultModelId ||
+    draft.models[0]?.id ||
+    "";
+
+  patchProviderInSettings(settings.value, provider.id, (current) => ({
+    ...current,
+    apiKey: draft.apiKey,
+    baseUrl: draft.baseUrl.trim() || current.baseUrl,
+    name: draft.name.trim() || current.name,
+    enabled,
+    defaultModelId: agentDefaultModelId,
+    models: draft.models.map((model) => ({
+      ...model,
+      capabilities: [...model.capabilities],
+    })),
+  }));
+
+  if (agentDefaultModelId) {
+    settings.value.agentDefaultProviderId = provider.id;
+    settings.value.agentDefaultModelId = agentDefaultModelId;
+  }
+
+  const savedProvider = settings.value.providers.find((item) => item.id === provider.id);
+  if (savedProvider) syncDraftFromProvider(savedProvider);
 }
 
 function addProvider() {
@@ -118,14 +193,6 @@ function deleteProvider() {
   selectProvider(settings.value.providers[0]?.id ?? "");
 }
 
-function setAgentDefaultModel(modelId: string) {
-  const provider = selectedProvider.value;
-  if (!provider) return;
-  settings.value.agentDefaultProviderId = provider.id;
-  settings.value.agentDefaultModelId = modelId;
-  updateSelectedProvider((current) => ({ ...current, defaultModelId: modelId }));
-}
-
 function startEditModel(model: AiProviderModel) {
   editingModelId.value = model.id;
   editModelDraft.value = {
@@ -137,65 +204,69 @@ function startEditModel(model: AiProviderModel) {
 }
 
 function saveEditedModel() {
+  const draft = providerDraft.value;
   const editingId = editingModelId.value;
-  if (!editingId) return;
+  if (!draft || !editingId) return;
   const id = editModelDraft.value.id.trim();
   const name = editModelDraft.value.name.trim() || id;
   if (!id || editModelDraft.value.capabilities.length === 0) return;
 
-  updateSelectedProvider((provider) => ({
-    ...provider,
-    models: provider.models.map((model) =>
-      model.id === editingId
-        ? {
-            ...model,
-            id,
-            name,
-            capabilities: [...editModelDraft.value.capabilities],
-          }
-        : model,
-    ),
-  }));
+  draft.models = draft.models.map((model) =>
+    model.id === editingId
+      ? {
+          ...model,
+          id,
+          name,
+          capabilities: [...editModelDraft.value.capabilities],
+        }
+      : model,
+  );
+  if (draft.agentDefaultModelId === editingId) {
+    draft.agentDefaultModelId = id;
+  }
   editingModelId.value = null;
 }
 
 function removeModel(modelId: string) {
-  updateSelectedProvider((provider) => ({
-    ...provider,
-    models: provider.models.filter((model) => model.id !== modelId),
-  }));
+  const draft = providerDraft.value;
+  if (!draft) return;
+  draft.models = draft.models.filter((model) => model.id !== modelId);
+  if (draft.agentDefaultModelId === modelId) {
+    draft.agentDefaultModelId = enabledAgentModels.value[0]?.id ?? "";
+  }
 }
 
 function addModel() {
+  const draft = providerDraft.value;
+  if (!draft) return;
   const id = modelDraft.value.id.trim();
   const name = modelDraft.value.name.trim() || id;
   if (!id || modelDraft.value.capabilities.length === 0) return;
-  if (selectedProvider.value?.models.some((model) => model.id === id)) return;
+  if (draft.models.some((model) => model.id === id)) return;
 
-  updateSelectedProvider((provider) => ({
-    ...provider,
-    models: [
-      ...provider.models,
-      {
-        id,
-        name,
-        enabled: true,
-        capabilities: [...modelDraft.value.capabilities],
-      },
-    ],
-  }));
+  draft.models = [
+    ...draft.models,
+    {
+      id,
+      name,
+      enabled: true,
+      capabilities: [...modelDraft.value.capabilities],
+    },
+  ];
 
   modelDraft.value = { id: "", name: "", capabilities: ["text"] };
   isAddingModel.value = false;
 }
 
 function toggleModelEnabled(modelId: string, enabled: boolean) {
-  updateSelectedProvider((provider) => ({
-    ...provider,
-    models: provider.models.map((model) =>
-      model.id === modelId ? { ...model, enabled } : model,
-    ),
-  }));
+  const draft = providerDraft.value;
+  if (!draft) return;
+  draft.models = draft.models.map((model) =>
+    model.id === modelId ? { ...model, enabled } : model,
+  );
+  if (!enabled && draft.agentDefaultModelId === modelId) {
+    draft.agentDefaultModelId = enabledAgentModels.value[0]?.id ?? "";
+  }
 }
 </script>
 
@@ -230,7 +301,7 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
       <button class="ghost-btn" type="button" @click="addProvider">{{ t("aiSettings.addCustom") }}</button>
     </aside>
 
-    <section v-if="selectedProvider" class="provider-detail">
+    <section v-if="selectedProvider && providerDraft" class="provider-detail">
       <div class="detail-header">
         <div>
           <h3 class="detail-title">{{ displayProviderName(selectedProvider) }}</h3>
@@ -256,30 +327,28 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
         <label class="field">
           <span class="field-label">{{ t("aiSettings.apiUrl") }}</span>
           <input
-            :value="selectedProvider.baseUrl"
+            v-model="providerDraft.baseUrl"
             class="setting-input"
             spellcheck="false"
-            @input="updateSelectedProvider((p) => ({ ...p, baseUrl: ($event.target as HTMLInputElement).value }))"
           />
         </label>
         <label class="field">
           <span class="field-label">API Key</span>
           <input
-            :value="selectedProvider.apiKey"
+            :value="providerDraft.apiKey"
             class="setting-input"
             type="password"
             autocomplete="off"
             spellcheck="false"
-            @input="updateSelectedProvider((p) => ({ ...p, apiKey: ($event.target as HTMLInputElement).value }))"
+            @input="updateDraftApiKey(($event.target as HTMLInputElement).value)"
           />
         </label>
         <label v-if="selectedProvider.id.startsWith('custom-provider-')" class="field">
           <span class="field-label">{{ t("aiSettings.providerName") }}</span>
           <input
-            :value="selectedProvider.name"
+            v-model="providerDraft.name"
             class="setting-input"
             spellcheck="false"
-            @input="updateSelectedProvider((p) => ({ ...p, name: ($event.target as HTMLInputElement).value }))"
           />
         </label>
       </div>
@@ -288,11 +357,8 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
         <label class="field">
           <span class="field-label">{{ t("aiSettings.defaultModel") }}</span>
           <select
+            v-model="providerDraft.agentDefaultModelId"
             class="setting-input"
-            :value="settings.agentDefaultProviderId === selectedProvider.id
-              ? settings.agentDefaultModelId
-              : selectedProvider.defaultModelId"
-            @change="setAgentDefaultModel(($event.target as HTMLSelectElement).value)"
           >
             <option
               v-for="model in enabledAgentModels"
@@ -342,7 +408,7 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
         </div>
 
         <div class="model-list">
-          <div v-for="model in selectedProvider.models" :key="model.id" class="model-row">
+          <div v-for="model in providerDraft.models" :key="model.id" class="model-row">
             <template v-if="editingModelId === model.id">
               <div class="model-editor">
                 <input v-model="editModelDraft.id" class="setting-input" spellcheck="false" />
@@ -395,28 +461,10 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
         </div>
       </div>
 
-      <div class="detail-section web-search-section">
-        <div class="setting-row">
-          <div class="setting-label">
-            <span class="setting-name">{{ t("aiSettings.webSearch") }}</span>
-            <span class="setting-desc">{{ t("aiSettings.webSearchDesc") }}</span>
-          </div>
-          <label class="toggle">
-            <input v-model="settings.webSearchEnabled" type="checkbox" />
-            <span>{{ t("aiSettings.enable") }}</span>
-          </label>
-        </div>
-        <label v-if="settings.webSearchEnabled" class="field">
-          <span class="field-label">{{ t("aiSettings.searchResultCount") }}</span>
-          <input
-            v-model.number="settings.webSearchMaxResults"
-            class="setting-input setting-input-narrow"
-            type="number"
-            min="1"
-            max="8"
-            step="1"
-          />
-        </label>
+      <div class="detail-section save-section">
+        <button class="primary-btn" type="button" @click="saveProviderDraft">
+          {{ t("aiSettings.saveProvider") }}
+        </button>
       </div>
     </section>
   </div>
@@ -638,6 +686,25 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
   color: #c44;
 }
 
+.primary-btn {
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--ink-accent);
+  border: 1px solid var(--ink-accent);
+}
+
+.primary-btn:hover {
+  opacity: 0.92;
+}
+
+.save-section {
+  padding-bottom: 4px;
+}
+
 .setting-input {
   width: 100%;
   padding: 7px 10px;
@@ -652,28 +719,6 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
 
 .setting-input:focus {
   border-color: var(--ink-accent);
-}
-
-.setting-input-narrow {
-  width: 72px;
-}
-
-.setting-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.setting-label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.setting-desc {
-  font-size: 12px;
-  color: var(--ink-text-muted);
 }
 
 .toggle {
