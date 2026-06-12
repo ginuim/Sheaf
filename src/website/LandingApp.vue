@@ -9,6 +9,7 @@ import LandingLegal from "./components/LandingLegal.vue";
 import LandingOverlay from "./components/LandingOverlay.vue";
 import SheafProductDemo from "./components/SheafProductDemo.vue";
 import type { DemoScenarioId } from "./components/SheafProductDemo.vue";
+import { GITHUB_REPO_URL } from "./content/repo";
 import { useDownloadLink } from "./composables/useDownloadLink";
 import { useLandingContent } from "./composables/useLandingContent";
 import { useLandingMotion } from "./composables/useLandingMotion";
@@ -293,6 +294,11 @@ const features = computed(() => [
               <button type="button" class="landing-footer-link" @click="openOverlay('docs')">
                 {{ t("landing.footer.docs") }}
               </button>
+            </li>
+            <li>
+              <a :href="GITHUB_REPO_URL" target="_blank" rel="noopener noreferrer">
+                {{ t("landing.footer.github") }}
+              </a>
             </li>
           </ul>
         </div>
