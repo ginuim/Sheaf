@@ -683,7 +683,7 @@ html:lang(en) .landing-hero h1 {
   margin-bottom: 0.75rem;
 }
 
-.landing-cta p {
+.landing-cta-lead {
   margin-bottom: 1.5rem;
   opacity: 0.8;
 }
@@ -691,6 +691,92 @@ html:lang(en) .landing-hero h1 {
 .landing-cta .landing-btn-primary {
   background: var(--ink-bg);
   color: var(--ink-text);
+}
+
+.landing-cta .landing-btn-outline {
+  border-color: color-mix(in srgb, var(--ink-bg) 45%, transparent);
+  color: var(--ink-bg);
+}
+
+.landing-cta .landing-btn-outline:hover {
+  background: color-mix(in srgb, var(--ink-bg) 12%, transparent);
+}
+
+.landing-cta .landing-btn-outline:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.landing-download-platforms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+}
+
+.landing-cta .landing-download-platform-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.45rem 0.85rem;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--ink-bg) 65%, transparent);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--ink-bg) 30%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.landing-cta .landing-download-platform-btn:hover {
+  color: var(--ink-bg);
+  border-color: color-mix(in srgb, var(--ink-bg) 55%, transparent);
+}
+
+.landing-cta .landing-download-platform-btn.active {
+  color: var(--ink-bg);
+  background: color-mix(in srgb, var(--ink-bg) 14%, transparent);
+  border-color: color-mix(in srgb, var(--ink-bg) 50%, transparent);
+}
+
+.landing-download-soon {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.landing-download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+}
+
+.landing-download-hint {
+  margin-top: 1rem;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.landing-download-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: center;
+  align-items: center;
+  margin-top: 1.25rem;
+  font-size: 13px;
+  opacity: 0.65;
+}
+
+.landing-download-meta a {
+  color: inherit;
+}
+
+.landing-download-meta a:hover {
+  opacity: 1;
 }
 
 .landing-footer {

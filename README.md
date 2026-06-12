@@ -4,6 +4,28 @@ A local-first macOS Markdown editor for focused writing — split live preview, 
 
 Website: [sheaf.reaidea.com](https://sheaf.reaidea.com/) · Download: [Releases](https://github.com/ginuim/Sheaf/releases)
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/editor-split.png" alt="Sheaf split editor with live Markdown preview" />
+</p>
+
+<p align="center">
+  <strong>Split live preview — monospace editor and serif preview scroll together.</strong>
+</p>
+
+| Outline navigation | AI paragraph rewrite |
+| --- | --- |
+| ![Sheaf outline panel](assets/screenshots/editor-outline.png) | ![Sheaf AI edit preview](assets/screenshots/ai-edit-preview.png) |
+
+<p align="center">
+  <img src="assets/screenshots/export-studio.png" alt="Sheaf export studio for WeChat, social cards, and long images" />
+</p>
+
+<p align="center">
+  <strong>Export studio — WeChat article HTML, social share cards, and long images.</strong>
+</p>
+
 ## Features
 
 - **Split live preview** — Monospace editor and serif preview scroll together; split, edit-only, or preview-only views

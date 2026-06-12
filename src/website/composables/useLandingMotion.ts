@@ -124,8 +124,13 @@ export function useLandingMotion(root: Ref<HTMLElement | null>) {
       });
       ctaTl
         .from(".landing-cta h2", { autoAlpha: 0, y: 20 })
-        .from(".landing-cta p", { autoAlpha: 0, y: 16 }, "-=0.4")
-        .from(".landing-cta .landing-btn", { autoAlpha: 0, y: 14 }, "-=0.35");
+        .from(".landing-cta-lead", { autoAlpha: 0, y: 16 }, "-=0.4")
+        .from(
+          ".landing-cta .landing-download-platforms, .landing-cta .landing-download-actions",
+          { autoAlpha: 0, y: 14 },
+          "-=0.35",
+        )
+        .from(".landing-cta .landing-download-meta", { autoAlpha: 0, y: 10 }, "-=0.3");
 
       gsap.from(".landing-footer", {
         autoAlpha: 0,

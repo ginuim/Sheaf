@@ -459,6 +459,46 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
       body: "A native macOS app. Open and write — your documents stay local.",
       download: "Download for macOS",
     },
+    download: {
+      ariaLabel: "Download Sheaf",
+      eyebrow: "Get Sheaf",
+      title: "Choose your version",
+      lead: "Pick the build that matches your system. Quick download buttons above use auto-detection; here you can choose manually.",
+      platforms: "Operating system",
+      platform: {
+        macos: "macOS",
+        windows: "Windows",
+        linux: "Linux",
+      },
+      recommended: "Recommended",
+      comingSoon: "Coming soon",
+      downloadBtn: "Download",
+      detectedArm: "Detected Apple Silicon on this Mac",
+      detectedIntel: "Detected Intel Mac on this device",
+      allReleases: "View all releases on GitHub →",
+      variant: {
+        "macos-arm64": {
+          title: "Apple Silicon",
+          desc: "For Macs with M1, M2, M3, or later chips.",
+          meta: ".dmg · macOS 12+",
+        },
+        "macos-x64": {
+          title: "Intel",
+          desc: "For Macs with Intel processors.",
+          meta: ".dmg · macOS 12+",
+        },
+        "windows-x64": {
+          title: "Windows 64-bit",
+          desc: "Windows desktop build.",
+          meta: ".msi · Windows 10+",
+        },
+        "linux-x64": {
+          title: "Linux 64-bit",
+          desc: "AppImage or .deb packages.",
+          meta: "x86_64 · common distros",
+        },
+      },
+    },
     footer: {
       product: "Product",
       resources: "Resources",

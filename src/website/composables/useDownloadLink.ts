@@ -1,5 +1,5 @@
 import { computed } from "vue";
-import { detectMacArch, getDownloadUrl } from "../content/downloads";
+import { detectMacArch, getMacDownloadUrl } from "../content/downloads";
 
 // TODO: CDN 上线后启用地区分流
 // 逻辑：loc=CN → CDN（国内无翻墙用户）；loc≠CN → GitHub（海外用户 + 翻墙用户 VPN 出口在海外，自然走 GitHub）
@@ -35,7 +35,7 @@ import { detectMacArch, getDownloadUrl } from "../content/downloads";
 // }
 
 export function useDownloadLink() {
-  const downloadHref = computed(() => getDownloadUrl("global", detectMacArch()));
+  const downloadHref = computed(() => getMacDownloadUrl("global", detectMacArch()));
 
   // TODO: CDN 上线后替换为下方逻辑
   //
@@ -51,7 +51,7 @@ export function useDownloadLink() {
   //   if (countryCode.value === null) return "#download";
   //   const arch = detectMacArch();
   //   const useOss = countryCode.value === CHINA_CODE;
-  //   return getDownloadUrl(useOss ? "cn" : "global", arch);
+  //   return getMacDownloadUrl(useOss ? "cn" : "global", arch);
   // });
 
   return { downloadHref };

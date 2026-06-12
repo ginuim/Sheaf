@@ -457,7 +457,47 @@ console.log(greeting);
     cta: {
       title: "现在开始写作",
       body: "macOS 原生应用，打开即写。你的文稿留在本地。",
-      download: "下载 for macOS",
+      download: "下载 macOS 版",
+    },
+    download: {
+      ariaLabel: "下载 Sheaf",
+      eyebrow: "获取 Sheaf",
+      title: "选择你的版本",
+      lead: "按系统和芯片选择安装包。页面上方的快速下载会自动识别；这里可以手动选择。",
+      platforms: "操作系统",
+      platform: {
+        macos: "macOS",
+        windows: "Windows",
+        linux: "Linux",
+      },
+      recommended: "推荐",
+      comingSoon: "即将推出",
+      downloadBtn: "下载",
+      detectedArm: "检测到当前 Mac 为 Apple 芯片",
+      detectedIntel: "检测到当前 Mac 为 Intel 芯片",
+      allReleases: "在 GitHub 查看全部版本 →",
+      variant: {
+        "macos-arm64": {
+          title: "Apple 芯片",
+          desc: "适用于 M1、M2、M3 及后续 Apple 芯片 Mac。",
+          meta: ".dmg · macOS 12+",
+        },
+        "macos-x64": {
+          title: "Intel 芯片",
+          desc: "适用于 Intel 处理器的 Mac。",
+          meta: ".dmg · macOS 12+",
+        },
+        "windows-x64": {
+          title: "Windows 64 位",
+          desc: "Windows 桌面版。",
+          meta: ".msi · Windows 10+",
+        },
+        "linux-x64": {
+          title: "Linux 64 位",
+          desc: "AppImage 或 .deb 安装包。",
+          meta: "x86_64 · 常见发行版",
+        },
+      },
     },
     footer: {
       product: "产品",

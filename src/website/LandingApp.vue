@@ -4,6 +4,7 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { useLocale } from "../composables/useLocale";
 import type { AppLocale } from "../i18n";
 import LandingChangelog from "./components/LandingChangelog.vue";
+import LandingDownload from "./components/LandingDownload.vue";
 import LandingDocs from "./components/LandingDocs.vue";
 import LandingLegal from "./components/LandingLegal.vue";
 import LandingOverlay from "./components/LandingOverlay.vue";
@@ -262,15 +263,7 @@ const features = computed(() => [
       <LandingLegal :sections="termsOfService" />
     </LandingOverlay>
 
-    <section id="download" class="landing-cta">
-      <h2>{{ t("landing.cta.title") }}</h2>
-      <p>{{ t("landing.cta.body") }}</p>
-      <a
-        class="landing-btn landing-btn-primary"
-        :href="downloadHref"
-        rel="noopener noreferrer"
-      >{{ t("landing.cta.download") }}</a>
-    </section>
+    <LandingDownload />
 
     <footer class="landing-footer">
       <div class="landing-footer-grid">
