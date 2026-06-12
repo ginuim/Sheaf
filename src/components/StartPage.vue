@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { getMissingRecent } from "../composables/useRecentFiles";
+import { formatDraftUpdatedAt, type UnsavedDraft } from "../composables/useDraftRecovery";
+import { useLocale } from "../composables/useLocale";
+
+const { t } = useLocale();
 
 const props = defineProps<{
   recentFiles: string[];
+  recoverableDraft?: UnsavedDraft | null;
 }>();
 
 const emit = defineEmits<{
@@ -12,7 +17,15 @@ const emit = defineEmits<{
   openRecent: [path: string];
   removeRecent: [path: string];
   clearRecent: [];
+  recoverDraft: [];
+  discardDraft: [];
 }>();
+
+const recoveryTitle = computed(() => {
+  const draft = props.recoverableDraft;
+  if (!draft) return "";
+  return draft.filePath ? fileName(draft.filePath) : draft.fileName;
+});
 
 const missingPaths = ref<Set<string>>(new Set());
 
@@ -35,21 +48,31 @@ function parentPath(path: string): string {
 </script>
 
 <template>
-  <section class="start-page" aria-label="开始">
+  <section class="start-page" :aria-label="t('startPage.ariaLabel')">
     <div class="start-panel">
       <div class="start-main">
         <p class="eyebrow">Sheaf</p>
-        <h1>开始写作</h1>
+        <h1>{{ t("startPage.title") }}</h1>
         <p class="intro">
-          新建一篇 Markdown，或打开本地文件继续排版和导出。
+          {{ t("startPage.intro") }}
+        </p>
+
+        <p v-if="recoverableDraft" class="recovery-hint">
+          <span>{{ t("startPage.unsavedDraft", { title: recoveryTitle }) }}</span>
+          <span class="recovery-time">{{ formatDraftUpdatedAt(recoverableDraft.updatedAt) }}</span>
+          <button class="recovery-link" type="button" @click="emit('recoverDraft')">{{ t("startPage.continueEdit") }}</button>
+          <span class="recovery-sep" aria-hidden="true">·</span>
+          <button class="recovery-link recovery-link-muted" type="button" @click="emit('discardDraft')">
+            {{ t("startPage.discard") }}
+          </button>
         </p>
 
         <div class="actions">
           <button class="primary-action" @click="emit('newDoc')">
-            新建文档
+            {{ t("startPage.newDoc") }}
           </button>
           <button class="secondary-action" @click="emit('open')">
-            打开 Markdown
+            {{ t("startPage.openMarkdown") }}
           </button>
         </div>
       </div>
@@ -57,20 +80,20 @@ function parentPath(path: string): string {
       <div class="recent-section">
         <div class="recent-header">
           <div>
-            <h2>最近文档</h2>
-            <p>只记录路径，不接管你的文件。</p>
+            <h2>{{ t("startPage.recentDocs") }}</h2>
+            <p>{{ t("startPage.recentHint") }}</p>
           </div>
           <button
             v-if="recentFiles.length > 0"
             class="clear-btn"
             @click="emit('clearRecent')"
           >
-            清除
+            {{ t("startPage.clear") }}
           </button>
         </div>
 
         <div v-if="recentFiles.length === 0" class="empty-recent">
-          暂无最近文档
+          {{ t("startPage.noRecent") }}
         </div>
         <div
           v-for="path in recentFiles"
@@ -86,7 +109,7 @@ function parentPath(path: string): string {
             <span class="recent-name-row">
               <span class="recent-name">{{ fileName(path) }}</span>
               <span v-if="missingPaths.has(path)" class="recent-missing-badge">
-                找不到文件
+                {{ t("startPage.fileMissing") }}
               </span>
             </span>
             <span class="recent-path">{{ parentPath(path) }}</span>
@@ -94,8 +117,8 @@ function parentPath(path: string): string {
           <button
             type="button"
             class="recent-remove"
-            title="从列表移除"
-            aria-label="从列表移除"
+            :title="t('startPage.removeFromList')"
+            :aria-label="t('startPage.removeFromList')"
             @click="emit('removeRecent', path)"
           >
             <svg
@@ -216,6 +239,48 @@ h1 {
   margin: 0 auto;
   color: var(--ink-text-muted);
   line-height: 1.7;
+}
+
+.recovery-hint {
+  max-width: 32em;
+  margin: 16px auto 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-text-muted);
+  text-align: center;
+}
+
+.recovery-time::before {
+  content: "·";
+  margin: 0 0.35em;
+}
+
+.recovery-link {
+  margin: 0 0.15em;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink-accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.recovery-link:hover {
+  opacity: 0.85;
+}
+
+.recovery-link-muted {
+  color: var(--ink-text-muted);
+  font-weight: 500;
+}
+
+.recovery-sep {
+  margin: 0 0.2em;
+  color: var(--ink-text-muted);
+  text-decoration: none;
 }
 
 .actions {

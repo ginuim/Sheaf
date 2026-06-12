@@ -1,0 +1,230 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Release tag to publish, e.g. v0.1.0
+        required: true
+        type: string
+      draft:
+        description: Publish as draft release
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+
+jobs:
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            artifact: Sheaf-macos-arm64
+            expected_arch: arm64
+          - target: x86_64-apple-darwin
+            artifact: Sheaf-macos-x64
+            expected_arch: x86_64
+
+    runs-on: macos-latest
+
+    env:
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || env.RELEASE_TAG }}
+
+      - name: Validate release tag
+        run: |
+          set -euo pipefail
+          expected_tag="v$(node -p "require('./package.json').version")"
+          if [ "${RELEASE_TAG}" != "${expected_tag}" ]; then
+            echo "Tag ${RELEASE_TAG} does not match package.json version ${expected_tag}" >&2
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          P12_PATH="certificate.p12"
+          printf '%s' "$APPLE_CERTIFICATE" | tr -d '[:space:]' | base64 --decode > "$P12_PATH"
+          if [ ! -s "$P12_PATH" ]; then
+            echo "APPLE_CERTIFICATE decoded to an empty file." >&2
+            exit 1
+          fi
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security list-keychains -d user -s build.keychain $(security list-keychains -d user | tr -d '"')
+          security import "$P12_PATH" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          CERT_ID=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ -z "$CERT_ID" ]; then
+            echo "Developer ID Application certificate not found in keychain"
+            security find-identity -v -p codesigning build.keychain
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+
+      - name: Setup App Store Connect API key
+        env:
+          APPLE_API_KEY_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_KEY_PRIVATE_KEY" > "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Build DMG
+        run: pnpm tauri build --target ${{ matrix.target }}
+
+      - name: Collect DMG
+        run: |
+          OUT_DIR="$GITHUB_WORKSPACE/release"
+          mkdir -p "$OUT_DIR"
+          DMG=$(find "$GITHUB_WORKSPACE/src-tauri/target" -path '*/release/bundle/dmg/*.dmg' -print -quit)
+          if [ -z "$DMG" ]; then
+            echo "DMG not found under src-tauri/target" >&2
+            find "$GITHUB_WORKSPACE/src-tauri/target" -type f -name '*.dmg' 2>/dev/null || true
+            exit 1
+          fi
+          DMG_PATH="$OUT_DIR/${{ matrix.artifact }}.dmg"
+          cp -f "$DMG" "$DMG_PATH"
+          echo "DMG_PATH=$DMG_PATH" >> "$GITHUB_ENV"
+          echo "Collected DMG: release/${{ matrix.artifact }}.dmg"
+
+      - name: Notarize and staple DMG
+        run: |
+          echo "Notarizing DMG: $DMG_PATH"
+          xcrun notarytool submit "$DMG_PATH" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+          xcrun stapler staple "$DMG_PATH"
+
+      - name: Verify signature and notarization
+        run: |
+          echo "Checking DMG: $DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+
+          APP_PATH=$(find src-tauri/target -type d -name '*.app' -path '*/release/bundle/*' -print -quit)
+          if [ -n "$APP_PATH" ]; then
+            echo "Checking app bundle: $APP_PATH"
+            APP_EXECUTABLE=$(find "$APP_PATH/Contents/MacOS" -type f -perm +111 -print -quit)
+            if [ -z "$APP_EXECUTABLE" ]; then
+              echo "No executable found in app bundle"
+              exit 1
+            fi
+            ARCHS=$(lipo -archs "$APP_EXECUTABLE")
+            echo "App executable architectures: $ARCHS"
+            if [ "$ARCHS" != "${{ matrix.expected_arch }}" ]; then
+              echo "Expected ${{ matrix.expected_arch }} app, got: $ARCHS"
+              exit 1
+            fi
+            codesign -dv --verbose=2 "$APP_PATH"
+            spctl -a -vv --type execute "$APP_PATH"
+          else
+            echo "No .app left on disk (dmg-only bundle); DMG stapler validation passed."
+          fi
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: release/${{ matrix.artifact }}.dmg
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build-macos
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || env.RELEASE_TAG }}
+
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          ## Sheaf 0.1.0 — First public release
+
+          A local-first macOS Markdown editor for focused writing.
+
+          ### Downloads
+          - **Apple Silicon:** `Sheaf-macos-arm64.dmg`
+          - **Intel Mac:** `Sheaf-macos-x64.dmg`
+
+          ### Highlights
+          - Split editing and live preview with synchronized scrolling
+          - Outline panel with click-to-jump headings
+          - AI paragraph rewrite with diff review
+          - Export PDF, WeChat HTML, social share cards, and long images
+          - Version snapshots with diff compare and restore
+          - Light / dark themes; interface in Chinese and English
+
+          Website: https://sheaf.reaidea.com
+          EOF
+
+      - name: Download DMG artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: List release files
+        run: find release-assets -type f -name '*.dmg' | sort
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Sheaf ${{ env.RELEASE_TAG }}
+          body_path: release-notes.md
+          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
+          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
+          files: |
+            release-assets/Sheaf-macos-arm64/Sheaf-macos-arm64.dmg
+            release-assets/Sheaf-macos-x64/Sheaf-macos-x64.dmg
+          fail_on_unmatched_files: true

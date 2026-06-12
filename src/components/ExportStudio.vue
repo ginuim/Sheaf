@@ -15,6 +15,18 @@ import { isTauri } from "@tauri-apps/api/core";
 import { toPng } from "html-to-image";
 import { save, message } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
+import { useExportTypography } from "../composables/useExportTypography";
+import {
+  loadExportCardSettings,
+  saveExportCardSettings,
+} from "../lib/exportCardSettings";
+import { splitLeadingH1Title } from "../lib/wechatHtml";
+import { useLocale } from "../composables/useLocale";
+import QRCode from "qrcode";
+
+const { t } = useLocale();
+
+const LONG_IMAGE_MAX_HEIGHT_PRESETS = [0, 800, 1200, 1600, 2000, 2400] as const;
 
 const props = defineProps<{
   docFilePath?: string | null;
@@ -29,7 +41,7 @@ async function studioMessage(
   kind: "info" | "error" = "info",
 ) {
   if (!isTauri()) return;
-  await message(text, { title: "Sheaf 导出", kind });
+  await message(text, { title: t("export.dialogTitle"), kind });
 }
 
 function downloadDataUrl(dataUrl: string, fileName: string) {
@@ -48,32 +60,72 @@ const emit = defineEmits<{
   close: [];
 }>();
 
+const { settings: exportTypographySettings } = useExportTypography();
+const savedCardSettings = loadExportCardSettings();
+
 // 导出配置状态
 const config = ref({
   type: "wechat" as "wechat" | "xiaohongshu" | "long-image",
   wechatTheme: "classic" as "classic" | "editorial" | "minimal",
-  cardRatio: "3:4" as "1:1" | "3:4",
-  cardTheme: "classic" as "classic" | "modern" | "dark" | "glass",
-  author: "Sheaf Writer",
-  showWatermark: true,
-  fontSize: 16,
+  cardTheme: "classic" as "classic" | "modern" | "dark",
+  author: savedCardSettings.author,
+  authorDesc: savedCardSettings.authorDesc,
+  longImageMaxHeight: savedCardSettings.longImageMaxHeight,
+  longImageQrEnabled: savedCardSettings.longImageQrEnabled,
+  longImageQrUrl: savedCardSettings.longImageQrUrl,
+  longImageQrLabel: savedCardSettings.longImageQrLabel,
+  fontSize: 15,
 });
+
+const longImageContentClipped = ref(false);
+const longImageQrDataUrl = ref("");
+
+const XIAOHONGSHU_EXPORT_SIZE = {
+  width: 1242,
+  height: 1660,
+} as const;
+const XIAOHONGSHU_EXPORT_PIXEL_RATIO = 3;
+const XIAOHONGSHU_CAPTURE_SIZE = {
+  width: XIAOHONGSHU_EXPORT_SIZE.width / XIAOHONGSHU_EXPORT_PIXEL_RATIO,
+  height: XIAOHONGSHU_EXPORT_SIZE.height / XIAOHONGSHU_EXPORT_PIXEL_RATIO,
+} as const;
 
 const exporting = ref(false);
 const exportingImage = ref(false);
+const copyingWechatTitle = ref(false);
 const exportCaptureRef = ref<HTMLElement | null>(null);
 const wechatRendererRef = ref<HTMLElement | null>(null);
 const cardContentRef = ref<HTMLElement | null>(null);
+const cardMeasureContentRef = ref<HTMLElement | null>(null);
+const measureCardHtml = ref("");
+const paginatedCardFontSize = ref(config.value.fontSize);
+const cardPages = ref<string[]>([]);
+const currentCardIndex = ref(0);
+const cardPaginationPending = ref(false);
+
+let paginationRunId = 0;
+let measureHostEl: HTMLDivElement | null = null;
+let measureSurfaceEl: HTMLElement | null = null;
+let measureSurfaceSignature = "";
 
 // 渲染 Markdown (微信和大图片预览使用)
 const renderedHtml = computed(() => {
+  void exportTypographySettings.chineseEnglishSpacing;
   return renderMarkdown(modelValue.value, props.docFilePath ?? null);
 });
 
 // 微信预览和复制导出必须走同一条样式管线，否则预览会退回浏览器默认样式。
 const wechatPreviewHtml = computed(() => {
-  return buildWechatHtml(modelValue.value, config.value.wechatTheme, props.docFilePath ?? null);
+  void exportTypographySettings.chineseEnglishSpacing;
+  return buildWechatHtml(
+    modelValue.value,
+    config.value.wechatTheme,
+    props.docFilePath ?? null,
+  );
 });
+const wechatCopyParts = computed(() => splitLeadingH1Title(modelValue.value));
+const wechatCopyTitle = computed(() => wechatCopyParts.value.title);
+const wechatCopyBody = computed(() => wechatCopyParts.value.body);
 
 // 格式化当前日期为 2026/05/29 样式
 const formattedDate = computed(() => {
@@ -93,30 +145,710 @@ const shouldRenderMermaidAsDark = computed(() => {
   return props.isDark || config.value.cardTheme === "dark";
 });
 
+const isXiaohongshuCard = computed(() => config.value.type === "xiaohongshu");
+const isLongImage = computed(() => config.value.type === "long-image");
+const longImageMaxHeightActive = computed(
+  () => isLongImage.value && config.value.longImageMaxHeight > 0,
+);
+const longImageCaptureStyle = computed(() => {
+  if (!longImageMaxHeightActive.value) return undefined;
+  return {
+    "--long-image-max-height": `${config.value.longImageMaxHeight}px`,
+  };
+});
+const longImageQrLabel = computed(
+  () => config.value.longImageQrLabel.trim() || t("export.qrDefaultLabel"),
+);
+const showLongImageQr = computed(
+  () =>
+    isLongImage.value &&
+    config.value.longImageQrEnabled &&
+    longImageQrDataUrl.value.length > 0,
+);
+const currentCardHtml = computed(() => {
+  if (!isXiaohongshuCard.value) return renderedHtml.value;
+  if (cardPaginationPending.value && !cardPages.value.length) return "";
+  return cardPages.value[currentCardIndex.value] ?? renderedHtml.value;
+});
+const cardPageCount = computed(() => {
+  if (!isXiaohongshuCard.value) return 1;
+  return cardPages.value.length || 1;
+});
+const cardPaginationText = computed(() => {
+  if (cardPaginationPending.value) return t("export.paginationPending");
+  return `${currentCardIndex.value + 1} / ${cardPageCount.value}`;
+});
+
+function waitForAnimationFrame() {
+  return new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
+async function updateLongImageClipState() {
+  if (!longImageMaxHeightActive.value) {
+    longImageContentClipped.value = false;
+    return;
+  }
+
+  await nextTick();
+  await waitForAnimationFrame();
+  const main = cardContentRef.value;
+  const inner = main?.querySelector(".card-measure-inner") as HTMLElement | null;
+  if (!main || !inner) {
+    longImageContentClipped.value = false;
+    return;
+  }
+
+  longImageContentClipped.value = inner.scrollHeight > main.clientHeight + 2;
+}
+
+async function refreshLongImageQrCode() {
+  if (!config.value.longImageQrEnabled) {
+    longImageQrDataUrl.value = "";
+    return;
+  }
+
+  const target = config.value.longImageQrUrl.trim();
+  if (!target) {
+    longImageQrDataUrl.value = "";
+    return;
+  }
+
+  try {
+    longImageQrDataUrl.value = await QRCode.toDataURL(target, {
+      width: 128,
+      margin: 1,
+      errorCorrectionLevel: "L",
+      color: {
+        dark: "#111111",
+        light: "#ffffff",
+      },
+    });
+  } catch {
+    longImageQrDataUrl.value = "";
+  } finally {
+    await updateLongImageClipState();
+  }
+}
+
+function persistExportCardSettings() {
+  saveExportCardSettings({
+    author: config.value.author,
+    authorDesc: config.value.authorDesc,
+    longImageMaxHeight: config.value.longImageMaxHeight,
+    longImageQrEnabled: config.value.longImageQrEnabled,
+    longImageQrUrl: config.value.longImageQrUrl,
+    longImageQrLabel: config.value.longImageQrLabel,
+  });
+}
+
+function extractCardBlocks(html: string) {
+  const root = document.createElement("div");
+  root.innerHTML = html.trim();
+
+  const blocks: string[] = [];
+  for (const node of Array.from(root.childNodes)) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      blocks.push(...splitPaginatedCardElement(node as HTMLElement));
+      continue;
+    }
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent?.trim();
+      if (!text) continue;
+      const p = document.createElement("p");
+      p.textContent = text;
+      blocks.push(p.outerHTML);
+    }
+  }
+
+  return compactPaginatedCardBlocks(blocks);
+}
+
+function splitPaginatedCardElement(element: HTMLElement) {
+  const tagName = element.tagName.toLowerCase();
+  if (tagName === "table") {
+    return splitPaginatedCardTable(element as HTMLTableElement);
+  }
+  if (tagName === "ul" || tagName === "ol") {
+    return splitPaginatedCardList(element);
+  }
+  return [element.outerHTML];
+}
+
+function splitPaginatedCardList(element: HTMLElement) {
+  const items = Array.from(element.children).filter(
+    (child): child is HTMLElement => child.tagName.toLowerCase() === "li",
+  );
+  if (items.length <= 1) return [element.outerHTML];
+
+  const blocks: string[] = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const list = element.cloneNode(false) as HTMLElement;
+    list.appendChild(items[index].cloneNode(true));
+    blocks.push(list.outerHTML);
+  }
+  return blocks;
+}
+
+function splitPaginatedCardTable(table: HTMLTableElement) {
+  const rows = Array.from(table.querySelectorAll("tbody tr, table > tr"));
+  if (rows.length <= 2) return [table.outerHTML];
+
+  const caption = table.querySelector(":scope > caption");
+  const colGroups = Array.from(table.querySelectorAll(":scope > colgroup"));
+  const head = table.querySelector(":scope > thead");
+  const foot = table.querySelector(":scope > tfoot");
+  const blocks: string[] = [];
+
+  for (let index = 0; index < rows.length; index += 2) {
+    const chunk = table.cloneNode(false) as HTMLTableElement;
+    if (caption) chunk.appendChild(caption.cloneNode(true));
+    for (const colGroup of colGroups) {
+      chunk.appendChild(colGroup.cloneNode(true));
+    }
+    if (head) chunk.appendChild(head.cloneNode(true));
+
+    const body = document.createElement("tbody");
+    for (const row of rows.slice(index, index + 2)) {
+      body.appendChild(row.cloneNode(true));
+    }
+    chunk.appendChild(body);
+    if (foot && index + 2 >= rows.length) chunk.appendChild(foot.cloneNode(true));
+    blocks.push(chunk.outerHTML);
+  }
+
+  return blocks;
+}
+
+function isHeadingBlock(html: string) {
+  const root = document.createElement("div");
+  root.innerHTML = html.trim();
+  const first = root.firstElementChild;
+  return !!first && /^H[1-6]$/.test(first.tagName);
+}
+
+function compactPaginatedCardBlocks(blocks: string[]) {
+  const compacted: string[] = [];
+  for (let index = 0; index < blocks.length; index++) {
+    const block = blocks[index];
+    if (isHeadingBlock(block)) {
+      let group = block;
+      let cursor = index + 1;
+      while (cursor < blocks.length && isHeadingBlock(blocks[cursor])) {
+        group += blocks[cursor];
+        cursor += 1;
+      }
+      if (cursor < blocks.length) {
+        group += blocks[cursor];
+        compacted.push(group);
+        index = cursor;
+      } else {
+        compacted.push(group);
+        index = cursor - 1;
+      }
+      continue;
+    }
+    compacted.push(block);
+  }
+  return compacted;
+}
+
+function splitTextIntoCardChunks(text: string, maxChars: number) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) return [normalized];
+
+  const chunks: string[] = [];
+  let rest = normalized;
+  while (rest.length > maxChars) {
+    const windowText = rest.slice(0, maxChars);
+    const breakIndex = Math.max(
+      windowText.lastIndexOf("。"),
+      windowText.lastIndexOf("；"),
+      windowText.lastIndexOf(";"),
+      windowText.lastIndexOf(". "),
+      windowText.lastIndexOf("，"),
+      windowText.lastIndexOf(", "),
+    );
+    const safeIndex = breakIndex > maxChars * 0.45 ? breakIndex + 1 : maxChars;
+    chunks.push(rest.slice(0, safeIndex).trim());
+    rest = rest.slice(safeIndex).trim();
+  }
+  if (rest) chunks.push(rest);
+  return chunks;
+}
+
+function splitOversizedCardBlock(html: string, heightRatio: number) {
+  const root = document.createElement("div");
+  root.innerHTML = html.trim();
+  const first = root.firstElementChild as HTMLElement | null;
+  const text = (root.textContent ?? "").replace(/\s+/g, " ").trim();
+  if (!first || text.length < 120) return [html];
+
+  const maxChars = Math.min(
+    220,
+    Math.max(70, Math.floor(text.length * Math.max(0.2, heightRatio) * 0.68)),
+  );
+  const chunks = splitTextIntoCardChunks(text, maxChars);
+  if (chunks.length <= 1) return [html];
+
+  const tagName = first.tagName.toLowerCase();
+  if (tagName === "ul" || tagName === "ol") {
+    return chunks.map((chunk) => {
+      const list = first.cloneNode(false) as HTMLElement;
+      const item = document.createElement("li");
+      item.textContent = chunk;
+      list.appendChild(item);
+      return list.outerHTML;
+    });
+  }
+  if (tagName === "pre") {
+    return chunks.map((chunk) => {
+      const pre = first.cloneNode(false) as HTMLElement;
+      const code = document.createElement("code");
+      code.textContent = chunk;
+      pre.appendChild(code);
+      return pre.outerHTML;
+    });
+  }
+  if (tagName === "blockquote") {
+    return chunks.map((chunk) => {
+      const quote = first.cloneNode(false) as HTMLElement;
+      quote.textContent = chunk;
+      return quote.outerHTML;
+    });
+  }
+
+  return chunks.map((chunk) => {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = chunk;
+    return paragraph.outerHTML;
+  });
+}
+
+function buildSplitCardBlock(original: HTMLElement, text: string, prefixHtml = "") {
+  const tagName = original.tagName.toLowerCase();
+  if (tagName === "ul" || tagName === "ol") {
+    const list = original.cloneNode(false) as HTMLElement;
+    const item = document.createElement("li");
+    item.textContent = text;
+    list.appendChild(item);
+    return prefixHtml + list.outerHTML;
+  }
+  if (tagName === "blockquote") {
+    const quote = original.cloneNode(false) as HTMLElement;
+    quote.textContent = text;
+    return prefixHtml + quote.outerHTML;
+  }
+  const paragraph = document.createElement("p");
+  paragraph.textContent = text;
+  return prefixHtml + paragraph.outerHTML;
+}
+
+function readSplittableCardBlock(html: string) {
+  const root = document.createElement("div");
+  root.innerHTML = html.trim();
+  const elements = Array.from(root.children) as HTMLElement[];
+  if (elements.length > 1 && /^H[1-6]$/.test(elements[0].tagName)) {
+    const bodyElements = elements.slice(1);
+    if (!bodyElements.length || bodyElements.some((element) => element.tagName.toLowerCase() === "table")) {
+      return null;
+    }
+    const text = bodyElements.map((element) => element.textContent ?? "").join(" ").replace(/\s+/g, " ").trim();
+    if (text.length < 24) return null;
+    return {
+      element: bodyElements[0],
+      prefixHtml: elements[0].outerHTML,
+      text,
+    };
+  }
+
+  if (elements.length !== 1) return null;
+
+  const element = elements[0];
+  const tagName = element.tagName.toLowerCase();
+  if (["table", "pre", "h1", "h2", "h3", "h4", "h5", "h6"].includes(tagName)) {
+    return null;
+  }
+
+  const text = (element.textContent ?? "").replace(/\s+/g, " ").trim();
+  if (text.length < 24) return null;
+
+  return { element, prefixHtml: "", text };
+}
+
+function snapCardSplitIndex(text: string, index: number) {
+  const minIndex = Math.max(1, index - 18);
+  const windowText = text.slice(0, index);
+  const breakIndex = Math.max(
+    windowText.lastIndexOf("。"),
+    windowText.lastIndexOf("；"),
+    windowText.lastIndexOf(";"),
+    windowText.lastIndexOf(". "),
+    windowText.lastIndexOf("，"),
+    windowText.lastIndexOf(", "),
+    windowText.lastIndexOf(" "),
+  );
+  return breakIndex >= minIndex ? breakIndex + 1 : index;
+}
+
+function normalizeCardSplitText(head: string, tail: string) {
+  let normalizedHead = head.trim();
+  let normalizedTail = tail.trim();
+  while (/^[。；;，,、.!?！？]/.test(normalizedTail)) {
+    normalizedHead += normalizedTail[0];
+    normalizedTail = normalizedTail.slice(1).trim();
+  }
+  return { head: normalizedHead, tail: normalizedTail };
+}
+
+async function splitCardBlockToFitPage(
+  currentHtml: string,
+  block: string,
+  targetHeight: number,
+  runId: number,
+) {
+  const parsed = readSplittableCardBlock(block);
+  if (!parsed) return null;
+
+  let low = 1;
+  let high = parsed.text.length;
+  let bestIndex = 0;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = buildSplitCardBlock(
+      parsed.element,
+      parsed.text.slice(0, mid),
+      parsed.prefixHtml,
+    );
+    const candidateHeight = await measureContentHeight(currentHtml + candidate, runId);
+    if (runId !== paginationRunId) return null;
+
+    if (candidateHeight <= targetHeight) {
+      bestIndex = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  const splitIndex = snapCardSplitIndex(parsed.text, bestIndex);
+  if (splitIndex < Math.min(18, parsed.text.length)) return null;
+
+  const { head: headText, tail: tailText } = normalizeCardSplitText(
+    parsed.text.slice(0, splitIndex),
+    parsed.text.slice(splitIndex),
+  );
+  if (!headText || !tailText) return null;
+
+  return [
+    buildSplitCardBlock(parsed.element, headText, parsed.prefixHtml),
+    buildSplitCardBlock(parsed.element, tailText),
+  ];
+}
+
+function ensureMeasureSurface() {
+  const signature = config.value.type;
+
+  if (
+    measureHostEl &&
+    measureSurfaceEl &&
+    measureSurfaceSignature === signature &&
+    document.body.contains(measureHostEl)
+  ) {
+    return measureSurfaceEl;
+  }
+
+  const templateHost = cardMeasureContentRef.value?.closest(
+    ".capture-box-measure",
+  ) as HTMLDivElement | null;
+  if (!templateHost) {
+    throw new Error("Failed to locate the template XHS measurement surface.");
+  }
+
+  if (measureHostEl && measureHostEl.parentElement) {
+    measureHostEl.parentElement.removeChild(measureHostEl);
+  }
+
+  measureHostEl = templateHost.cloneNode(true) as HTMLDivElement;
+  document.body.appendChild(measureHostEl);
+
+  measureSurfaceSignature = signature;
+  measureSurfaceEl = measureHostEl.querySelector(".card-main-content") as HTMLElement | null;
+  if (!measureSurfaceEl) {
+    throw new Error("Failed to initialize XHS measurement surface.");
+  }
+
+  measureSurfaceEl.innerHTML = "";
+  return measureSurfaceEl;
+}
+
+async function measureContentHeight(html: string, runId: number) {
+  const contentEl = ensureMeasureSurface();
+  contentEl.innerHTML = `<div class="card-measure-inner">${html}</div>`;
+  const measureTarget =
+    (contentEl.firstElementChild as HTMLElement | null) ?? contentEl;
+  await nextTick();
+  await document.fonts.ready;
+  await waitForAnimationFrame();
+  if (runId !== paginationRunId) return Number.POSITIVE_INFINITY;
+
+  if (html.includes("data-mermaid-source")) {
+    await renderMermaidIn(measureTarget, shouldRenderMermaidAsDark.value);
+    await nextTick();
+    await waitForAnimationFrame();
+    if (runId !== paginationRunId) return Number.POSITIVE_INFINITY;
+  }
+
+  const measuredHeight = Math.max(
+    measureTarget.scrollHeight,
+    measureTarget.getBoundingClientRect().height,
+  );
+  return Math.ceil(measuredHeight);
+}
+
+async function paginateXiaohongshuCards(
+  sourceHtml: string,
+  fontSize: number,
+  runId: number,
+) {
+  const blocks = extractCardBlocks(sourceHtml);
+  const pages: string[] = [];
+  const contentEl = cardMeasureContentRef.value;
+  if (!contentEl) return { pages: [sourceHtml], fontSize };
+
+  contentEl.style.fontSize = `${fontSize}px`;
+  await nextTick();
+  await document.fonts.ready;
+  await waitForAnimationFrame();
+  if (runId !== paginationRunId) return null;
+
+  const availableHeight = contentEl.clientHeight;
+  const targetHeight = Math.max(1, Math.floor(availableHeight - 10));
+  const hardHeight = targetHeight;
+
+  let currentBlocks: string[] = [];
+  let currentRenderedHtml = "";
+
+  for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+    const block = blocks[blockIndex];
+    if (runId !== paginationRunId) {
+      return null;
+    }
+
+    const candidateBlocks = [...currentBlocks, block];
+    const candidateHtml = candidateBlocks.join("");
+    const candidateHeight = await measureContentHeight(candidateHtml, runId);
+    if (runId !== paginationRunId) {
+      return null;
+    }
+    if (candidateHeight <= targetHeight) {
+      currentBlocks = candidateBlocks;
+      currentRenderedHtml = candidateHtml;
+      continue;
+    }
+
+    if (currentBlocks.length) {
+      const splitBlocks = await splitCardBlockToFitPage(
+        currentRenderedHtml || currentBlocks.join(""),
+        block,
+        targetHeight,
+        runId,
+      );
+      if (runId !== paginationRunId) return null;
+      if (splitBlocks && splitBlocks.length > 1) {
+        blocks.splice(blockIndex, 1, ...splitBlocks);
+        blockIndex -= 1;
+        continue;
+      }
+
+      pages.push(currentRenderedHtml || currentBlocks.join(""));
+      currentBlocks = [];
+      currentRenderedHtml = "";
+      blockIndex -= 1;
+      continue;
+    }
+
+    if (candidateHeight > hardHeight) {
+      const splitBlocks = splitOversizedCardBlock(block, targetHeight / candidateHeight);
+      if (splitBlocks.length > 1) {
+        blocks.splice(blockIndex, 1, ...splitBlocks);
+        blockIndex -= 1;
+        continue;
+      }
+    }
+
+    pages.push(candidateHtml);
+  }
+
+  if (currentBlocks.length) {
+    pages.push(currentRenderedHtml || currentBlocks.join(""));
+  }
+
+  return { pages, fontSize };
+}
+
+async function rebuildCardPagination() {
+  const runId = ++paginationRunId;
+
+  if (!isXiaohongshuCard.value) {
+    cardPaginationPending.value = false;
+    cardPages.value = [renderedHtml.value];
+    currentCardIndex.value = 0;
+    paginatedCardFontSize.value = config.value.fontSize;
+    return;
+  }
+
+  cardPaginationPending.value = true;
+  await nextTick();
+  await document.fonts.ready;
+  if (runId !== paginationRunId) return;
+
+  const contentEl = cardMeasureContentRef.value;
+  if (!contentEl) {
+    if (runId === paginationRunId) cardPaginationPending.value = false;
+    return;
+  }
+
+  const maxFontSize = Math.min(Math.max(Math.round(config.value.fontSize), 12), 24);
+  const minFontSize = 11;
+
+  try {
+    for (let size = maxFontSize; size >= minFontSize; size--) {
+      if (runId !== paginationRunId) return;
+
+      const result = await paginateXiaohongshuCards(renderedHtml.value, size, runId);
+      if (!result) continue;
+
+      if (runId !== paginationRunId) return;
+
+      cardPages.value = result.pages.length ? result.pages : [renderedHtml.value];
+      currentCardIndex.value = 0;
+      paginatedCardFontSize.value = result.fontSize;
+      return;
+    }
+
+    cardPages.value = [renderedHtml.value];
+    currentCardIndex.value = 0;
+    paginatedCardFontSize.value = minFontSize;
+  } finally {
+    if (runId === paginationRunId) {
+      cardPaginationPending.value = false;
+    }
+  }
+}
+
+async function syncPreviewLayout() {
+  if (isXiaohongshuCard.value) {
+    await rebuildCardPagination();
+    return;
+  }
+
+  cardPages.value = [renderedHtml.value];
+  currentCardIndex.value = 0;
+  paginatedCardFontSize.value = config.value.fontSize;
+  await renderVisibleMermaid();
+  if (isLongImage.value) {
+    await updateLongImageClipState();
+  }
+}
+
+function goToPreviousCard() {
+  if (currentCardIndex.value <= 0) return;
+  currentCardIndex.value -= 1;
+}
+
+function goToNextCard() {
+  if (currentCardIndex.value >= cardPageCount.value - 1) return;
+  currentCardIndex.value += 1;
+}
+
 async function renderVisibleMermaid() {
   await nextTick();
   if (wechatRendererRef.value) {
     await renderMermaidIn(wechatRendererRef.value, props.isDark);
   }
-  if (cardContentRef.value) {
+  if (cardContentRef.value && isLongImage.value) {
     await renderMermaidIn(cardContentRef.value, shouldRenderMermaidAsDark.value);
   }
 }
 
 onMounted(() => {
-  void renderVisibleMermaid();
+  void syncPreviewLayout();
+  void refreshLongImageQrCode();
+  void updateLongImageClipState();
 });
 
 watch(
   [
     renderedHtml,
-    wechatPreviewHtml,
     () => config.value.type,
-    () => config.value.cardTheme,
+    () => config.value.fontSize,
     () => props.isDark,
   ],
   () => {
+    void syncPreviewLayout();
+  },
+);
+
+watch(wechatPreviewHtml, () => {
+  if (config.value.type === "wechat") {
     void renderVisibleMermaid();
+  }
+});
+
+watch(
+  () => config.value.cardTheme,
+  () => {
+    if (config.value.type === "long-image") {
+      void renderVisibleMermaid();
+    }
+  },
+);
+
+watch(
+  () =>
+    [
+      config.value.author,
+      config.value.authorDesc,
+      config.value.longImageMaxHeight,
+      config.value.longImageQrEnabled,
+      config.value.longImageQrUrl,
+      config.value.longImageQrLabel,
+    ] as const,
+  () => {
+    persistExportCardSettings();
+  },
+);
+
+watch(
+  [
+    renderedHtml,
+    () => config.value.longImageMaxHeight,
+    () => config.value.fontSize,
+    () => config.value.type,
+    () => config.value.cardTheme,
+  ],
+  () => {
+    if (isLongImage.value) {
+      void updateLongImageClipState();
+    }
+  },
+);
+
+watch(
+  [
+    () => config.value.longImageQrEnabled,
+    () => config.value.longImageQrUrl,
+    showLongImageQr,
+  ],
+  () => {
+    void refreshLongImageQrCode();
+    if (isLongImage.value) {
+      void updateLongImageClipState();
+    }
   },
 );
 
@@ -130,6 +862,74 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
     bytes[i] = binaryString.charCodeAt(i);
   }
   return bytes;
+}
+
+function splitPathExtension(path: string) {
+  const separatorIndex = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  const dotIndex = path.lastIndexOf(".");
+  if (dotIndex <= separatorIndex) return { base: path, extension: "" };
+  return {
+    base: path.slice(0, dotIndex),
+    extension: path.slice(dotIndex),
+  };
+}
+
+function cardImageFileName(pageIndex: number, pageCount: number) {
+  const cardSuffix =
+    pageCount > 1 ? `-card-${String(pageIndex + 1).padStart(2, "0")}` : "";
+  return `${props.fileName || "untitled"}_${config.value.type}${cardSuffix}.png`;
+}
+
+async function captureExportImage(el: HTMLElement) {
+  await waitForAnimationFrame();
+  const isXiaohongshu = config.value.type === "xiaohongshu";
+  const isLongImageExport = config.value.type === "long-image";
+  const captureWidth = isXiaohongshu
+    ? XIAOHONGSHU_CAPTURE_SIZE.width
+    : el.offsetWidth;
+  const captureHeight = isXiaohongshu
+    ? XIAOHONGSHU_CAPTURE_SIZE.height
+    : el.offsetHeight;
+
+  const baseOptions = {
+    cacheBust: true,
+    pixelRatio: isXiaohongshu ? XIAOHONGSHU_EXPORT_PIXEL_RATIO : 2,
+    backgroundColor: "transparent",
+    skipFonts: true,
+  } as const;
+
+  if (isLongImageExport) {
+    const capped = config.value.longImageMaxHeight > 0;
+    const exportHeight = capped ? el.offsetHeight : undefined;
+    return toPng(el, {
+      ...baseOptions,
+      width: captureWidth,
+      height: exportHeight,
+      canvasWidth: exportHeight ? captureWidth : undefined,
+      canvasHeight: exportHeight,
+      style: {
+        transform: "scale(1)",
+        transformOrigin: "top left",
+        width: `${captureWidth}px`,
+        height: capped ? `${exportHeight}px` : "auto",
+        overflow: "hidden",
+      },
+    });
+  }
+
+  return toPng(el, {
+    ...baseOptions,
+    width: captureWidth,
+    height: captureHeight,
+    canvasWidth: captureWidth,
+    canvasHeight: captureHeight,
+    style: {
+      transform: "scale(1)",
+      transformOrigin: "top left",
+      width: `${captureWidth}px`,
+      height: `${captureHeight}px`,
+    },
+  });
 }
 
 // 导出微信 HTML
@@ -146,7 +946,7 @@ async function handleCopyWechatHtml() {
     const result = await copyWechatHtml(html);
     if (result.ok) {
       await studioMessage(
-        "已复制微信公众号格式 HTML！请在微信公众号编辑器直接粘贴。",
+        t("export.wechatCopied"),
       );
     } else {
       await studioMessage(result.message, "error");
@@ -156,14 +956,33 @@ async function handleCopyWechatHtml() {
   }
 }
 
+async function handleCopyWechatTitle() {
+  if (exporting.value || copyingWechatTitle.value || !wechatCopyTitle.value) return;
+  copyingWechatTitle.value = true;
+  try {
+    const result = await copyPlainText(wechatCopyTitle.value);
+    if (result.ok) {
+      await studioMessage(t("export.titleCopied"));
+    } else {
+      await studioMessage(result.message, "error");
+    }
+  } finally {
+    copyingWechatTitle.value = false;
+  }
+}
+
 // 复制纯文本
 async function handleCopyPlain() {
   if (exporting.value) return;
   exporting.value = true;
   try {
-    const result = await copyPlainText(modelValue.value);
+    const text =
+      config.value.type === "wechat" && wechatCopyTitle.value
+        ? wechatCopyBody.value
+        : modelValue.value;
+    const result = await copyPlainText(text);
     if (result.ok) {
-      await studioMessage("已复制 Markdown 纯文本至剪贴板。");
+      await studioMessage(t("export.markdownCopied"));
     } else {
       await studioMessage(result.message, "error");
     }
@@ -172,74 +991,98 @@ async function handleCopyPlain() {
   }
 }
 
-// 导出为图片（支持长图与小红书卡片）
+// 导出为图片（支持长图与分享卡片）
 async function handleDownloadImage() {
   if (exportingImage.value) return;
   const el = exportCaptureRef.value;
   if (!el) {
-    await studioMessage("未找到预览节点，请重试。", "error");
+    await studioMessage(t("export.previewNotFound"), "error");
     return;
   }
 
   exportingImage.value = true;
+  let originalScrollTop = 0;
+  const originalCardIndex = currentCardIndex.value;
   try {
     // 微信模式下不应该导出图片
     if (config.value.type === "wechat") return;
 
     // 隐藏可能影响排版的原生滚动条，确保截图完整
-    const originalScrollTop = el.scrollTop;
+    originalScrollTop = el.scrollTop;
     el.scrollTop = 0;
 
-    // 稍微等待一帧
-    await renderVisibleMermaid();
-    await nextTick();
-    await document.fonts.ready;
+    // 导出前重新同步一次预览，确保截图与屏幕一致
+    await syncPreviewLayout();
 
-    // 渲染 DOM 节点为 PNG 二进制流
-    const dataUrl = await toPng(el, {
-      cacheBust: true,
-      pixelRatio: 2, // 2倍高保真超清
-      backgroundColor: "transparent",
-      skipFonts: true,
-      style: {
-        transform: "scale(1)",
-        transformOrigin: "top left",
-        width: el.offsetWidth + "px",
-        height: el.scrollHeight + "px",
-      },
-    });
-
-    // 还原滚动位置
-    el.scrollTop = originalScrollTop;
-
-    const pngName = `${props.fileName || "untitled"}_${config.value.type}.png`;
+    const pageCount = isXiaohongshuCard.value ? cardPageCount.value : 1;
+    const imageJobs: { dataUrl: string; fileName: string }[] = [];
+    for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+      if (isXiaohongshuCard.value) {
+        currentCardIndex.value = pageIndex;
+        await nextTick();
+      }
+      imageJobs.push({
+        dataUrl: await captureExportImage(el),
+        fileName: cardImageFileName(pageIndex, pageCount),
+      });
+    }
 
     if (isTauri()) {
       const selectedPath = await save({
-        title: "保存图片至本地",
-        defaultPath: pngName,
+        title: t("export.saveImageTitle"),
+        defaultPath: imageJobs[0]?.fileName ?? cardImageFileName(0, pageCount),
         filters: [{ name: "PNG Image", extensions: ["png"] }],
       });
       if (!selectedPath) return;
-      await writeFile(selectedPath, dataUrlToBytes(dataUrl));
-      await studioMessage("图片保存成功！");
+      const selectedParts = splitPathExtension(selectedPath);
+      const selectedBase =
+        imageJobs.length > 1
+          ? selectedParts.base.replace(/-card-\d+$/i, "")
+          : selectedParts.base;
+      for (let index = 0; index < imageJobs.length; index++) {
+        const targetPath =
+          imageJobs.length === 1
+            ? selectedPath
+            : `${selectedBase}-card-${String(index + 1).padStart(2, "0")}${selectedParts.extension || ".png"}`;
+        await writeFile(targetPath, dataUrlToBytes(imageJobs[index].dataUrl));
+      }
+      await studioMessage(
+        imageJobs.length > 1
+          ? t("export.imageSavedMultiple", { count: imageJobs.length })
+          : t("export.imageSaved"),
+      );
     } else {
-      downloadDataUrl(dataUrl, pngName);
+      for (const image of imageJobs) {
+        downloadDataUrl(image.dataUrl, image.fileName);
+      }
     }
   } catch (error: any) {
     console.error("Export image error:", error);
-    await studioMessage(error?.message || "图片导出失败，请重试。", "error");
+    await studioMessage(error?.message || t("export.imageExportFailed"), "error");
   } finally {
+    currentCardIndex.value = originalCardIndex;
+    await nextTick();
+    el.scrollTop = originalScrollTop;
     exportingImage.value = false;
   }
 }
 
-const cardThemes = [
-  { id: "classic", label: "极简米白", desc: "暖色纸张，沉静人文" },
-  { id: "modern", label: "现代深灰", desc: "冷调无衬，高级工业感" },
-  { id: "dark", label: "暗黑极简", desc: "深空黑白，适合科技与夜读" },
-  { id: "glass", label: "流光渐变", desc: "梦幻微光渐变，时尚抓眼" },
-] as const;
+const cardThemes = computed(() => [
+  { id: "classic" as const, label: t("export.themes.classic"), desc: t("export.themes.classicDesc") },
+  { id: "modern" as const, label: t("export.themes.modern"), desc: t("export.themes.modernDesc") },
+  { id: "dark" as const, label: t("export.themes.dark"), desc: t("export.themes.darkDesc") },
+]);
+
+const wechatThemes = computed(() =>
+  WECHAT_THEMES.map((theme) => ({
+    ...theme,
+    label: t(`export.wechatThemes.${theme.id}`),
+    description: t(`export.wechatThemes.${theme.id}Desc`),
+  })),
+);
+
+const displayAuthorName = computed(() => config.value.author || t("export.defaultAuthorName"));
+const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.defaultAuthorDesc"));
 </script>
 
 <template>
@@ -252,12 +1095,12 @@ const cardThemes = [
       <div class="header-left">
         <span class="studio-brand">Sheaf</span>
         <span class="studio-divider">/</span>
-        <span class="studio-title">导出</span>
+        <span class="studio-title">{{ t("export.title") }}</span>
       </div>
       <div class="header-right">
-        <button class="exit-btn" title="返回编辑" @click="emit('close')">
+        <button class="exit-btn" :title="t('export.backToEditTitle')" @click="emit('close')">
           <Undo2 :size="14" aria-hidden="true" />
-          <span>返回编辑</span>
+          <span>{{ t("export.backToEdit") }}</span>
         </button>
       </div>
     </header>
@@ -287,7 +1130,7 @@ const cardThemes = [
             <!-- 微信排版预览 -->
             <div v-if="config.type === 'wechat'" class="preview-wechat-wrapper">
               <div class="wechat-preview-toolbar">
-                <span class="wechat-preview-title">公众号文章预览</span>
+                <span class="wechat-preview-title">{{ t("export.wechatPreviewTitle") }}</span>
                 <span class="wechat-preview-meta">{{ fileName }}</span>
               </div>
               <div class="preview-scroll-pane">
@@ -306,51 +1149,124 @@ const cardThemes = [
               </div>
             </div>
 
-            <!-- 小红书或长图大预览（包含真实的渲染与截图定位容器） -->
+            <!-- 分享卡片或长图大预览（包含真实的渲染与截图定位容器） -->
             <div v-else class="preview-image-wrapper">
+              <div class="capture-stack">
+                <div
+                  ref="exportCaptureRef"
+                  class="capture-box"
+                  :class="[
+                    `theme-${config.cardTheme}`,
+                    `type-${config.type}`,
+                    { 'has-max-height': longImageMaxHeightActive },
+                  ]"
+                  :style="longImageCaptureStyle"
+                >
+                  <!-- 装饰背景 -->
+                  <div class="card-deco-mesh"></div>
+
+                  <!-- 顶部卡片元信息 -->
+                  <header class="card-header">
+                    <span class="card-tag">Sheaf Notes</span>
+                    <span class="card-date">
+                      {{ formattedDate }}
+                      <span v-if="isXiaohongshuCard" class="card-page-count">
+                        {{ cardPaginationPending ? t("export.paginationCalculating") : `${currentCardIndex + 1}/${cardPageCount}` }}
+                      </span>
+                    </span>
+                  </header>
+
+                  <!-- 正文区域 -->
+                  <main
+                    ref="cardContentRef"
+                    class="card-main-content"
+                    :class="{
+                      'is-paginating': cardPaginationPending,
+                      'has-height-cap': longImageMaxHeightActive,
+                    }"
+                    :style="{ fontSize: paginatedCardFontSize + 'px' }"
+                  >
+                    <div class="card-measure-inner" v-html="currentCardHtml"></div>
+                    <div
+                      v-if="longImageContentClipped"
+                      class="card-content-fade"
+                      aria-hidden="true"
+                    />
+                  </main>
+
+                  <div v-if="cardPaginationPending" class="card-loading-mask">
+                    <span class="card-loading-spinner" aria-hidden="true"></span>
+                    <span>{{ t("export.paginationLoading") }}</span>
+                  </div>
+
+                  <!-- 底部作者栏 -->
+                  <footer class="card-footer" :class="{ 'has-qr': showLongImageQr }">
+                    <div class="author-info">
+                      <div class="author-avatar">{{ authorInitial }}</div>
+                      <div class="author-meta">
+                        <span class="author-name">{{ displayAuthorName }}</span>
+                        <span class="author-desc">{{ displayAuthorDesc }}</span>
+                      </div>
+                    </div>
+                    <div v-if="showLongImageQr" class="card-qr-block">
+                      <img
+                        :src="longImageQrDataUrl"
+                        alt=""
+                        class="card-qr-image"
+                      />
+                      <span class="card-qr-label">{{ longImageQrLabel }}</span>
+                    </div>
+                  </footer>
+                </div>
+              </div>
+
+              <div v-if="isXiaohongshuCard" class="card-pagination-rail">
+                <button
+                  class="card-pagination-btn"
+                  :disabled="cardPaginationPending || currentCardIndex === 0"
+                  @click="goToPreviousCard"
+                >
+                  {{ t("export.previousCard") }}
+                </button>
+                <span class="card-pagination-indicator">
+                  {{ cardPaginationText }}
+                </span>
+                <button
+                  class="card-pagination-btn"
+                  :disabled="cardPaginationPending || currentCardIndex >= cardPageCount - 1"
+                  @click="goToNextCard"
+                >
+                  {{ t("export.nextCard") }}
+                </button>
+              </div>
+
               <div
-                ref="exportCaptureRef"
-                class="capture-box"
+                v-if="isXiaohongshuCard"
+                class="capture-box capture-box-measure"
                 :class="[
-                  `ratio-${config.cardRatio}`,
                   `theme-${config.cardTheme}`,
                   `type-${config.type}`,
                 ]"
               >
-                <!-- 装饰背景 -->
                 <div class="card-deco-mesh"></div>
-
-                <!-- 顶部卡片元信息 -->
                 <header class="card-header">
                   <span class="card-tag">Sheaf Notes</span>
                   <span class="card-date">{{ formattedDate }}</span>
                 </header>
-
-                <!-- 正文区域 -->
                 <main
-                  ref="cardContentRef"
+                  ref="cardMeasureContentRef"
                   class="card-main-content"
-                  :style="{ fontSize: config.fontSize + 'px' }"
-                  v-html="renderedHtml"
-                ></main>
-
-                <!-- 底部作者栏 -->
+                  :style="{ fontSize: paginatedCardFontSize + 'px' }"
+                >
+                  <div class="card-measure-inner" v-html="measureCardHtml"></div>
+                </main>
                 <footer class="card-footer">
                   <div class="author-info">
                     <div class="author-avatar">{{ authorInitial }}</div>
                     <div class="author-meta">
-                      <span class="author-name">{{ config.author || "Sheaf User" }}</span>
-                      <span class="author-desc">写于 Sheaf 极简排版</span>
+                      <span class="author-name">{{ displayAuthorName }}</span>
+                      <span class="author-desc">{{ displayAuthorDesc }}</span>
                     </div>
-                  </div>
-                  <div v-if="config.showWatermark" class="watermark-logo">
-                    <svg viewBox="0 0 24 24" class="logo-svg">
-                      <path
-                        fill="currentColor"
-                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"
-                      />
-                    </svg>
-                    <span class="logo-text">Sheaf</span>
                   </div>
                 </footer>
               </div>
@@ -368,40 +1284,40 @@ const cardThemes = [
         <div class="controls-scroller">
           <!-- 1. 导出类型切换 -->
           <section class="control-section">
-            <h3 class="section-label">导出目的地</h3>
+            <h3 class="section-label">{{ t("export.destination") }}</h3>
             <div class="type-switch">
               <button
                 class="type-btn"
                 :class="{ active: config.type === 'wechat' }"
                 @click="config.type = 'wechat'"
               >
-                微信公众号
+                {{ t("export.typeWechat") }}
               </button>
               <button
                 class="type-btn"
                 :class="{ active: config.type === 'xiaohongshu' }"
                 @click="config.type = 'xiaohongshu'"
               >
-                小红书卡片
+                {{ t("export.typeXiaohongshu") }}
               </button>
               <button
                 class="type-btn"
                 :class="{ active: config.type === 'long-image' }"
                 @click="config.type = 'long-image'"
               >
-                分享长图
+                {{ t("export.typeLongImage") }}
               </button>
             </div>
           </section>
 
           <!-- 2. 微信排版主题 -->
           <section v-if="config.type === 'wechat'" class="control-section">
-            <h3 class="section-label">公众号样式</h3>
-            <p class="section-hint">样式已自动内联，无需手动调色</p>
+            <h3 class="section-label">{{ t("export.wechatStyle") }}</h3>
+            <p class="section-hint">{{ t("export.wechatStyleHint") }}</p>
 
             <div class="theme-list">
               <button
-                v-for="theme in WECHAT_THEMES"
+                v-for="theme in wechatThemes"
                 :key="theme.id"
                 class="theme-card"
                 :class="{ active: config.wechatTheme === theme.id }"
@@ -413,32 +1329,84 @@ const cardThemes = [
             </div>
           </section>
 
-          <!-- 3. 小红书卡片配置 -->
-          <section v-if="config.type === 'xiaohongshu'" class="control-section">
-            <h3 class="section-label">卡片设置</h3>
+          <!-- 3. 长图配置 -->
+          <section v-if="config.type === 'long-image'" class="control-section">
+            <h3 class="section-label">{{ t("export.longImageSettings") }}</h3>
+            <p class="section-hint">{{ t("export.longImageSettingsHint") }}</p>
 
             <div class="form-group">
-              <label class="form-label">卡片尺寸比例</label>
-              <div class="ratio-switch">
+              <label class="form-label">{{ t("export.cardVisualStyle") }}</label>
+              <div class="theme-list">
                 <button
-                  class="ratio-btn"
-                  :class="{ active: config.cardRatio === '1:1' }"
-                  @click="config.cardRatio = '1:1'"
+                  v-for="theme in cardThemes"
+                  :key="theme.id"
+                  class="theme-card"
+                  :class="{ active: config.cardTheme === theme.id }"
+                  @click="config.cardTheme = theme.id"
                 >
-                  1:1 经典方图
-                </button>
-                <button
-                  class="ratio-btn"
-                  :class="{ active: config.cardRatio === '3:4' }"
-                  @click="config.cardRatio = '3:4'"
-                >
-                  3:4 高清竖图
+                  <span class="theme-name">{{ theme.label }}</span>
+                  <span class="theme-desc">{{ theme.desc }}</span>
                 </button>
               </div>
             </div>
 
             <div class="form-group">
-              <label class="form-label">卡片视觉风格</label>
+              <label class="form-label">{{ t("export.longImageMaxHeight") }}</label>
+              <div class="height-preset-row">
+                <button
+                  v-for="height in LONG_IMAGE_MAX_HEIGHT_PRESETS"
+                  :key="height"
+                  class="height-preset-btn"
+                  :class="{ active: config.longImageMaxHeight === height }"
+                  @click="config.longImageMaxHeight = height"
+                >
+                  {{
+                    height === 0
+                      ? t("export.longImageMaxHeightUnlimited")
+                      : `${height}px`
+                  }}
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group inline-group">
+              <label class="form-label">{{ t("export.longImageQrEnabled") }}</label>
+              <input
+                v-model="config.longImageQrEnabled"
+                type="checkbox"
+                class="form-checkbox"
+              />
+            </div>
+
+            <template v-if="config.longImageQrEnabled">
+              <div class="form-group">
+                <label class="form-label">{{ t("export.longImageQrUrl") }}</label>
+                <input
+                  v-model="config.longImageQrUrl"
+                  type="url"
+                  class="form-input"
+                  :placeholder="t('export.longImageQrUrlPlaceholder')"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">{{ t("export.longImageQrLabel") }}</label>
+                <input
+                  v-model="config.longImageQrLabel"
+                  type="text"
+                  class="form-input"
+                  :placeholder="t('export.qrDefaultLabel')"
+                />
+              </div>
+            </template>
+          </section>
+
+          <!-- 4. 分享卡片配置 -->
+          <section v-if="config.type === 'xiaohongshu'" class="control-section">
+            <h3 class="section-label">{{ t("export.cardSettings") }}</h3>
+            <p class="section-hint">{{ t("export.cardSettingsHint") }}</p>
+
+            <div class="form-group">
+              <label class="form-label">{{ t("export.cardVisualStyle") }}</label>
               <div class="theme-list">
                 <button
                   v-for="theme in cardThemes"
@@ -454,33 +1422,34 @@ const cardThemes = [
             </div>
           </section>
 
-          <!-- 4. 署名与水印（非微信端适用） -->
+          <!-- 5. 署名（非微信端适用） -->
           <section v-if="config.type !== 'wechat'" class="control-section">
-            <h3 class="section-label">署名与标识</h3>
+            <h3 class="section-label">{{ t("export.byline") }}</h3>
 
             <div class="form-group">
-              <label class="form-label">卡片作者</label>
+              <label class="form-label">{{ t("export.authorName") }}</label>
               <input
                 v-model="config.author"
                 type="text"
                 class="form-input"
-                placeholder="署名将显示在底部名片"
+                :placeholder="t('export.authorNamePlaceholder')"
               />
             </div>
 
-            <div class="form-group inline-group">
-              <label class="form-label">显示 Sheaf 标识</label>
+            <div class="form-group">
+              <label class="form-label">{{ t("export.authorDesc") }}</label>
               <input
-                v-model="config.showWatermark"
-                type="checkbox"
-                class="form-checkbox"
+                v-model="config.authorDesc"
+                type="text"
+                class="form-input"
+                :placeholder="t('export.authorDescPlaceholder')"
               />
             </div>
           </section>
 
-          <!-- 5. 统一字号调节 -->
+          <!-- 6. 统一字号调节 -->
           <section class="control-section">
-            <h3 class="section-label">排版字号</h3>
+            <h3 class="section-label">{{ t("export.fontSize") }}</h3>
             <div class="fontsize-control">
               <button
                 class="size-btn"
@@ -503,13 +1472,28 @@ const cardThemes = [
 
         <!-- 6. 底部主操作区 -->
         <footer class="controls-footer">
+          <div v-if="config.type === 'wechat'" class="wechat-title-copy">
+            <div class="wechat-title-copy-meta">
+              <span class="wechat-title-copy-label">{{ t("export.wechatTitleLabel") }}</span>
+              <span class="wechat-title-copy-value">
+                {{ wechatCopyTitle || t("export.noH1Title") }}
+              </span>
+            </div>
+            <button
+              class="btn-ghost title-copy-btn"
+              :disabled="exporting || copyingWechatTitle || !wechatCopyTitle"
+              @click="handleCopyWechatTitle"
+            >
+              {{ copyingWechatTitle ? t("export.copyingTitle") : t("export.copyTitle") }}
+            </button>
+          </div>
           <button
             v-if="config.type === 'wechat'"
             class="btn-primary"
             :disabled="exporting"
             @click="handleCopyWechatHtml"
           >
-            {{ exporting ? "正在复制 HTML…" : "一键复制内联 HTML" }}
+            {{ exporting ? t("export.copyingHtml") : t("export.copyInlineHtml") }}
           </button>
           <button
             v-else
@@ -517,14 +1501,14 @@ const cardThemes = [
             :disabled="exportingImage"
             @click="handleDownloadImage"
           >
-            {{ exportingImage ? "正在生成超清图片…" : "保存超清图片" }}
+            {{ exportingImage ? t("export.generatingImage") : t("export.saveHdImage") }}
           </button>
           <button
             class="btn-ghost"
             :disabled="exporting || exportingImage"
             @click="handleCopyPlain"
           >
-            复制纯文本
+            {{ t("export.copyPlainText") }}
           </button>
         </footer>
       </section>
@@ -733,6 +1717,10 @@ const cardThemes = [
   box-sizing: border-box;
 }
 
+.canvas-viewport.type-long-image .canvas-scroller {
+  align-items: flex-start;
+}
+
 /* 右面板：控制器 */
 .pane-controls {
   width: 320px;
@@ -907,15 +1895,45 @@ const cardThemes = [
   border-radius: 8px;
 }
 
-/* 小红书卡片 / 长图大预览容器 */
+/* 分享卡片 / 长图大预览容器 */
 .preview-image-wrapper {
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
+  gap: 14px;
   width: 100%;
   height: 100%;
   box-sizing: border-box;
+  position: relative;
   z-index: 10;
+}
+
+.canvas-viewport.type-long-image .preview-image-wrapper {
+  height: auto;
+  min-height: min-content;
+  justify-content: flex-start;
+}
+
+.capture-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  position: relative;
+  z-index: 1;
+}
+
+.card-pagination-rail {
+  position: relative;
+  width: min(414px, calc(100% - 36px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0;
+  pointer-events: auto;
+  z-index: 3;
 }
 
 .capture-box {
@@ -923,40 +1941,114 @@ const cardThemes = [
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  padding: 40px;
+  padding: 28px 28px 24px;
   border-radius: 16px;
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.1);
   overflow: hidden;
 }
 
+.capture-box-measure {
+  position: fixed;
+  left: -99999px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.card-measure-inner {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 /* 宽高比例适配 */
 .capture-box.type-xiaohongshu {
-  width: 380px;
-}
-
-.capture-box.type-xiaohongshu.ratio-1-1 {
-  aspect-ratio: 1/1;
-  height: 380px;
-}
-
-.capture-box.type-xiaohongshu.ratio-3-4 {
-  aspect-ratio: 3/4;
-  height: 506px;
+  aspect-ratio: 1242 / 1660;
+  width: 414px;
+  height: 553.333333px;
 }
 
 .capture-box.type-long-image {
   width: 420px;
   min-height: 480px;
+  overflow: hidden;
 }
 
-/* 小红书非截图状态下正文溢出滚动 */
+.capture-box.type-long-image.has-max-height {
+  max-height: var(--long-image-max-height);
+}
+
+.capture-box.type-long-image.has-max-height .card-main-content.has-height-cap {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.card-content-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 108px;
+  pointer-events: none;
+  z-index: 2;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--card-fade-color) 78%
+  );
+}
+
+/* 分享卡片非截图状态下正文溢出滚动 */
 .capture-box.type-xiaohongshu .card-main-content {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.card-main-content.is-paginating {
+  opacity: 0.18;
+}
+
+.card-loading-mask {
+  position: absolute;
+  inset: 72px 28px 82px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  z-index: 4;
+  color: currentColor;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.54);
+  backdrop-filter: blur(8px);
+}
+
+.theme-dark .card-loading-mask {
+  background: rgba(16, 17, 18, 0.58);
+}
+
+.card-loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: card-loading-spin 0.72s linear infinite;
+}
+
+@keyframes card-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 1. 经典米白主题 */
 .theme-classic {
+  --card-fade-color: #fbf9f4;
   background: #fbf9f4;
   color: #2e2a24;
   border: 1px solid #eae5db;
@@ -986,12 +2078,10 @@ const cardThemes = [
 .theme-classic .author-desc {
   color: #8c8579;
 }
-.theme-classic .watermark-logo {
-  color: rgba(46, 42, 36, 0.25);
-}
 
 /* 2. 现代冷灰主题 */
 .theme-modern {
+  --card-fade-color: #eff0f1;
   background: linear-gradient(135deg, #f4f5f6 0%, #e9ebed 100%);
   color: #1a1a1b;
   border: 1px solid rgba(0, 0, 0, 0.05);
@@ -1013,12 +2103,10 @@ const cardThemes = [
 .theme-modern .author-desc {
   color: #7d8085;
 }
-.theme-modern .watermark-logo {
-  color: rgba(0, 0, 0, 0.3);
-}
 
 /* 3. 暗黑极简 */
 .theme-dark {
+  --card-fade-color: #17191a;
   background: linear-gradient(135deg, #1e2022 0%, #101112 100%);
   color: #e3e4e6;
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -1040,64 +2128,25 @@ const cardThemes = [
 .theme-dark .author-desc {
   color: #8a8d91;
 }
-.theme-dark .watermark-logo {
-  color: rgba(255, 255, 255, 0.2);
-}
-
-/* 4. 流光玻璃渐变 */
-.theme-glass {
-  background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 50%, #a1c4fd 100%);
-  color: #1a1a1b;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-.theme-glass::before {
-  content: "";
-  position: absolute;
-  inset: 12px;
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(12px);
-  border-radius: 12px;
-  z-index: 1;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-.theme-glass > * {
-  position: relative;
-  z-index: 2;
-}
-.theme-glass .card-tag {
-  background: #1a1a1b;
-  color: #ffffff;
-}
-.theme-glass .card-date {
-  color: #55585d;
-}
-.theme-glass .author-avatar {
-  background: #1a1a1b;
-  color: #ffffff;
-}
-.theme-glass .author-name {
-  color: #1a1a1b;
-}
-.theme-glass .author-desc {
-  color: #55585d;
-}
-.theme-glass .watermark-logo {
-  color: rgba(0, 0, 0, 0.35);
-}
 
 /* 卡片细部样式 */
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
   flex-shrink: 0;
 }
 
 .card-tag {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.1em;
+  line-height: 1;
+  white-space: nowrap;
   text-transform: uppercase;
   padding: 3px 8px;
   border-radius: 100px;
@@ -1107,19 +2156,36 @@ const cardThemes = [
   font-size: 10px;
   font-weight: 500;
   font-family: monospace;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-page-count {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.theme-dark .card-page-count {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 /* 卡片排版 */
 .card-main-content {
-  line-height: 1.8;
+  line-height: 1.66;
   text-align: justify;
+  min-height: 0;
+  overflow-wrap: anywhere;
 }
 
 .card-main-content :deep(h1),
 .card-main-content :deep(h2),
 .card-main-content :deep(h3) {
   line-height: 1.4;
-  margin: 1.5em 0 0.8em;
+  margin: 1.05em 0 0.55em;
   font-weight: 600;
 }
 
@@ -1142,11 +2208,30 @@ const cardThemes = [
 }
 
 .card-main-content :deep(p) {
-  margin: 0 0 1em;
+  margin: 0 0 0.72em;
+}
+
+.card-main-content :deep(hr) {
+  height: 1px;
+  margin: 0.8em 0 1em;
+  border: 0;
+  background: linear-gradient(90deg, transparent, rgba(46, 42, 36, 0.12), transparent);
+}
+
+.theme-dark .card-main-content :deep(hr) {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+}
+
+.card-main-content :deep(.card-measure-inner > :first-child) {
+  margin-top: 0;
+}
+
+.card-main-content :deep(.card-measure-inner > :last-child) {
+  margin-bottom: 0;
 }
 
 .card-main-content :deep(blockquote) {
-  margin: 0 0 1.2em;
+  margin: 0 0 0.8em;
   padding-left: 12px;
   border-left: 3px solid currentColor;
   opacity: 0.8;
@@ -1155,12 +2240,12 @@ const cardThemes = [
 
 .card-main-content :deep(ul),
 .card-main-content :deep(ol) {
-  margin: 0 0 1.2em;
+  margin: 0 0 0.8em;
   padding-left: 20px;
 }
 
 .card-main-content :deep(li) {
-  margin-bottom: 0.4em;
+  margin-bottom: 0.28em;
 }
 
 .card-main-content :deep(code) {
@@ -1180,7 +2265,7 @@ const cardThemes = [
   padding: 12px;
   border-radius: 8px;
   overflow-x: auto;
-  margin: 0 0 1.2em;
+  margin: 0 0 1em;
 }
 
 .theme-dark .card-main-content :deep(pre) {
@@ -1190,6 +2275,57 @@ const cardThemes = [
 .card-main-content :deep(pre code) {
   background: none;
   padding: 0;
+}
+
+.card-main-content :deep(table) {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0 0 0.9em;
+  overflow: hidden;
+  border: 1px solid rgba(46, 42, 36, 0.16);
+  border-radius: 6px;
+  font-size: 0.86em;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.theme-dark .card-main-content :deep(table) {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.card-main-content :deep(th),
+.card-main-content :deep(td) {
+  padding: 6px 7px;
+  vertical-align: top;
+  border-right: 1px solid rgba(46, 42, 36, 0.12);
+  border-bottom: 1px solid rgba(46, 42, 36, 0.12);
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.theme-dark .card-main-content :deep(th),
+.theme-dark .card-main-content :deep(td) {
+  border-color: rgba(255, 255, 255, 0.13);
+}
+
+.card-main-content :deep(th) {
+  font-weight: 700;
+  background: rgba(46, 42, 36, 0.06);
+}
+
+.theme-dark .card-main-content :deep(th) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.card-main-content :deep(tr > :last-child) {
+  border-right: 0;
+}
+
+.card-main-content :deep(tbody tr:last-child > td) {
+  border-bottom: 0;
 }
 
 .card-main-content :deep(img) {
@@ -1203,20 +2339,109 @@ const cardThemes = [
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 24px;
+  gap: 12px;
+  margin-top: 18px;
   padding-top: 16px;
-  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  border-top: 1px solid rgba(46, 42, 36, 0.035);
   flex-shrink: 0;
 }
 
+.card-footer.has-qr {
+  align-items: flex-end;
+}
+
+.card-qr-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.card-qr-image {
+  width: 54px;
+  height: 54px;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 3px;
+  box-sizing: border-box;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+.theme-dark .card-qr-image {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+
+.card-qr-label {
+  max-width: 72px;
+  font-size: 8px;
+  line-height: 1.35;
+  text-align: center;
+  color: inherit;
+  opacity: 0.72;
+  word-break: break-all;
+}
+
 .theme-dark .card-footer {
-  border-top-color: rgba(255, 255, 255, 0.08);
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+
+.card-pagination {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px;
+}
+
+.card-pagination-btn {
+  min-width: 84px;
+  padding: 8px 12px;
+  border: 1px solid var(--ink-border);
+  background: var(--ink-surface);
+  color: var(--ink-text);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s, background 0.15s;
+  pointer-events: auto;
+  box-shadow: 0 8px 20px rgba(42, 37, 32, 0.12);
+}
+
+.card-pagination-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--ink-border-strong);
+}
+
+.card-pagination-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.card-pagination-indicator {
+  min-width: 92px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-text-muted);
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--ink-border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 20px rgba(42, 37, 32, 0.08);
+}
+
+.export-studio-overlay.is-dark .card-pagination-indicator {
+  background: rgba(31, 28, 26, 0.72);
 }
 
 .author-info {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .author-avatar {
@@ -1235,32 +2460,22 @@ const cardThemes = [
   display: flex;
   flex-direction: column;
   line-height: 1.3;
+  min-width: 0;
 }
 
 .author-name {
   font-size: 11px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .author-desc {
   font-size: 9px;
-}
-
-.watermark-logo {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.logo-svg {
-  width: 12px;
-  height: 12px;
-}
-
-.logo-text {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 控制台目的地切换 */
@@ -1293,33 +2508,6 @@ const cardThemes = [
   color: var(--ink-text);
   background: var(--ink-surface);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-/* 卡片比例切换 */
-.ratio-switch {
-  display: flex;
-  background: var(--ink-bg);
-  border: 1px solid var(--ink-border);
-  border-radius: 6px;
-  padding: 2px;
-}
-
-.ratio-btn {
-  flex: 1;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 5px;
-  border-radius: 4px;
-  color: var(--ink-text-muted);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-}
-
-.ratio-btn.active {
-  color: var(--ink-text);
-  background: var(--ink-surface);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 /* 微信/卡片风格配置 */
@@ -1405,6 +2593,35 @@ const cardThemes = [
   cursor: pointer;
 }
 
+.height-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.height-preset-btn {
+  padding: 6px 10px;
+  border: 1px solid var(--ink-border);
+  border-radius: 6px;
+  background: var(--ink-bg);
+  color: var(--ink-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.height-preset-btn:hover {
+  border-color: var(--ink-border-strong);
+  color: var(--ink-text);
+}
+
+.height-preset-btn.active {
+  border-color: var(--ink-accent);
+  background: var(--ink-accent-soft);
+  color: var(--ink-text);
+}
+
 /* 字号控制 */
 .fontsize-control {
   display: flex;
@@ -1454,6 +2671,47 @@ const cardThemes = [
   flex-direction: column;
   gap: 8px;
   margin-top: auto;
+}
+
+.wechat-title-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--ink-border);
+  border-radius: 8px;
+  background: var(--ink-bg);
+}
+
+.wechat-title-copy-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wechat-title-copy-label {
+  font-size: 10px;
+  color: var(--ink-text-muted);
+}
+
+.wechat-title-copy-value {
+  overflow: hidden;
+  color: var(--ink-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title-copy-btn {
+  width: auto;
+  padding: 7px 10px;
+  border: 1px solid var(--ink-border);
+  background: var(--ink-surface);
+  white-space: nowrap;
 }
 
 .btn-primary {

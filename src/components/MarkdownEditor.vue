@@ -5,50 +5,135 @@ import { syntaxHighlighting } from "@codemirror/language";
 import {
   SearchQuery,
   closeSearchPanel,
-  findNext,
-  findPrevious,
   openSearchPanel,
   search,
   searchKeymap,
   searchPanelOpen,
   setSearchQuery,
 } from "@codemirror/search";
-import { Prec } from "@codemirror/state";
+import { EditorSelection, Prec, StateEffect, StateField } from "@codemirror/state";
 import { EditorState } from "@codemirror/state";
 import {
+  Decoration,
   EditorView,
   keymap,
   lineNumbers,
   highlightActiveLine,
   type Panel,
+  type DecorationSet,
 } from "@codemirror/view";
+import EditorSearchReplace from "./EditorSearchReplace.vue";
 import { editorHighlightStyle } from "../lib/editorHighlightStyle";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useLocale } from "../composables/useLocale";
+import type { ProofreadIssue } from "../types/proofreading";
 
 const props = defineProps<{
   modelValue: string;
+  proofreadIssues?: ProofreadIssue[];
+  activeProofreadIssueId?: string | null;
 }>();
 
 const emit = defineEmits<{
   "update:modelValue": [value: string];
   scroll: [];
+  "proofread-select": [issueId: string];
+  "proofread-apply": [issueId: string];
+  "proofread-dismiss": [issueId: string];
 }>();
 
+const root = ref<HTMLElement | null>(null);
 const container = ref<HTMLElement | null>(null);
-const searchInputRef = ref<HTMLInputElement | null>(null);
+const searchReplaceRef = ref<InstanceType<typeof EditorSearchReplace> | null>(null);
 const searchOpen = ref(false);
+const replaceOpen = ref(false);
+const { t } = useLocale();
 const searchText = ref("");
+const replaceText = ref("");
 const caseSensitive = ref(false);
 const matchTotal = ref(0);
 const matchCurrent = ref(0);
+const proofreadPopoverStyle = ref<Record<string, string> | null>(null);
 let view: EditorView | null = null;
 let syncing = false;
+let proofreadPopoverFrame = 0;
+
+type MatchRange = { from: number; to: number };
+type ProofreadDecorationPayload = {
+  issues: ProofreadIssue[];
+  activeId: string | null;
+};
+
+const setProofreadDecorationsEffect =
+  StateEffect.define<ProofreadDecorationPayload>();
+
+function buildProofreadDecorations(payload: ProofreadDecorationPayload, docLength: number) {
+  const ranges = payload.issues
+    .filter((issue) =>
+      issue.status !== "applied" &&
+      issue.status !== "ignored" &&
+      issue.from >= 0 &&
+      issue.to > issue.from &&
+      issue.to <= docLength,
+    )
+    .sort((left, right) => left.from - right.from)
+    .map((issue) =>
+      Decoration.mark({
+        class: [
+          "cm-proofread-issue",
+          issue.id === payload.activeId ? "cm-proofread-issue-active" : "",
+        ].filter(Boolean).join(" "),
+        attributes: {
+          "data-proofread-id": issue.id,
+          title: `${issue.original} -> ${issue.suggestion}`,
+        },
+      }).range(issue.from, issue.to),
+    );
+
+  return Decoration.set(ranges, true);
+}
+
+const proofreadDecorationField = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none;
+  },
+  update(decorations, transaction) {
+    let next = decorations.map(transaction.changes);
+    for (const effect of transaction.effects) {
+      if (effect.is(setProofreadDecorationsEffect)) {
+        next = buildProofreadDecorations(effect.value, transaction.state.doc.length);
+      }
+    }
+    return next;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
 
 function buildSearchQuery() {
   return new SearchQuery({
     search: searchText.value,
+    replace: replaceText.value,
     caseSensitive: caseSensitive.value,
     literal: true,
+  });
+}
+
+function getAllMatches(query: SearchQuery): MatchRange[] {
+  if (!view) return [];
+  const matches: MatchRange[] = [];
+  const cursor = query.getCursor(view.state, 0, view.state.doc.length);
+  for (let result = cursor.next(); !result.done; result = cursor.next()) {
+    matches.push(result.value);
+  }
+  return matches;
+}
+
+function selectMatch(match: MatchRange) {
+  if (!view) return;
+  view.dispatch({
+    selection: EditorSelection.single(match.from, match.to),
+    effects: EditorView.scrollIntoView(match.from, { y: "center" }),
+    userEvent: "select.search",
   });
 }
 
@@ -66,12 +151,7 @@ function refreshMatchCount() {
     return;
   }
 
-  const matches: Array<{ from: number; to: number }> = [];
-  const cursor = query.getCursor(view.state, 0, view.state.doc.length);
-  for (let result = cursor.next(); !result.done; result = cursor.next()) {
-    matches.push(result.value);
-  }
-
+  const matches = getAllMatches(query);
   matchTotal.value = matches.length;
 
   const { from, to } = view.state.selection.main;
@@ -80,9 +160,20 @@ function refreshMatchCount() {
 }
 
 const searchCountText = computed(() => {
-  if (matchTotal.value === 0) return "无匹配";
+  if (matchTotal.value === 0) return t("search.noMatch");
   const current = matchCurrent.value > 0 ? matchCurrent.value : 0;
-  return `${current} / ${matchTotal.value}`;
+  return t("search.matchCount", { current, total: matchTotal.value });
+});
+
+const activeProofreadIssue = computed(() => {
+  const activeId = props.activeProofreadIssueId;
+  if (!activeId) return null;
+  return (props.proofreadIssues ?? []).find(
+    (issue) =>
+      issue.id === activeId &&
+      issue.status !== "applied" &&
+      issue.status !== "ignored",
+  ) ?? null;
 });
 
 function applySearchQuery() {
@@ -93,30 +184,81 @@ function applySearchQuery() {
   refreshMatchCount();
 }
 
-function openSearch() {
-  searchOpen.value = true;
-  if (view) {
-    ensureSearchPanelActive();
-    const { from, to } = view.state.selection.main;
-    const selected = view.state.sliceDoc(from, to);
-    if (selected && !/[\n\r]/.test(selected) && selected.length <= 200) {
-      searchText.value = selected;
-    }
-  }
-  applySearchQuery();
+function selectionIsOnMatch() {
+  if (!view || !searchText.value) return false;
+  const { from, to } = view.state.selection.main;
+  const selected = view.state.sliceDoc(from, to);
+  return caseSensitive.value
+    ? selected === searchText.value
+    : selected.toLowerCase() === searchText.value.toLowerCase();
+}
+
+function focusSearchField(withReplace = false) {
   void nextTick(() => {
-    searchInputRef.value?.focus();
-    searchInputRef.value?.select();
-    if (view && searchText.value) {
-      findNext(view);
-      refreshMatchCount();
+    if (withReplace) {
+      searchReplaceRef.value?.focusReplace();
+    } else {
+      searchReplaceRef.value?.focusSearch();
     }
   });
 }
 
+function revealActiveMatch() {
+  if (!view || !searchText.value) return;
+  applySearchQuery();
+  if (selectionIsOnMatch()) {
+    const { from } = view.state.selection.main;
+    view.dispatch({
+      effects: EditorView.scrollIntoView(from, { y: "center" }),
+    });
+  } else {
+    runFindNext();
+    return;
+  }
+  refreshMatchCount();
+}
+
+function activateSearch(withReplace = false) {
+  const alreadyOpen = searchOpen.value;
+  searchOpen.value = true;
+  if (withReplace) replaceOpen.value = true;
+
+  if (view) {
+    ensureSearchPanelActive();
+    if (!alreadyOpen) {
+      const { from, to } = view.state.selection.main;
+      const selected = view.state.sliceDoc(from, to);
+      if (selected && !/[\n\r]/.test(selected) && selected.length <= 200) {
+        searchText.value = selected;
+      }
+    }
+  }
+
+  applySearchQuery();
+  focusSearchField(withReplace);
+
+  if (!view || !searchText.value) return;
+
+  void nextTick(() => {
+    if (!view) return;
+    if (alreadyOpen) revealActiveMatch();
+    else runFindNext();
+  });
+}
+
+function openSearch(withReplace = false) {
+  activateSearch(withReplace);
+}
+
+function openReplace() {
+  activateSearch(true);
+}
+
 function closeSearch() {
   searchOpen.value = false;
+  replaceOpen.value = false;
   searchText.value = "";
+  replaceText.value = "";
   matchTotal.value = 0;
   matchCurrent.value = 0;
   if (!view) return;
@@ -140,29 +282,192 @@ function ensureSearchPanelActive() {
 }
 
 function runFindNext() {
-  if (!view) return;
-  findNext(view);
+  if (!view || !searchText.value) return;
+  const query = buildSearchQuery();
+  if (!query.valid) return;
+  const matches = getAllMatches(query);
+  if (matches.length === 0) {
+    refreshMatchCount();
+    return;
+  }
+  const { from, to } = view.state.selection.main;
+  const currentIndex = matches.findIndex((m) => m.from === from && m.to === to);
+  const nextIndex =
+    currentIndex >= 0 ? (currentIndex + 1) % matches.length : 0;
+  selectMatch(matches[nextIndex]!);
   refreshMatchCount();
 }
 
 function runFindPrevious() {
-  if (!view) return;
-  findPrevious(view);
+  if (!view || !searchText.value) return;
+  const query = buildSearchQuery();
+  if (!query.valid) return;
+  const matches = getAllMatches(query);
+  if (matches.length === 0) {
+    refreshMatchCount();
+    return;
+  }
+  const { from, to } = view.state.selection.main;
+  const currentIndex = matches.findIndex((m) => m.from === from && m.to === to);
+  const prevIndex =
+    currentIndex >= 0
+      ? (currentIndex - 1 + matches.length) % matches.length
+      : matches.length - 1;
+  selectMatch(matches[prevIndex]!);
   refreshMatchCount();
 }
 
-function onSearchKeydown(e: KeyboardEvent) {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    if (e.shiftKey) runFindPrevious();
-    else runFindNext();
-  } else if (e.key === "Escape") {
-    e.preventDefault();
-    closeSearch();
+function runReplaceNext() {
+  if (!view || !searchText.value || matchTotal.value === 0) return;
+  const query = buildSearchQuery();
+  if (!query.valid) return;
+  const matches = getAllMatches(query);
+  if (matches.length === 0) return;
+
+  const { from, to } = view.state.selection.main;
+  let matchIndex = matches.findIndex((m) => m.from === from && m.to === to);
+  if (matchIndex < 0) {
+    matchIndex = matches.findIndex((m) => m.from >= from);
+    if (matchIndex < 0) matchIndex = 0;
   }
+
+  const match = matches[matchIndex]!;
+  const insert = replaceText.value;
+  view.dispatch({
+    changes: { from: match.from, to: match.to, insert },
+    userEvent: "input.replace",
+  });
+
+  const searchFrom = match.from + insert.length;
+  const nextMatches = getAllMatches(buildSearchQuery());
+  if (nextMatches.length > 0) {
+    const nextMatch =
+      nextMatches.find((m) => m.from >= searchFrom) ?? nextMatches[0]!;
+    selectMatch(nextMatch);
+  }
+  refreshMatchCount();
 }
 
-watch([searchText, caseSensitive], applySearchQuery);
+function runReplaceAll() {
+  if (!view || !searchText.value || matchTotal.value === 0) return;
+  const query = buildSearchQuery();
+  if (!query.valid) return;
+  const matches = getAllMatches(query);
+  if (matches.length === 0) return;
+  const insert = replaceText.value;
+  view.dispatch({
+    changes: [...matches]
+      .sort((a, b) => b.from - a.from)
+      .map((m) => ({ from: m.from, to: m.to, insert })),
+    userEvent: "input.replace.all",
+  });
+  refreshMatchCount();
+}
+
+function syncProofreadDecorations() {
+  if (!view) return;
+  view.dispatch({
+    effects: setProofreadDecorationsEffect.of({
+      issues: props.proofreadIssues ?? [],
+      activeId: props.activeProofreadIssueId ?? null,
+    }),
+  });
+  updateProofreadPopover();
+}
+
+function updateProofreadPopover() {
+  const issue = activeProofreadIssue.value;
+  if (!view || !root.value || !issue) {
+    proofreadPopoverStyle.value = null;
+    return;
+  }
+
+  const fromCoords = view.coordsAtPos(issue.from);
+  const toCoords = view.coordsAtPos(issue.to);
+  if (!fromCoords) {
+    proofreadPopoverStyle.value = null;
+    return;
+  }
+
+  const rootRect = root.value.getBoundingClientRect();
+  const issueTop = fromCoords.top;
+  const issueBottom = Math.max(fromCoords.bottom, toCoords?.bottom ?? fromCoords.bottom);
+  if (issueBottom < rootRect.top + 8 || issueTop > rootRect.bottom - 8) {
+    proofreadPopoverStyle.value = null;
+    return;
+  }
+
+  const width = 236;
+  const left = Math.min(
+    Math.max(12, fromCoords.left - rootRect.left - 18),
+    Math.max(12, rootRect.width - width - 12),
+  );
+  const belowTop = issueBottom - rootRect.top + 10;
+  const aboveTop = issueTop - rootRect.top - 148;
+  const top = belowTop + 148 <= rootRect.height - 12
+    ? belowTop
+    : Math.max(12, aboveTop);
+
+  proofreadPopoverStyle.value = {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+  };
+}
+
+function scheduleProofreadPopoverUpdate() {
+  if (proofreadPopoverFrame) cancelAnimationFrame(proofreadPopoverFrame);
+  proofreadPopoverFrame = requestAnimationFrame(() => {
+    proofreadPopoverFrame = 0;
+    updateProofreadPopover();
+  });
+}
+
+function selectProofreadIssue(issueId: string) {
+  const issue = (props.proofreadIssues ?? []).find(
+    (item) =>
+      item.id === issueId &&
+      item.status !== "applied" &&
+      item.status !== "ignored",
+  );
+  if (!view || !issue) return;
+
+  emit("proofread-select", issue.id);
+  view.dispatch({
+    selection: EditorSelection.single(issue.from, issue.to),
+    effects: EditorView.scrollIntoView(issue.from, { y: "center", yMargin: 80 }),
+    userEvent: "select.proofread",
+  });
+  void nextTick(scheduleProofreadPopoverUpdate);
+}
+
+function handleEditorScroll() {
+  emit("scroll");
+  scheduleProofreadPopoverUpdate();
+}
+
+function handleProofreadClick(event: MouseEvent) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return false;
+
+  const marker = target.closest<HTMLElement>(".cm-proofread-issue");
+  const issueId = marker?.dataset.proofreadId;
+  if (!issueId) return false;
+
+  event.preventDefault();
+  selectProofreadIssue(issueId);
+  return true;
+}
+
+watch([searchText, replaceText, caseSensitive], applySearchQuery);
+watch(
+  [() => props.proofreadIssues, () => props.activeProofreadIssueId],
+  () => syncProofreadDecorations(),
+  { deep: true },
+);
+watch(activeProofreadIssue, () => {
+  void nextTick(scheduleProofreadPopoverUpdate);
+});
 
 const editorTheme = EditorView.theme({
   "&": {
@@ -240,16 +545,10 @@ onMounted(() => {
         syntaxHighlighting(editorHighlightStyle, { fallback: true }),
         EditorView.lineWrapping,
         editorTheme,
+        proofreadDecorationField,
         search({ createPanel: createHiddenSearchPanel, top: true }),
         Prec.highest(
           keymap.of([
-            {
-              key: "Mod-f",
-              run: () => {
-                openSearch();
-                return true;
-              },
-            },
             {
               key: "Escape",
               run: () => {
@@ -261,6 +560,9 @@ onMounted(() => {
           ]),
         ),
         keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap]),
+        EditorView.domEventHandlers({
+          click: handleProofreadClick,
+        }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !syncing) {
             emit("update:modelValue", update.state.doc.toString());
@@ -271,16 +573,22 @@ onMounted(() => {
           ) {
             refreshMatchCount();
           }
+          if (update.geometryChanged || update.viewportChanged) {
+            scheduleProofreadPopoverUpdate();
+          }
         }),
       ],
     }),
     parent: container.value,
   });
 
-  view.scrollDOM.addEventListener("scroll", () => emit("scroll"), { passive: true });
+  syncProofreadDecorations();
+  view.scrollDOM.addEventListener("scroll", handleEditorScroll, { passive: true });
 });
 
 onUnmounted(() => {
+  if (proofreadPopoverFrame) cancelAnimationFrame(proofreadPopoverFrame);
+  view?.scrollDOM.removeEventListener("scroll", handleEditorScroll);
   view?.destroy();
 });
 
@@ -301,6 +609,7 @@ watch(
 
 defineExpose({
   openSearch,
+  openReplace,
   closeSearch,
   isSearchOpen: () => searchOpen.value,
   scrollRatio(ratio: number) {
@@ -327,62 +636,54 @@ defineExpose({
     if (!view || changes.length === 0) return;
     view.dispatch({ changes });
   },
+  revealProofreadIssue(issueId: string) {
+    selectProofreadIssue(issueId);
+  },
 });
 </script>
 
 <template>
-  <div class="editor-root">
-    <div
+  <div ref="root" class="editor-root">
+    <EditorSearchReplace
       v-if="searchOpen"
-      class="search-bar"
-      role="search"
-      aria-label="在文档中搜索"
-      @keydown.stop
+      ref="searchReplaceRef"
+      v-model:search-text="searchText"
+      v-model:replace-text="replaceText"
+      v-model:case-sensitive="caseSensitive"
+      v-model:replace-open="replaceOpen"
+      :search-count-text="searchCountText"
+      :has-matches="matchTotal > 0"
+      @find-next="runFindNext"
+      @find-previous="runFindPrevious"
+      @replace-next="runReplaceNext"
+      @replace-all="runReplaceAll"
+      @close="closeSearch"
+    />
+    <div ref="container" class="editor-container" />
+    <div
+      v-if="activeProofreadIssue && proofreadPopoverStyle"
+      class="proofread-popover"
+      :style="proofreadPopoverStyle"
     >
-      <input
-        ref="searchInputRef"
-        v-model="searchText"
-        class="search-input"
-        type="search"
-        placeholder="搜索…"
-        autocomplete="off"
-        spellcheck="false"
-        @keydown="onSearchKeydown"
-      />
-      <span class="search-count" aria-live="polite">
-        {{ searchCountText }}
-      </span>
-      <label class="search-option">
-        <input v-model="caseSensitive" type="checkbox" />
-        <span>区分大小写</span>
-      </label>
+      <div class="proofread-popover-label">{{ t("proofread.fixLabel") }}</div>
       <button
         type="button"
-        class="search-btn"
-        title="上一个 (⇧Enter)"
-        @click="runFindPrevious"
+        class="proofread-suggestion"
+        @click="emit('proofread-apply', activeProofreadIssue.id)"
       >
-        ↑
+        {{ activeProofreadIssue.suggestion }}
       </button>
+      <div v-if="activeProofreadIssue.reason" class="proofread-reason">
+        {{ activeProofreadIssue.reason }}
+      </div>
       <button
         type="button"
-        class="search-btn"
-        title="下一个 (Enter)"
-        @click="runFindNext"
+        class="proofread-ignore"
+        @click="emit('proofread-dismiss', activeProofreadIssue.id)"
       >
-        ↓
-      </button>
-      <button
-        type="button"
-        class="search-close"
-        title="关闭 (Esc)"
-        aria-label="关闭搜索"
-        @click="closeSearch"
-      >
-        ×
+        {{ t("proofread.ignore") }}
       </button>
     </div>
-    <div ref="container" class="editor-container" />
   </div>
 </template>
 
@@ -398,81 +699,6 @@ defineExpose({
   height: 100%;
 }
 
-.search-bar {
-  position: absolute;
-  top: 12px;
-  right: 16px;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  background: var(--ink-surface);
-  border: 1px solid var(--ink-border-strong);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px var(--ink-shadow);
-}
-
-.search-input {
-  width: 180px;
-  padding: 6px 10px;
-  font-size: 13px;
-  font-family: var(--font-ui);
-  color: var(--ink-text);
-  background: var(--ink-bg);
-  border: 1px solid var(--ink-border);
-  border-radius: 6px;
-}
-
-.search-input:focus {
-  outline: none;
-  border-color: var(--ink-accent);
-}
-
-.search-count {
-  flex-shrink: 0;
-  width: 4.25rem;
-  color: var(--ink-text-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.search-option {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--ink-text-muted);
-  font-size: 12px;
-  white-space: nowrap;
-  cursor: pointer;
-  user-select: none;
-}
-
-.search-btn,
-.search-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  font-size: 14px;
-  color: var(--ink-text-muted);
-  border-radius: 6px;
-}
-
-.search-btn:hover,
-.search-close:hover {
-  color: var(--ink-text);
-  background: var(--ink-accent-soft);
-}
-
-.search-close {
-  font-size: 18px;
-  line-height: 1;
-}
-
 .editor-root :deep(.cm-editor) {
   height: 100%;
   background: transparent;
@@ -481,5 +707,81 @@ defineExpose({
 
 .editor-root :deep(.cm-editor.cm-focused) {
   outline: none;
+}
+
+.editor-root :deep(.cm-proofread-issue) {
+  background: color-mix(in srgb, #e53e3e 14%, transparent);
+  border-radius: 2px;
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: #e53e3e;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.editor-root :deep(.cm-proofread-issue-active) {
+  background: color-mix(in srgb, #e53e3e 24%, transparent);
+  outline: 1px solid color-mix(in srgb, #e53e3e 58%, transparent);
+}
+
+.proofread-popover {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  color: var(--ink-text);
+  border: 1px solid var(--ink-border-strong);
+  border-radius: 8px;
+  background: var(--ink-surface);
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--ink-shadow) 42%, transparent);
+}
+
+.proofread-popover-label {
+  color: var(--ink-text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.proofread-suggestion {
+  width: 100%;
+  padding: 6px 0;
+  color: #2f855a;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 750;
+  text-align: left;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.proofread-suggestion:hover {
+  color: #276749;
+}
+
+.proofread-reason {
+  color: var(--ink-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.proofread-ignore {
+  width: 100%;
+  padding: 8px 0 2px;
+  color: var(--ink-text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  border: none;
+  border-top: 1px solid var(--ink-border);
+  background: transparent;
+  cursor: pointer;
+}
+
+.proofread-ignore:hover {
+  color: var(--ink-text);
 }
 </style>

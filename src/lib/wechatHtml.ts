@@ -27,6 +27,28 @@ const STYLED_TAGS = [
   "td",
 ] as const;
 
+export type WechatMarkdownTitleSplit = {
+  title: string;
+  body: string;
+};
+
+export function splitLeadingH1Title(source: string): WechatMarkdownTitleSplit {
+  const lineBreakMatch = source.match(/\r?\n/);
+  const firstLineEnd = lineBreakMatch?.index ?? source.length;
+  const firstLine = source.slice(0, firstLineEnd);
+  const match = firstLine.match(/^#(?:[ \t]+|$)(.*?)(?:[ \t]+#+[ \t]*)?$/);
+  const title = match?.[1].trim() ?? "";
+  if (!title) return { title: "", body: source };
+
+  const bodyStart = lineBreakMatch
+    ? firstLineEnd + lineBreakMatch[0].length
+    : source.length;
+  return {
+    title,
+    body: source.slice(bodyStart),
+  };
+}
+
 function applyInlineStyles(root: HTMLElement, styles: Record<string, string>) {
   for (const tag of STYLED_TAGS) {
     const style = styles[tag];

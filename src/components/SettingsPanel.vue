@@ -2,9 +2,12 @@
 import { computed, ref } from "vue";
 import {
   useTheme,
-  type ThemePreference,
 } from "../composables/useTheme";
+import { useLocale } from "../composables/useLocale";
+import type { AppLocale } from "../i18n";
 import { useAI } from "../composables/useAI";
+import { useExportTypography } from "../composables/useExportTypography";
+import AiProviderSettingsPanel from "./AiProviderSettingsPanel.vue";
 
 defineProps<{
   open: boolean;
@@ -15,26 +18,38 @@ const emit = defineEmits<{
 }>();
 
 const { preference, setPreference } = useTheme();
+const { locale, setLocale, t } = useLocale();
 const { settings: aiSettings } = useAI();
+const { settings: exportTypographySettings } = useExportTypography();
 
 type SettingsTab = "appearance" | "ai";
 
 const activeTab = ref<SettingsTab>("appearance");
 
-const tabs: { id: SettingsTab; label: string; icon: string }[] = [
-  { id: "appearance", label: "外观", icon: "◐" },
-  { id: "ai", label: "AI", icon: "✦" },
-];
+const tabs = computed(() => [
+  { id: "appearance" as const, label: t("settings.tabs.appearance"), icon: "◐" },
+  { id: "ai" as const, label: t("settings.tabs.ai"), icon: "✦" },
+]);
 
-const appearanceOptions: { id: ThemePreference; label: string; hint: string }[] = [
-  { id: "light", label: "浅色", hint: "始终使用浅色外观" },
-  { id: "dark", label: "深色", hint: "始终使用深色外观" },
-  { id: "system", label: "跟随系统", hint: "随系统外观自动切换" },
+const appearanceOptions = computed(() => [
+  { id: "light" as const, label: t("settings.appearance.themeLight"), hint: t("settings.appearance.themeLightHint") },
+  { id: "dark" as const, label: t("settings.appearance.themeDark"), hint: t("settings.appearance.themeDarkHint") },
+  { id: "system" as const, label: t("settings.appearance.themeSystem"), hint: t("settings.appearance.themeSystemHint") },
+]);
+
+const languageOptions: { id: AppLocale; label: string }[] = [
+  { id: "zh-CN", label: "中文" },
+  { id: "en", label: "English" },
 ];
 
 const activeHint = computed(
-  () => appearanceOptions.find((option) => option.id === preference.value)?.hint ?? "",
+  () => appearanceOptions.value.find((option) => option.id === preference.value)?.hint ?? "",
 );
+
+const tabTitles = computed<Record<SettingsTab, string>>(() => ({
+  appearance: t("settings.tabs.appearance"),
+  ai: t("settings.tabs.ai"),
+}));
 </script>
 
 <template>
@@ -46,7 +61,7 @@ const activeHint = computed(
         aria-modal="true"
         aria-labelledby="settings-title"
       >
-        <nav class="settings-tabs" aria-label="设置分类">
+        <nav class="settings-tabs" :aria-label="t('settings.categories')">
           <button
             v-for="tab in tabs"
             :key="tab.id"
@@ -61,16 +76,36 @@ const activeHint = computed(
 
         <div class="settings-body">
           <h2 id="settings-title" class="settings-title">
-            {{ activeTab === "appearance" ? "外观" : "AI" }}
+            {{ tabTitles[activeTab] }}
           </h2>
 
           <section v-if="activeTab === 'appearance'" class="settings-section">
             <div class="setting-row">
               <div class="setting-label">
-                <span class="setting-name">主题</span>
+                <span class="setting-name">{{ t("settings.appearance.language") }}</span>
+                <span class="setting-desc">{{ t("settings.appearance.languageDesc") }}</span>
+              </div>
+              <div class="segmented" role="radiogroup" :aria-label="t('settings.appearance.language')">
+                <button
+                  v-for="option in languageOptions"
+                  :key="option.id"
+                  class="segment-btn"
+                  :class="{ active: locale === option.id }"
+                  role="radio"
+                  :aria-checked="locale === option.id"
+                  @click="setLocale(option.id)"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">{{ t("settings.appearance.theme") }}</span>
                 <span class="setting-desc">{{ activeHint }}</span>
               </div>
-              <div class="segmented" role="radiogroup" aria-label="主题">
+              <div class="segmented" role="radiogroup" :aria-label="t('settings.appearance.theme')">
                 <button
                   v-for="option in appearanceOptions"
                   :key="option.id"
@@ -84,38 +119,27 @@ const activeHint = computed(
                 </button>
               </div>
             </div>
+
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">{{ t("settings.appearance.chineseEnglishSpacing") }}</span>
+                <span class="setting-desc">
+                  {{ t("settings.appearance.chineseEnglishSpacingDesc") }}
+                </span>
+              </div>
+              <label class="toggle">
+                <input v-model="exportTypographySettings.chineseEnglishSpacing" type="checkbox" />
+                <span>{{
+                  exportTypographySettings.chineseEnglishSpacing
+                    ? t("settings.appearance.on")
+                    : t("settings.appearance.off")
+                }}</span>
+              </label>
+            </div>
           </section>
 
-          <section v-else class="settings-section">
-            <div class="setting-row setting-row-col">
-              <span class="setting-name">API Base URL</span>
-              <input
-                v-model="aiSettings.baseUrl"
-                class="setting-input"
-                placeholder="https://api.openai.com/v1"
-                spellcheck="false"
-              />
-            </div>
-            <div class="setting-row setting-row-col">
-              <span class="setting-name">API Key</span>
-              <input
-                v-model="aiSettings.apiKey"
-                class="setting-input"
-                type="password"
-                placeholder="sk-..."
-                spellcheck="false"
-                autocomplete="off"
-              />
-            </div>
-            <div class="setting-row setting-row-col">
-              <span class="setting-name">模型</span>
-              <input
-                v-model="aiSettings.model"
-                class="setting-input"
-                placeholder="gpt-4o"
-                spellcheck="false"
-              />
-            </div>
+          <section v-else class="settings-section ai-settings-section">
+            <AiProviderSettingsPanel v-model="aiSettings" />
           </section>
         </div>
       </div>
@@ -127,7 +151,7 @@ const activeHint = computed(
 .settings-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 10001;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -137,8 +161,8 @@ const activeHint = computed(
 }
 
 .settings-window {
-  width: min(560px, calc(100vw - 48px));
-  height: min(420px, calc(100vh - 48px));
+  width: min(760px, calc(100vw - 48px));
+  height: min(560px, calc(100vh - 48px));
   display: flex;
   flex-direction: column;
   background: var(--ink-surface);
@@ -197,6 +221,9 @@ const activeHint = computed(
   flex: 1;
   padding: 24px 28px;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .settings-title {
@@ -210,6 +237,11 @@ const activeHint = computed(
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.ai-settings-section {
+  min-height: 0;
+  flex: 1;
 }
 
 .setting-row {
@@ -291,5 +323,23 @@ const activeHint = computed(
 
 .setting-input:focus {
   border-color: var(--ink-accent);
+}
+
+.setting-input-narrow {
+  width: 72px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-text-muted);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.toggle input {
+  accent-color: var(--ink-accent);
 }
 </style>

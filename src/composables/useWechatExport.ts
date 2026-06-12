@@ -3,6 +3,7 @@ import {
   htmlToPlainText,
   markdownToWechatHtml,
   markdownToWechatHtmlWithImages,
+  splitLeadingH1Title,
 } from "../lib/wechatHtml";
 import type { WechatThemeId } from "../lib/wechatThemes";
 
@@ -86,7 +87,12 @@ export function buildWechatHtmlForCopy(
   docFilePath: string | null = null,
   isDark = false,
 ): Promise<string> {
-  return markdownToWechatHtmlWithImages(source, themeId, docFilePath, isDark);
+  return markdownToWechatHtmlWithImages(
+    splitLeadingH1Title(source).body,
+    themeId,
+    docFilePath,
+    isDark,
+  );
 }
 
 export async function copyWechatHtml(

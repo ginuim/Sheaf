@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ABOUT_INFO, BLOG_ABOUT_URL } from "../composables/useAbout";
+import { BLOG_ABOUT_URL } from "../composables/useAbout";
+import { useLocale } from "../composables/useLocale";
 
 defineProps<{
   open: boolean;
@@ -11,7 +13,11 @@ const emit = defineEmits<{
   close: [];
 }>();
 
+const { t, tm } = useLocale();
+
 const APP_VERSION = "0.1.0";
+
+const bioParagraphs = computed(() => tm("about.bio") as string[]);
 
 async function openBlog() {
   if (isTauri()) {
@@ -34,21 +40,21 @@ async function openBlog() {
         <header class="about-header">
           <div class="about-brand">
             <h2 id="about-title" class="about-app-name">Sheaf</h2>
-            <span class="about-version">版本 {{ APP_VERSION }}</span>
+            <span class="about-version">{{ t("about.version", { version: APP_VERSION }) }}</span>
           </div>
-          <button class="about-close" aria-label="关闭" @click="emit('close')">×</button>
+          <button class="about-close" :aria-label="t('about.close')" @click="emit('close')">×</button>
         </header>
 
         <div class="about-body">
           <div class="about-author">
             <div>
-              <h3 class="about-name">{{ ABOUT_INFO.name }}</h3>
-              <span class="about-role">{{ ABOUT_INFO.role }}</span>
+              <h3 class="about-name">reaidea</h3>
+              <span class="about-role">{{ t("about.role") }}</span>
             </div>
           </div>
 
           <div class="about-bio">
-            <p v-for="(paragraph, index) in ABOUT_INFO.bio" :key="index">
+            <p v-for="(paragraph, index) in bioParagraphs" :key="index">
               {{ paragraph }}
             </p>
           </div>
@@ -56,7 +62,7 @@ async function openBlog() {
 
         <footer class="about-footer">
           <button class="about-blog-link" @click="openBlog">
-            访问 reaidea.com
+            {{ t("about.visitBlog") }}
           </button>
         </footer>
       </div>
@@ -68,7 +74,7 @@ async function openBlog() {
 .about-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 10001;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref } from "vue";
-import AIPanelDemo from "./AIPanelDemo.vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
+import AIPanel from "../../components/AIPanel.vue";
 import ExportStudio from "../../components/ExportStudio.vue";
 import MarkdownEditor from "../../components/MarkdownEditor.vue";
 import MarkdownPreview from "../../components/MarkdownPreview.vue";
 import OutlinePanel from "../../components/OutlinePanel.vue";
 import Toolbar from "../../components/Toolbar.vue";
 import type { ViewMode } from "../../components/Toolbar.vue";
-import { DEMO_MARKDOWN } from "../../shared/demoContent";
+import { applyChangesToDoc, type EditChange } from "../../composables/useAI";
+import { useLocale } from "../../composables/useLocale";
+import { getDemoMarkdown } from "../../shared/demoContent";
+import { getDemoAiInstruction } from "../../shared/demoAiData";
 import { parseOutline } from "../../composables/useOutline";
 
 export type DemoScenarioId = "outline" | "preview" | "ai" | "export";
@@ -34,13 +37,16 @@ const DEMO_TIMING = {
   typeStreamChar: 16,
 } as const;
 
-const content = ref(DEMO_MARKDOWN);
+const { t, locale } = useLocale();
+
+const content = ref(getDemoMarkdown(locale.value));
 const viewMode = ref<ViewMode>("split");
 const showOutline = ref(true);
 const showExport = ref(false);
 const showAI = ref(true);
 const isDark = defineModel<boolean>("dark", { default: false });
 const demoRoot = ref<HTMLElement | null>(null);
+const aiPanelRef = ref<InstanceType<typeof AIPanel> | null>(null);
 const fakeCursor = ref<DemoPoint>({ x: 64, y: 18 });
 const fakeCursorVisible = ref(false);
 const fakeCursorClicking = ref(false);
@@ -48,13 +54,6 @@ const isDemoHovered = ref(false);
 const isDemoAnimating = ref(false);
 const demoCaption = ref("");
 const demoHighlight = ref("");
-const aiInstruction = ref("把第二段改得更简洁，保留引用块");
-const aiStreamPreview = ref(
-  "1. 「左侧编辑，右侧用 Source Serif 渲染预览，长文阅读更舒适。」\n" +
-    "   →「左侧写 Markdown，右侧即时预览排版效果，长文阅读更轻松。」\n" +
-    "2. 「好的排版让文字呼吸。」→「排版留白，文字才透气。」",
-);
-const aiApplied = ref(false);
 
 let animationRunId = 0;
 let activeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -62,18 +61,215 @@ let resolveActiveTimer: ((keepGoing: boolean) => void) | null = null;
 
 const outlineItems = computed(() => parseOutline(content.value));
 
-const aiInstructionFull = "把第二段改得更简洁，保留引用块";
-const aiStreamPreviewFull =
-  "1. 「左侧编辑，右侧用 Source Serif 渲染预览，长文阅读更舒适。」\n" +
-  "   →「左侧写 Markdown，右侧即时预览排版效果，长文阅读更轻松。」\n" +
-  "2. 「好的排版让文字呼吸。」→「排版留白，文字才透气。」";
-const aiAppliedMarkdown = DEMO_MARKDOWN.replace(
-  "左侧编辑，右侧用 **Source Serif** 渲染预览，长文阅读更舒适。",
-  "左侧写 Markdown，右侧即时预览排版效果，长文阅读更轻松。",
-).replace(
-  "> 好的排版让文字呼吸。",
-  "> 排版留白，文字才透气。",
-);
+function resetDemoSurface() {
+  content.value = getDemoMarkdown(locale.value);
+  showExport.value = false;
+  viewMode.value = "split";
+  showAI.value = false;
+  showOutline.value = false;
+  demoHighlight.value = "";
+  demoCaption.value = "";
+  aiPanelRef.value?.resetDemo();
+  scrollPreview(0);
+}
+
+watch(locale, () => {
+  stopDemoAnimation();
+  resetDemoSurface();
+});
+
+const demoScenarios = computed<Record<DemoScenarioId, DemoScenario>>(() => ({
+  outline: {
+    init: () => {
+      resetDemoSurface();
+      viewMode.value = "split";
+    },
+    steps: [
+      {
+        target: ".outline-toggle",
+        click: true,
+        caption: t("landing.demo.steps.outline.open"),
+        action: () => (showOutline.value = true),
+      },
+      {
+        target: ".outline-item:nth-child(1)",
+        click: true,
+        caption: t("landing.demo.steps.outline.jumpStart"),
+        action: () => {
+          demoHighlight.value = "outline-1";
+          scrollPreview(0);
+        },
+      },
+      {
+        target: ".outline-item:nth-child(2)",
+        click: true,
+        caption: t("landing.demo.steps.outline.jumpSplit"),
+        action: () => {
+          demoHighlight.value = "outline-2";
+          scrollPreview(0.28);
+        },
+      },
+      {
+        target: ".outline-item:nth-child(3)",
+        click: true,
+        caption: t("landing.demo.steps.outline.jumpAi"),
+        action: () => {
+          demoHighlight.value = "outline-3";
+          scrollPreview(0.62);
+        },
+      },
+    ],
+  },
+  preview: {
+    init: () => {
+      resetDemoSurface();
+      showOutline.value = false;
+      viewMode.value = "split";
+    },
+    steps: [
+      {
+        target: ".view-btn:nth-child(2)",
+        click: true,
+        caption: t("landing.demo.steps.preview.editOnly"),
+        action: () => {
+          viewMode.value = "edit";
+        },
+      },
+      {
+        target: ".view-btn:nth-child(3)",
+        click: true,
+        caption: t("landing.demo.steps.preview.previewOnly"),
+        action: () => {
+          viewMode.value = "preview";
+        },
+      },
+      {
+        target: ".pane-preview",
+        caption: t("landing.demo.steps.preview.scroll"),
+        wait: DEMO_TIMING.beforeScroll,
+        action: () => scrollPreview(0.68),
+      },
+    ],
+  },
+  ai: {
+    init: () => {
+      resetDemoSurface();
+      viewMode.value = "split";
+    },
+    steps: [
+      {
+        target: ".ai-toggle",
+        click: true,
+        caption: t("landing.demo.steps.ai.openPanel"),
+        action: () => (showAI.value = true),
+      },
+      {
+        target: ".ai-input",
+        click: true,
+        caption: t("landing.demo.steps.ai.typeInstruction"),
+        action: (runId) =>
+          typeInstruction(getDemoAiInstruction(locale.value), runId, DEMO_TIMING.typeChar),
+      },
+      {
+        target: ".ai-btn-primary",
+        click: true,
+        caption: t("landing.demo.steps.ai.send"),
+        action: () => clickTarget(".ai-btn-primary"),
+      },
+      {
+        target: ".ai-btn-apply",
+        click: true,
+        caption: t("landing.demo.steps.ai.apply"),
+        action: async (runId) => {
+          if (!(await waitForSelector(".ai-btn-apply", runId))) {
+            return;
+          }
+          clickTarget(".ai-btn-apply");
+        },
+      },
+    ],
+  },
+  export: {
+    init: () => {
+      resetDemoSurface();
+      viewMode.value = "split";
+    },
+    steps: [
+      {
+        target: ".export-toggle",
+        click: true,
+        caption: t("landing.demo.steps.export.openMenu"),
+        action: () => clickTarget(".export-toggle"),
+      },
+      {
+        target: ".export-dropdown-item:first-child",
+        click: true,
+        caption: t("landing.demo.steps.export.openStudio"),
+        action: () => {
+          clickTarget(".export-dropdown-item:first-child");
+          showExport.value = true;
+        },
+      },
+      {
+        target: ".theme-card:nth-child(2)",
+        click: true,
+        caption: t("landing.demo.steps.export.wechatTheme1"),
+        action: async (runId) => {
+          if (!(await waitForSelector(".theme-card:nth-child(2)", runId))) {
+            return;
+          }
+          clickTarget(".theme-card:nth-child(2)");
+        },
+      },
+      {
+        target: ".theme-card:nth-child(3)",
+        click: true,
+        caption: t("landing.demo.steps.export.wechatTheme2"),
+        action: () => clickTarget(".theme-card:nth-child(3)"),
+      },
+      {
+        target: ".type-btn:nth-child(2)",
+        click: true,
+        caption: t("landing.demo.steps.export.cardType"),
+        action: () => clickTarget(".type-btn:nth-child(2)"),
+      },
+      {
+        target: ".theme-card:nth-child(2)",
+        click: true,
+        caption: t("landing.demo.steps.export.cardTheme1"),
+        action: async (runId) => {
+          if (!(await waitForSelector(".type-btn:nth-child(2).active", runId))) {
+            return;
+          }
+          clickTarget(".theme-card:nth-child(2)");
+        },
+      },
+      {
+        target: ".theme-card:nth-child(3)",
+        click: true,
+        caption: t("landing.demo.steps.export.cardTheme2"),
+        action: () => clickTarget(".theme-card:nth-child(3)"),
+      },
+      {
+        target: ".type-btn:nth-child(3)",
+        click: true,
+        caption: t("landing.demo.steps.export.longImageType"),
+        action: () => clickTarget(".type-btn:nth-child(3)"),
+      },
+      {
+        target: ".theme-card:nth-child(2)",
+        click: true,
+        caption: t("landing.demo.steps.export.longImageTheme"),
+        action: async (runId) => {
+          if (!(await waitForSelector(".type-btn:nth-child(3).active", runId))) {
+            return;
+          }
+          clickTarget(".theme-card:nth-child(2)");
+        },
+      },
+    ],
+  },
+}));
 
 function setTheme(nextIsDark: boolean) {
   isDark.value = nextIsDark;
@@ -156,18 +352,15 @@ function scrollPreview(ratio: number) {
   });
 }
 
-async function typeText(
-  target: typeof aiInstruction | typeof aiStreamPreview,
-  value: string,
-  runId: number,
-  delay = 20,
-) {
-  target.value = "";
+async function typeInstruction(value: string, runId: number, delay = 20) {
+  aiPanelRef.value?.setInstruction("");
+  let current = "";
   for (const char of value) {
     if (!isRunActive(runId)) {
       return;
     }
-    target.value += char;
+    current += char;
+    aiPanelRef.value?.setInstruction(current);
     const shouldContinue = await waitFor(delay, runId);
     if (!shouldContinue) {
       return;
@@ -175,180 +368,26 @@ async function typeText(
   }
 }
 
-function resetDemoSurface() {
-  content.value = DEMO_MARKDOWN;
-  showExport.value = false;
-  viewMode.value = "split";
-  showAI.value = false;
-  showOutline.value = false;
-  demoHighlight.value = "";
-  demoCaption.value = "";
-  aiInstruction.value = "";
-  aiStreamPreview.value = "";
-  aiApplied.value = false;
-  scrollPreview(0);
+async function waitForSelector(selector: string, runId: number, timeoutMs = 12000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (!isRunActive(runId)) {
+      return false;
+    }
+    if (queryInDemo(selector)) {
+      return true;
+    }
+    const shouldContinue = await waitFor(80, runId);
+    if (!shouldContinue) {
+      return false;
+    }
+  }
+  return false;
 }
 
-const demoScenarios: Record<DemoScenarioId, DemoScenario> = {
-  outline: {
-    init: () => {
-      resetDemoSurface();
-      viewMode.value = "split";
-    },
-    steps: [
-      {
-        target: ".outline-toggle",
-        click: true,
-        caption: "打开章节大纲",
-        action: () => (showOutline.value = true),
-      },
-      {
-        target: ".outline-item:nth-child(1)",
-        click: true,
-        caption: "跳到文档开头",
-        action: () => {
-          demoHighlight.value = "outline-1";
-          scrollPreview(0);
-        },
-      },
-      {
-        target: ".outline-item:nth-child(2)",
-        click: true,
-        caption: "定位到实时分屏章节",
-        action: () => {
-          demoHighlight.value = "outline-2";
-          scrollPreview(0.28);
-        },
-      },
-      {
-        target: ".outline-item:nth-child(3)",
-        click: true,
-        caption: "继续跳到 AI 辅助改写",
-        action: () => {
-          demoHighlight.value = "outline-3";
-          scrollPreview(0.62);
-        },
-      },
-    ],
-  },
-  preview: {
-    init: () => {
-      resetDemoSurface();
-      showOutline.value = false;
-      viewMode.value = "split";
-    },
-    steps: [
-      {
-        target: ".view-btn:nth-child(2)",
-        click: true,
-        caption: "切到纯编辑模式",
-        action: () => {
-          viewMode.value = "edit";
-        },
-      },
-      {
-        target: ".view-btn:nth-child(3)",
-        click: true,
-        caption: "切到沉浸预览模式",
-        action: () => {
-          viewMode.value = "preview";
-        },
-      },
-      {
-        target: ".pane-preview",
-        caption: "预览区独立滚动查看全文",
-        wait: DEMO_TIMING.beforeScroll,
-        action: () => scrollPreview(0.68),
-      },
-    ],
-  },
-  ai: {
-    init: () => {
-      resetDemoSurface();
-      viewMode.value = "split";
-    },
-    steps: [
-      {
-        target: ".ai-toggle",
-        click: true,
-        caption: "打开 AI 改写面板",
-        action: () => (showAI.value = true),
-      },
-      {
-        target: ".ai-input",
-        click: true,
-        caption: "输入改写要求",
-        action: (runId) =>
-          typeText(aiInstruction, aiInstructionFull, runId, DEMO_TIMING.typeChar),
-      },
-      {
-        target: ".ai-btn-primary",
-        click: true,
-        caption: "发送给 AI",
-      },
-      {
-        target: ".ai-stream",
-        caption: "模拟返回可审阅的修改",
-        wait: DEMO_TIMING.beforeStream,
-        action: (runId) =>
-          typeText(aiStreamPreview, aiStreamPreviewFull, runId, DEMO_TIMING.typeStreamChar),
-      },
-      {
-        target: ".ai-btn-apply",
-        click: true,
-        caption: "确认并应用修改",
-        action: () => {
-          content.value = aiAppliedMarkdown;
-          aiApplied.value = true;
-        },
-      },
-    ],
-  },
-  export: {
-    init: () => {
-      resetDemoSurface();
-      viewMode.value = "split";
-    },
-    steps: [
-      {
-        target: ".export-toggle",
-        click: true,
-        caption: "打开导出菜单",
-        action: () => clickTarget(".export-toggle"),
-      },
-      {
-        target: ".export-dropdown-item:first-child",
-        click: true,
-        caption: "进入社交媒体导出工作台",
-        action: () => clickTarget(".export-dropdown-item:first-child"),
-      },
-      {
-        target: ".type-btn:nth-child(2)",
-        click: true,
-        caption: "切到小红书卡片",
-        action: () => clickTarget(".type-btn:nth-child(2)"),
-      },
-      {
-        target: ".ratio-btn:nth-child(2)",
-        click: true,
-        caption: "选择 3:4 长卡片比例",
-        action: () => clickTarget(".ratio-btn:nth-child(2)"),
-      },
-      {
-        target: ".type-btn:nth-child(1)",
-        click: true,
-        caption: "切回公众号长文预览",
-        action: () => clickTarget(".type-btn:nth-child(1)"),
-      },
-      {
-        target: ".theme-card:nth-child(2)",
-        click: true,
-        caption: "切换公众号排版样式",
-        action: () => clickTarget(".theme-card:nth-child(2)"),
-      },
-    ],
-  },
-};
+function applyDemoAiChanges(changes: EditChange[]) {
+  content.value = applyChangesToDoc(content.value, changes);
+}
 
 async function playSteps(steps: DemoStep[], runId: number) {
   fakeCursorVisible.value = true;
@@ -390,9 +429,10 @@ async function playSteps(steps: DemoStep[], runId: number) {
 async function runScenario(id: DemoScenarioId) {
   const runId = animationRunId + 1;
   animationRunId = runId;
-  demoScenarios[id].init();
+  const scenario = demoScenarios.value[id];
+  scenario.init();
   await nextTick();
-  await playSteps(demoScenarios[id].steps, runId);
+  await playSteps(scenario.steps, runId);
 }
 
 async function runThemeToggle() {
@@ -401,7 +441,9 @@ async function runThemeToggle() {
   const targetDark = !isDark.value;
   showExport.value = false;
   await nextTick();
-  demoCaption.value = targetDark ? "模拟点击切到暗黑模式" : "模拟点击切回浅色模式";
+  demoCaption.value = targetDark
+    ? t("landing.demo.steps.themeDark")
+    : t("landing.demo.steps.themeLight");
   await playSteps(
     [
       {
@@ -470,11 +512,11 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
       <span class="chrome-dot" />
       <span class="chrome-dot" />
       <span class="chrome-dot" />
-      <span class="chrome-title">Sheaf — 写作示例.md</span>
+      <span class="chrome-title">{{ t("landing.demo.windowTitle") }}</span>
     </div>
     <div class="demo-app">
       <Toolbar
-        file-name="写作示例.md"
+        :file-name="t('landing.demo.fileName')"
         :is-dirty="false"
         :view-mode="viewMode"
         :is-dark="isDark"
@@ -482,6 +524,8 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
         :show-outline="showOutline"
         :show-export="showExport"
         :show-a-i="showAI"
+        :show-versions="false"
+        :has-versions="false"
         @toggle-theme="toggleTheme"
         @toggle-outline="showOutline = !showOutline"
         @open-export="showExport = true"
@@ -499,12 +543,13 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
         <section v-show="viewMode !== 'edit'" class="pane pane-preview">
           <MarkdownPreview :source="content" />
         </section>
-        <AIPanelDemo
+        <AIPanel
           v-if="showAI"
-          :instruction="aiInstruction"
-          :stream-preview="aiStreamPreview"
-          :change-count="2"
-          :applied="aiApplied"
+          ref="aiPanelRef"
+          demo-mode
+          :doc="content"
+          document-key="__website_demo__"
+          @apply="applyDemoAiChanges"
         />
         <OutlinePanel
           v-if="showOutline"
@@ -515,7 +560,7 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
       <ExportStudio
         v-if="showExport"
         v-model="content"
-        file-name="写作示例.md"
+        :file-name="t('landing.demo.fileName')"
         :is-dark="isDark"
         embedded
         @close="showExport = false"

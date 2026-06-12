@@ -1,6 +1,8 @@
 import MarkdownIt from "markdown-it";
 import markdownItKatex from "markdown-it-katex";
 import katex from "katex";
+import { applyChineseEnglishSpacingToMarkdownTokens } from "../lib/cjkSpacing";
+import { loadExportTypographySettings } from "../lib/exportTypographySettings";
 import { resolveMediaSrc } from "./resolveMediaSrc";
 import { buildHeadingIds } from "./useOutline";
 
@@ -75,8 +77,18 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   return defaultImageRender(tokens, idx, options, env, self);
 };
 
+md.core.ruler.after("inline", "cjk_spacing", (state) => {
+  if (!state.env?.chineseEnglishSpacing) return;
+
+  for (const token of state.tokens) {
+    if (token.type !== "inline") continue;
+    applyChineseEnglishSpacingToMarkdownTokens(token.children as any);
+  }
+});
+
 export type RenderMarkdownOptions = {
   resolveMedia?: (docFilePath: string | null, src: string) => string;
+  chineseEnglishSpacing?: boolean;
 };
 
 export function renderMarkdown(
@@ -85,9 +97,12 @@ export function renderMarkdown(
   options: RenderMarkdownOptions = {},
 ): string {
   const items = buildHeadingIds(source);
+  const chineseEnglishSpacing =
+    options.chineseEnglishSpacing ?? loadExportTypographySettings().chineseEnglishSpacing;
   return md.render(source, {
     headingIds: items.map((item) => item.id),
     docFilePath,
     resolveMedia: options.resolveMedia,
+    chineseEnglishSpacing,
   });
 }
