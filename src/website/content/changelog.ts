@@ -9,6 +9,14 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.1",
+    date: "2026-06",
+    title: "工具栏优化",
+    items: [
+      "排版间距按钮仅在文档确实需要中英文间距格式化时显示",
+    ],
+  },
+  {
     version: "0.2.0",
     date: "2026-06",
     title: "AI 与编辑体验增强",
@@ -39,6 +47,14 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.1",
+    date: "2026-06",
+    title: "Toolbar polish",
+    items: [
+      "Format spacing button only shown when document needs CJK spacing formatting",
+    ],
+  },
   {
     version: "0.2.0",
     date: "2026-06",
