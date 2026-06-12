@@ -1,9 +1,16 @@
 import { HighlightStyle } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 
+const editorLinkStyle = {
+  color: "var(--ink-accent)",
+  textDecoration: "underline",
+  textDecorationColor: "var(--ink-link-underline)",
+  textUnderlineOffset: "3px",
+};
+
 export const editorHighlightStyle = HighlightStyle.define([
   { tag: tags.meta, color: "var(--ink-syntax-meta)" },
-  { tag: tags.link, color: "var(--ink-syntax-url)", textDecoration: "underline" },
+  { tag: tags.link, ...editorLinkStyle },
   {
     tag: tags.heading,
     color: "var(--ink-syntax-heading)",
@@ -14,8 +21,10 @@ export const editorHighlightStyle = HighlightStyle.define([
   { tag: tags.strong, fontWeight: "bold" },
   { tag: tags.strikethrough, textDecoration: "line-through" },
   { tag: tags.keyword, color: "var(--ink-syntax-keyword)" },
+  { tag: tags.url, ...editorLinkStyle },
+  { tag: tags.labelName, color: "var(--ink-text)" },
   {
-    tag: [tags.atom, tags.bool, tags.url, tags.contentSeparator, tags.labelName],
+    tag: [tags.atom, tags.bool, tags.contentSeparator],
     color: "var(--ink-syntax-url)",
   },
   { tag: [tags.literal, tags.inserted], color: "var(--ink-syntax-literal)" },

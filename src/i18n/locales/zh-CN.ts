@@ -4,6 +4,8 @@ export default {
     tabs: {
       appearance: "外观",
       ai: "AI",
+      aiModels: "AI 模型",
+      aiTools: "AI 工具",
     },
     appearance: {
       theme: "主题",
@@ -28,6 +30,8 @@ export default {
     newDoc: "新建文档",
     openFile: "打开文件",
     save: "保存",
+    revealInFolder: "在文件夹中显示",
+    revealInFolderFailed: "无法在文件夹中显示该文件。",
     formatSpacing: "格式化中英文间距",
     versionHistory: "历史版本",
     aiEdit: "AI 编辑",
@@ -126,6 +130,10 @@ console.log(greeting);
     formatSpacing: "格式化中英文间距",
     about: "关于 Sheaf…",
   },
+  editor: {
+    imageRequiresSavedDocument: "请先保存文档，再插入图片。",
+    imageInsertFailed: "无法保存图片，请重试。",
+  },
   search: {
     ariaLabel: "在文档中搜索",
     placeholder: "搜索...",
@@ -157,6 +165,7 @@ console.log(greeting);
       "minimax-cn": "MiniMax（国内）",
       "minimax-global": "MiniMax（国际）",
       "aliyun-bailian": "通义千问",
+      mimo: "小米 MiMo",
     },
     models: {
       deepseek: {
@@ -194,10 +203,8 @@ console.log(greeting);
     displayNamePlaceholder: "显示名称",
     saveModel: "保存模型",
     save: "保存",
+    saveProvider: "保存配置",
     edit: "编辑",
-    webSearch: "网页搜索",
-    webSearchDesc: "无需 API Key，Agent 可联网查资料。",
-    searchResultCount: "每次搜索条数",
     capability: {
       text: "文本",
       vision: "视觉",
@@ -207,14 +214,25 @@ console.log(greeting);
       web: "联网",
     },
   },
+  aiTools: {
+    configDesc: "配置 Agent 可用的工具能力。",
+    webSearch: "网页搜索",
+    webSearchDesc: "无需 API Key，Agent 可联网查资料。",
+    searchResultCount: "每次搜索条数",
+  },
   ai: {
     title: "AI 助手",
     quick: "快速",
     newConversation: "开始新的 AI 对话",
+    openHistory: "查看历史对话",
+    closeHistory: "返回当前对话",
     clearHistory: "清空对话记录与版本快照",
     history: "历史对话",
+    currentConversation: "当前",
+    historyEmptyTitle: "暂无历史对话",
+    historyEmptyDesc: "开始新对话后，会在这里列出所有会话记录。",
     emptyTitle: "当前对话暂无记录",
-    emptyDesc: "在下方输入指令开始对话。之前的对话会保留在「历史对话」列表中，可随时切换查看。",
+    emptyDesc: "在下方输入指令开始对话。点击顶部历史图标可查看并切换其他对话。",
     instruction: "指令",
     agentRunning: "Agent 执行中…",
     generating: "正在生成修改…",

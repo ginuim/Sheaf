@@ -24,12 +24,20 @@ import {
 } from "@codemirror/view";
 import EditorSearchReplace from "./EditorSearchReplace.vue";
 import { editorHighlightStyle } from "../lib/editorHighlightStyle";
+import {
+  editorImageInsertExtension,
+  insertEditorImagesFromPaths,
+  type EditorImageInsertOptions,
+} from "../lib/editor-image-insert";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useAppToast } from "../composables/useAppToast";
 import { useLocale } from "../composables/useLocale";
 import type { ProofreadIssue } from "../types/proofreading";
 
 const props = defineProps<{
   modelValue: string;
+  documentPath?: string | null;
+  ensureDocumentSaved?: () => Promise<string | null>;
   proofreadIssues?: ProofreadIssue[];
   activeProofreadIssueId?: string | null;
 }>();
@@ -48,6 +56,18 @@ const searchReplaceRef = ref<InstanceType<typeof EditorSearchReplace> | null>(nu
 const searchOpen = ref(false);
 const replaceOpen = ref(false);
 const { t } = useLocale();
+const { showToast } = useAppToast();
+
+const imageInsertOptions: EditorImageInsertOptions = {
+  getDocumentPath: () => props.documentPath ?? null,
+  ensureDocumentSaved: () => props.ensureDocumentSaved?.() ?? Promise.resolve(null),
+  onRequiresSavedDocument: () => {
+    showToast("info", t("editor.imageRequiresSavedDocument"));
+  },
+  onInsertFailed: () => {
+    showToast("error", t("editor.imageInsertFailed"));
+  },
+};
 const searchText = ref("");
 const replaceText = ref("");
 const caseSensitive = ref(false);
@@ -563,6 +583,7 @@ onMounted(() => {
         EditorView.domEventHandlers({
           click: handleProofreadClick,
         }),
+        editorImageInsertExtension(imageInsertOptions),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !syncing) {
             emit("update:modelValue", update.state.doc.toString());
@@ -607,11 +628,19 @@ watch(
   },
 );
 
+function insertDroppedImagePaths(paths: string[]) {
+  if (!view || paths.length === 0) return;
+
+  const insertPos = view.state.selection.main.head;
+  void insertEditorImagesFromPaths(view, insertPos, paths, imageInsertOptions);
+}
+
 defineExpose({
   openSearch,
   openReplace,
   closeSearch,
   isSearchOpen: () => searchOpen.value,
+  insertDroppedImagePaths,
   scrollRatio(ratio: number) {
     if (!view) return;
     const scroller = view.scrollDOM;

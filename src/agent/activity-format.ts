@@ -30,6 +30,32 @@ export function formatToolResultSummary(toolName: string, output: unknown): stri
   switch (toolName) {
     case "get_context":
       return "已读取当前文档";
+    case "inspect_document_structure":
+      return typeof record.anchorCount === "number"
+        ? `${record.anchorCount} 个结构锚点`
+        : "已读取文档结构";
+    case "read_document":
+      return "已读取文档片段";
+    case "locate_content":
+      return "已定位内容";
+    case "replace_content":
+      return typeof record.changeCount === "number"
+        ? `已准备替换 ${record.changeCount} 处`
+        : "已准备替换";
+    case "insert_content":
+      return typeof record.changeCount === "number"
+        ? `已准备插入 ${record.changeCount} 处`
+        : "已准备插入";
+    case "batch_edit":
+      return typeof record.changeCount === "number"
+        ? `已准备 ${record.changeCount} 处批量编辑`
+        : "已准备批量编辑";
+    case "validate_markdown":
+      return typeof record.issueCount === "number"
+        ? record.issueCount > 0
+          ? `${record.issueCount} 个结构问题`
+          : "结构检查通过"
+        : "已检查 Markdown";
     case "web_search":
       return `${typeof record.count === "number" ? record.count : "?"} 条 · ${String(record.provider ?? "search")}`;
     case "fetch_url":
@@ -87,6 +113,12 @@ export function formatToolResultDetail(toolName: string, output: unknown): strin
     }
     case "propose_edits":
     case "append_content":
+    case "replace_content":
+    case "insert_content":
+    case "batch_edit":
+    case "validate_markdown":
+    case "inspect_document_structure":
+    case "locate_content":
     case "generate_image":
       return truncate(JSON.stringify(record, null, 2));
     case "list_notes":

@@ -517,6 +517,7 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
     <div class="demo-app">
       <Toolbar
         :file-name="t('landing.demo.fileName')"
+        :file-path="null"
         :is-dirty="false"
         :view-mode="viewMode"
         :is-dark="isDark"

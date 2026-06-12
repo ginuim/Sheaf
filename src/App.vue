@@ -3,7 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, message } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import AppToast from "./components/AppToast.vue";
 import AIPanel from "./components/AIPanel.vue";
@@ -37,6 +37,7 @@ import {
 import { useTheme } from "./composables/useTheme";
 import { translate, useLocale } from "./composables/useLocale";
 import { applyChineseEnglishSpacingToMarkdownSource } from "./lib/cjkSpacing";
+import { filterDocumentPaths, filterImagePaths } from "./lib/dropped-paths";
 import {
   clearUnsavedDraft,
   hasRecoverableDraft,
@@ -181,6 +182,29 @@ const { filePath, fileName, openFile, openFileAtPath, newFile, saveFile, saveFil
       pendingDraft.value = null;
     },
   );
+
+async function ensureDocumentSavedForImage(): Promise<string | null> {
+  if (filePath.value) return filePath.value;
+  await saveFile(content.value);
+  return filePath.value;
+}
+
+async function revealCurrentFileInFolder() {
+  if (!filePath.value || !hasTauriRuntime()) return;
+
+  try {
+    await revealItemInDir(filePath.value);
+  } catch {
+    showToast("error", t("toolbar.revealInFolderFailed"));
+  }
+}
+
+async function handleDroppedImagePaths(paths: string[]) {
+  if (!paths.length || showStartPage.value) return;
+
+  await invoke("allow_dropped_paths", { paths });
+  editorRef.value?.insertDroppedImagePaths(paths);
+}
 
 const aiDocumentKey = computed(() => filePath.value ?? draftSessionId.value);
 const documentVersions = useDocumentVersions(() => aiDocumentKey.value);
@@ -383,15 +407,6 @@ function handleClearRecent() {
 function handleRemoveRecent(path: string) {
   recentFiles.value = removeRecent(path);
   void refreshRecentMenu(recentFiles.value);
-}
-
-const SUPPORTED_DOC_EXT = new Set(["md", "markdown", "txt"]);
-
-function filterDocPaths(paths: string[]): string[] {
-  return paths.filter((path) => {
-    const ext = path.split(".").pop()?.toLowerCase() ?? "";
-    return SUPPORTED_DOC_EXT.has(ext);
-  });
 }
 
 let unlistenOpened: UnlistenFn | null = null;
@@ -749,10 +764,16 @@ onMounted(async () => {
       unlistenDragDrop = await getCurrentWebview().onDragDropEvent((event) => {
         if (event.payload.type !== "drop") return;
 
-        const paths = filterDocPaths(event.payload.paths);
-        if (paths.length === 0) return;
+        const imagePaths = filterImagePaths(event.payload.paths);
+        const documentPaths = filterDocumentPaths(event.payload.paths);
 
-        void invoke("open_dropped_files", { paths });
+        if (imagePaths.length > 0) {
+          void handleDroppedImagePaths(imagePaths);
+        }
+
+        if (documentPaths.length > 0) {
+          void invoke("open_dropped_files", { paths: documentPaths });
+        }
       });
     } catch (error) {
       console.warn("Drag-and-drop listener unavailable in this environment:", error);
@@ -773,6 +794,7 @@ onUnmounted(() => {
       v-if="!showStartPage"
       class="editor-enter"
       :file-name="fileName"
+      :file-path="filePath"
       :is-dirty="isDirty"
       :view-mode="viewMode"
       :is-dark="isDark"
@@ -785,6 +807,7 @@ onUnmounted(() => {
       @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @save="saveFile(content)"
+      @reveal-in-folder="revealCurrentFileInFolder"
       @format-spacing="formatChineseEnglishSpacing"
       @export-pdf="handleExportPdf"
       @toggle-theme="toggleTheme"
@@ -826,6 +849,8 @@ onUnmounted(() => {
         <MarkdownEditor
           ref="editorRef"
           v-model="content"
+          :document-path="filePath"
+          :ensure-document-saved="ensureDocumentSavedForImage"
           :proofread-issues="proofreadIssues"
           :active-proofread-issue-id="activeProofreadIssueId"
           @scroll="onEditorScroll"

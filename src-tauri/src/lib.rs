@@ -49,6 +49,13 @@ fn open_dropped_files(app: AppHandle, paths: Vec<String>) {
     handle_opened_files(&app, paths);
 }
 
+#[tauri::command]
+fn allow_dropped_paths(app: AppHandle, paths: Vec<String>) {
+    for path in paths {
+        allow_file(&app, Path::new(&path));
+    }
+}
+
 #[cfg(any(windows, target_os = "linux"))]
 fn paths_from_args() -> Vec<PathBuf> {
     std::env::args()
@@ -84,6 +91,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             take_opened_files,
             open_dropped_files,
+            allow_dropped_paths,
             export_pdf_file,
             fetch_url
         ])

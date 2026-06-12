@@ -4,6 +4,8 @@ export default {
     tabs: {
       appearance: "Appearance",
       ai: "AI",
+      aiModels: "AI Models",
+      aiTools: "AI Tools",
     },
     appearance: {
       theme: "Theme",
@@ -28,6 +30,8 @@ export default {
     newDoc: "New document",
     openFile: "Open file",
     save: "Save",
+    revealInFolder: "Show in folder",
+    revealInFolderFailed: "Could not show the file in its folder.",
     formatSpacing: "Format CJK spacing",
     versionHistory: "Version history",
     aiEdit: "AI edit",
@@ -126,6 +130,10 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     formatSpacing: "Format CJK spacing",
     about: "About Sheaf…",
   },
+  editor: {
+    imageRequiresSavedDocument: "Save the document before inserting images.",
+    imageInsertFailed: "Could not save the image. Please try again.",
+  },
   search: {
     ariaLabel: "Search in document",
     placeholder: "Search...",
@@ -157,6 +165,7 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
       "minimax-cn": "MiniMax (China)",
       "minimax-global": "MiniMax (Global)",
       "aliyun-bailian": "Qwen (Alibaba Cloud)",
+      mimo: "Xiaomi MiMo",
     },
     models: {
       deepseek: {
@@ -194,10 +203,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     displayNamePlaceholder: "Display name",
     saveModel: "Save model",
     save: "Save",
+    saveProvider: "Save configuration",
     edit: "Edit",
-    webSearch: "Web search",
-    webSearchDesc: "No API key required. Agent can search the web.",
-    searchResultCount: "Results per search",
     capability: {
       text: "Text",
       vision: "Vision",
@@ -207,14 +214,25 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
       web: "Web",
     },
   },
+  aiTools: {
+    configDesc: "Configure tools available to the Agent.",
+    webSearch: "Web search",
+    webSearchDesc: "No API key required. Agent can search the web.",
+    searchResultCount: "Results per search",
+  },
   ai: {
     title: "AI Assistant",
     quick: "Quick",
     newConversation: "Start a new AI conversation",
+    openHistory: "View conversation history",
+    closeHistory: "Back to current conversation",
     clearHistory: "Clear conversation and version snapshots",
     history: "History",
+    currentConversation: "Current",
+    historyEmptyTitle: "No conversation history yet",
+    historyEmptyDesc: "Start a conversation and it will appear here.",
     emptyTitle: "No messages in this conversation",
-    emptyDesc: "Enter an instruction below to start. Previous conversations stay in History and can be switched anytime.",
+    emptyDesc: "Enter an instruction below to start. Use the history icon above to browse and switch conversations.",
     instruction: "Instruction",
     agentRunning: "Agent running…",
     generating: "Generating edits…",

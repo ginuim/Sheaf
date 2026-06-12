@@ -3,6 +3,7 @@ import type { AiProviderConfigSeed } from "./types";
 
 const BUILTIN_PROVIDER_NAME_KEYS: Partial<Record<string, string>> = {
   "aliyun-bailian": "aiProviders.providers.aliyun-bailian",
+  mimo: "aiProviders.providers.mimo",
   "minimax-cn": "aiProviders.providers.minimax-cn",
   "minimax-global": "aiProviders.providers.minimax-global",
 };
@@ -244,6 +245,35 @@ export const defaultProviderTemplates: AiProviderConfigSeed[] = [
         enabled: true,
         id: "google/gemini-2.5-flash",
         name: "Gemini 2.5 Flash",
+      },
+    ],
+  },
+  {
+    apiKey: "",
+    baseUrl: "https://api.xiaomimimo.com/v1",
+    defaultModelId: "mimo-v2.5-pro",
+    enabled: false,
+    id: "mimo",
+    name: "Xiaomi MiMo",
+    apiStyle: "openai-compatible",
+    models: [
+      {
+        capabilities: ["text", "reasoning", "tools", "web"],
+        enabled: true,
+        id: "mimo-v2.5-pro",
+        name: "MiMo V2.5 Pro",
+      },
+      {
+        capabilities: ["text", "vision", "reasoning", "tools", "web"],
+        enabled: true,
+        id: "mimo-v2.5",
+        name: "MiMo V2.5",
+      },
+      {
+        capabilities: ["text", "tools", "web"],
+        enabled: true,
+        id: "mimo-v2-flash",
+        name: "MiMo V2 Flash",
       },
     ],
   },

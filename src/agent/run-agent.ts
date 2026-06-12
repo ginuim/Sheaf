@@ -13,21 +13,37 @@ import type { AgentActivity, AgentRunInput, AgentRunResult, AgentToolRuntime } f
 
 const AGENT_SYSTEM = [
   "你是 Sheaf 的 Markdown 助手，在用户的本地编辑器中运行。",
-  "工具：web_search / fetch_url 查资料；generate_image 按描述生成图片（需已配置生图模型）；append_content 追加或插入章节；propose_edits 精确替换；get_context 仅在正文被截断时需重读；list_notes / read_note 读其他笔记。",
+  "工具：inspect_document_structure 查看标题/章节/段落/表格锚点；locate_content 定位目标；read_document 按锚点或范围读取正文；insert_content 插入新内容；replace_content 替换章节/段落/表格/精确原文；batch_edit 做多处小改；validate_markdown 检查结构；web_search / fetch_url 查资料；generate_image 按描述生成图片（需已配置生图模型）；get_context 仅在正文被截断时需重读；list_notes / read_note 读其他笔记。",
   "用户要求插图、配图、生成图片时：先 generate_image，再用 append_content 把返回的 Markdown 图片语法插入文档合适位置。",
   "需要最新事实或外部资料时：先 web_search；若摘要不够，再 fetch_url 抓取最相关的 1-2 个链接。",
   "web_search 返回了预报或正文时，必须基于结果回答并标注来源；不要回复「查不到」或让用户自己去网站看。",
   "不要声称已读文件、已改文档或已搜索网页，除非对应工具返回成功。",
-  "用户要求写入、修改、插入、重写、起草、完善、补充或结合资料更新文档时，必须调用 append_content 或 propose_edits 改文档，不要只在聊天里描述。",
+  "用户要求写入、修改、插入、重写、起草、完善、补充或结合资料更新文档时，必须调用 insert_content、replace_content、batch_edit、append_content 或 propose_edits 准备编辑器 diff 预览，不要只在聊天里输出正文。",
+  "定位不明确时，先 inspect_document_structure 或 locate_content；替换已有内容时优先使用 anchorId、headingTitle 或 exactText，不要凭空猜 from/to 偏移。",
+  "新增章节/段落优先 insert_content；重写某节用 replace_content targetKind=section；改表格用 targetKind=table；多处短小替换用 batch_edit；只有用户明确要求全文重写才替换 whole-document。",
+  "复杂结构改写后可调用 validate_markdown 检查候选内容或当前文档结构。",
   "即使外部资料不完整，也要基于已获取信息做最佳修改，并在回复中说明不确定之处；不要因资料不完美就放弃改文档。",
-  "每轮用户消息已附带当前文档正文，一般无需 get_context。新增章节/段落优先 append_content；精确改写已有句子用 propose_edits。",
+  "每轮用户消息已附带当前文档正文，一般无需 get_context；长文或目标不明确时使用结构化工具读取局部内容。",
   "纯问答（解释概念、闲聊、不要求改文档）可以只输出文字。",
   "需要改文档时，修改区间不得重叠。",
   "用户可见回复使用其使用的语言，简洁务实。",
   "改文档成功后简短说明改了什么；若未改文档，说明原因。",
 ].join("\n");
 
-const WRITE_TOOLS = ["append_content", "propose_edits"] as const;
+const WRITE_TOOLS = [
+  "append_content",
+  "batch_edit",
+  "insert_content",
+  "propose_edits",
+  "replace_content",
+] as const;
+const DOCUMENT_EDIT_FLOW_TOOLS = [
+  "inspect_document_structure",
+  "locate_content",
+  "read_document",
+  "validate_markdown",
+  ...WRITE_TOOLS,
+] as const;
 
 function stepCalledTool(steps: unknown, toolName: string) {
   if (!Array.isArray(steps)) return false;
@@ -140,6 +156,12 @@ export async function runSheafAgent(input: AgentRunInput): Promise<AgentRunResul
     prepareStep: writeTask
       ? ({ steps }) => {
           if (stepCalledWriteTool(steps)) return undefined;
+          if (Array.isArray(steps) && steps.length < 3) {
+            return {
+              toolChoice: "required",
+              activeTools: [...DOCUMENT_EDIT_FLOW_TOOLS],
+            };
+          }
           return {
             toolChoice: "required",
             activeTools: [...WRITE_TOOLS],
