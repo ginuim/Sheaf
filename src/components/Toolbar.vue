@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from "vue";
-import { ChevronDown, FilePlus, Folder, FolderOpen, History, ListTree, Save, WholeWord } from "@lucide/vue";
+import { ChevronDown, FilePlus, Folder, FolderOpen, ClipboardClock, ListTree, Save, WholeWord } from "@lucide/vue";
 import { useLocale } from "../composables/useLocale";
 
 export type ViewMode = "split" | "edit" | "preview";
@@ -136,7 +136,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
         :aria-label="t('toolbar.versionHistory')"
         @click="emit('toggleVersions')"
       >
-        <History :size="iconSize" aria-hidden="true" />
+        <ClipboardClock :size="iconSize" aria-hidden="true" />
       </button>
       <button
         class="btn btn-ghost ai-toggle"
