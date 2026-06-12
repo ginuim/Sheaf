@@ -12,6 +12,7 @@ import { useLocale } from "../../composables/useLocale";
 import { getDemoMarkdown } from "../../shared/demoContent";
 import { getDemoAiInstruction } from "../../shared/demoAiData";
 import { parseOutline } from "../../composables/useOutline";
+import { needsChineseEnglishSpacingFormatting } from "../../lib/cjkSpacing";
 
 export type DemoScenarioId = "outline" | "preview" | "ai" | "export";
 type DemoPoint = { x: number; y: number };
@@ -60,6 +61,9 @@ let activeTimer: ReturnType<typeof setTimeout> | null = null;
 let resolveActiveTimer: ((keepGoing: boolean) => void) | null = null;
 
 const outlineItems = computed(() => parseOutline(content.value));
+const needsFormatSpacing = computed(() =>
+  needsChineseEnglishSpacingFormatting(content.value),
+);
 
 function resetDemoSurface() {
   content.value = getDemoMarkdown(locale.value);
@@ -527,6 +531,7 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
         :show-a-i="showAI"
         :show-versions="false"
         :has-versions="false"
+        :needs-format-spacing="needsFormatSpacing"
         @toggle-theme="toggleTheme"
         @toggle-outline="showOutline = !showOutline"
         @open-export="showExport = true"

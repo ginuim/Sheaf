@@ -36,7 +36,10 @@ import {
 } from "./composables/useRecentFiles";
 import { useTheme } from "./composables/useTheme";
 import { translate, useLocale } from "./composables/useLocale";
-import { applyChineseEnglishSpacingToMarkdownSource } from "./lib/cjkSpacing";
+import {
+  applyChineseEnglishSpacingToMarkdownSource,
+  needsChineseEnglishSpacingFormatting,
+} from "./lib/cjkSpacing";
 import { filterDocumentPaths, filterImagePaths } from "./lib/dropped-paths";
 import {
   clearUnsavedDraft,
@@ -52,6 +55,9 @@ const { t, locale } = useLocale();
 const content = ref(DEFAULT_CONTENT);
 const baselineContent = ref(DEFAULT_CONTENT);
 const isDirty = computed(() => content.value !== baselineContent.value);
+const needsFormatSpacing = computed(() =>
+  needsChineseEnglishSpacingFormatting(content.value),
+);
 const viewMode = ref<ViewMode>("split");
 const showOutline = ref(parseOutline(DEFAULT_CONTENT).length > 0);
 const showExport = ref(false);
@@ -804,6 +810,7 @@ onUnmounted(() => {
       :show-a-i="showAI"
       :show-versions="showVersionHistory"
       :has-versions="documentVersionList.length > 0"
+      :needs-format-spacing="needsFormatSpacing"
       @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @save="saveFile(content)"

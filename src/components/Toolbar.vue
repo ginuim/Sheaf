@@ -19,6 +19,7 @@ defineProps<{
   showAI: boolean;
   showVersions: boolean;
   hasVersions: boolean;
+  needsFormatSpacing: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -103,6 +104,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
         <Save :size="iconSize" aria-hidden="true" />
       </button>
       <button
+        v-if="needsFormatSpacing"
         class="btn btn-icon"
         :title="`${t('toolbar.formatSpacing')} (⌘⇧Space)`"
         :aria-label="t('toolbar.formatSpacing')"

@@ -136,6 +136,10 @@ export function applyChineseEnglishSpacingToMarkdownSource(source: string): stri
     .join("");
 }
 
+export function needsChineseEnglishSpacingFormatting(source: string): boolean {
+  return applyChineseEnglishSpacingToMarkdownSource(source) !== source;
+}
+
 function normalizeTextTokens(tokens: MarkdownInlineToken[] | undefined) {
   if (!tokens) return;
 
