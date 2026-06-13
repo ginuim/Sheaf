@@ -124,7 +124,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
       >
         <Folder :size="14" aria-hidden="true" />
       </button>
-      <span class="doc-title">
+      <span class="doc-title" :title="fileName">
         {{ fileName }}<span v-if="isDirty" class="dirty"> ·</span>
       </span>
     </div>
@@ -240,6 +240,9 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
 
 .toolbar-center {
   justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  gap: 4px;
 }
 
 .toolbar-right {
@@ -289,6 +292,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
 }
 
 .doc-reveal {
+  flex-shrink: 0;
   -webkit-app-region: no-drag;
   color: var(--ink-text-muted);
 }
@@ -298,9 +302,13 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
 }
 
 .doc-title {
+  min-width: 0;
+  overflow: hidden;
   font-size: 13px;
   color: var(--ink-text-muted);
   letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   user-select: none;
 }
 

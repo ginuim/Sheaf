@@ -9,6 +9,14 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.3",
+    date: "2026-06",
+    title: "工具栏标题显示优化",
+    items: [
+      "文档标题过长时在工具栏单行显示，超出部分以省略号截断",
+    ],
+  },
+  {
     version: "0.2.2",
     date: "2026-06",
     title: "应用内自动更新",
@@ -57,6 +65,14 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.3",
+    date: "2026-06",
+    title: "Toolbar title display",
+    items: [
+      "Document title stays on one line in the toolbar with ellipsis when truncated",
+    ],
+  },
   {
     version: "0.2.2",
     date: "2026-06",
