@@ -136,6 +136,7 @@ jobs:
           const updaterConfig = {
             bundle: {
               createUpdaterArtifacts: true,
+              targets: ["app", "dmg"],
             },
             plugins: {
               updater: {
@@ -173,7 +174,7 @@ jobs:
           UPDATER_BUNDLE=$(find "$GITHUB_WORKSPACE/src-tauri/target" -path '*/release/bundle/macos/*.app.tar.gz' -print -quit)
           if [ -z "$UPDATER_BUNDLE" ]; then
             echo "Updater bundle not found under src-tauri/target" >&2
-            find "$GITHUB_WORKSPACE/src-tauri/target" -type f -name '*.app.tar.gz' 2>/dev/null || true
+            find "$GITHUB_WORKSPACE/src-tauri/target" -path '*/release/bundle/*' -type f 2>/dev/null | sort || true
             exit 1
           fi
 
