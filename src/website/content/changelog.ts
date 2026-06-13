@@ -9,6 +9,16 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.2",
+    date: "2026-06",
+    title: "应用内自动更新",
+    items: [
+      "支持后台检查、下载并安装新版本，完成后一键重启",
+      "设置页可开关自动检查，菜单与设置页支持手动检查更新",
+      "官网 favicon 与动态版本号展示",
+    ],
+  },
+  {
     version: "0.2.1",
     date: "2026-06",
     title: "工具栏优化",
@@ -47,6 +57,16 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.2",
+    date: "2026-06",
+    title: "In-app auto-update",
+    items: [
+      "Background update checks, downloads, and install with one-click restart",
+      "Auto-check toggle in Settings; manual check from menu and Settings",
+      "Website favicon and dynamic version display",
+    ],
+  },
   {
     version: "0.2.1",
     date: "2026-06",
