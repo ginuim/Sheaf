@@ -9,8 +9,6 @@ export type DownloadVariantId =
 
 import { GITHUB_REPO } from "./repo";
 
-export const RELEASE_VERSION = "0.1.0";
-
 const MAC_DMG_NAMES: Record<MacArch, string> = {
   arm64: "Sheaf-macos-arm64.dmg",
   x64: "Sheaf-macos-x64.dmg",
@@ -58,7 +56,7 @@ export const DOWNLOAD_PLATFORMS: DownloadPlatformGroup[] = [
 
 function githubMacAssetUrl(arch: MacArch): string {
   const file = MAC_DMG_NAMES[arch];
-  return `https://github.com/${GITHUB_REPO}/releases/download/v${RELEASE_VERSION}/${file}`;
+  return `https://github.com/${GITHUB_REPO}/releases/latest/download/${file}`;
 }
 
 export function getDownloadUrl(

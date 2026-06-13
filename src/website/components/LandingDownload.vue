@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useLocale } from "../../composables/useLocale";
+import { useLatestRelease } from "../composables/useLatestRelease";
 import {
   DOWNLOAD_PLATFORMS,
-  RELEASE_VERSION,
   detectMacArch,
   detectPlatform,
   getDownloadUrl,
@@ -14,6 +14,7 @@ import {
 import { GITHUB_RELEASES_URL } from "../content/repo";
 
 const { t } = useLocale();
+const { version: releaseVersion } = useLatestRelease();
 
 const selectedPlatform = ref<Platform>(detectPlatform());
 
@@ -104,8 +105,8 @@ const detectedHint = computed(() => {
     <p v-if="detectedHint" class="landing-download-hint">{{ detectedHint }}</p>
 
     <p class="landing-download-meta">
-      <span>v{{ RELEASE_VERSION }}</span>
-      <span aria-hidden="true">·</span>
+      <span v-if="releaseVersion">v{{ releaseVersion }}</span>
+      <span v-if="releaseVersion" aria-hidden="true">·</span>
       <a :href="GITHUB_RELEASES_URL" target="_blank" rel="noopener noreferrer">
         {{ t("landing.download.allReleases") }}
       </a>
