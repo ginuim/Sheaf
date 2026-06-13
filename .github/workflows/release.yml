@@ -25,6 +25,7 @@ concurrency:
 
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+  TAURI_UPDATER_ENDPOINT: https://github.com/ginuim/Sheaf/releases/latest/download/latest.json
 
 jobs:
   build-macos:
@@ -35,9 +36,11 @@ jobs:
           - target: aarch64-apple-darwin
             artifact: Sheaf-macos-arm64
             expected_arch: arm64
+            updater_platform: darwin-aarch64
           - target: x86_64-apple-darwin
             artifact: Sheaf-macos-x64
             expected_arch: x86_64
+            updater_platform: darwin-x86_64
 
     runs-on: macos-latest
 
@@ -116,23 +119,78 @@ jobs:
           printf '%s' "$APPLE_API_KEY_PRIVATE_KEY" > "$KEY_PATH"
           echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
 
-      - name: Build DMG
-        run: pnpm tauri build --target ${{ matrix.target }}
-
-      - name: Collect DMG
+      - name: Prepare updater config
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("fs");
+          const publicKey = process.env.TAURI_UPDATER_PUBLIC_KEY?.trim();
+          const endpoint = process.env.TAURI_UPDATER_ENDPOINT;
+
+          if (!publicKey) {
+            throw new Error("Missing TAURI_UPDATER_PUBLIC_KEY repository secret.");
+          }
+
+          const updaterConfig = {
+            bundle: {
+              createUpdaterArtifacts: true,
+            },
+            plugins: {
+              updater: {
+                endpoints: [endpoint],
+                pubkey: publicKey,
+              },
+            },
+          };
+
+          fs.writeFileSync(
+            "src-tauri/tauri.updater.conf.json",
+            `${JSON.stringify(updaterConfig, null, 2)}\n`,
+          );
+          NODE
+
+      - name: Build app bundles
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --target ${{ matrix.target }} --config src-tauri/tauri.updater.conf.json
+
+      - name: Collect release artifacts
+        run: |
+          set -euo pipefail
           OUT_DIR="$GITHUB_WORKSPACE/release"
           mkdir -p "$OUT_DIR"
+
           DMG=$(find "$GITHUB_WORKSPACE/src-tauri/target" -path '*/release/bundle/dmg/*.dmg' -print -quit)
           if [ -z "$DMG" ]; then
             echo "DMG not found under src-tauri/target" >&2
             find "$GITHUB_WORKSPACE/src-tauri/target" -type f -name '*.dmg' 2>/dev/null || true
             exit 1
           fi
+
+          UPDATER_BUNDLE=$(find "$GITHUB_WORKSPACE/src-tauri/target" -path '*/release/bundle/macos/*.app.tar.gz' -print -quit)
+          if [ -z "$UPDATER_BUNDLE" ]; then
+            echo "Updater bundle not found under src-tauri/target" >&2
+            find "$GITHUB_WORKSPACE/src-tauri/target" -type f -name '*.app.tar.gz' 2>/dev/null || true
+            exit 1
+          fi
+
           DMG_PATH="$OUT_DIR/${{ matrix.artifact }}.dmg"
+          UPDATER_PATH="$OUT_DIR/${{ matrix.artifact }}.app.tar.gz"
           cp -f "$DMG" "$DMG_PATH"
+          cp -f "$UPDATER_BUNDLE" "$UPDATER_PATH"
+          cp -f "${UPDATER_BUNDLE}.sig" "${UPDATER_PATH}.sig"
           echo "DMG_PATH=$DMG_PATH" >> "$GITHUB_ENV"
-          echo "Collected DMG: release/${{ matrix.artifact }}.dmg"
+          echo "Collected DMG and updater bundle for ${{ matrix.artifact }}"
+
+      - name: Create updater metadata
+        env:
+          RELEASE_DIR: release
+          UPDATER_PLATFORM: ${{ matrix.updater_platform }}
+          ARTIFACT_BASE: ${{ matrix.artifact }}
+        run: node .github/scripts/release/create-updater-metadata.mjs
 
       - name: Notarize and staple DMG
         run: |
@@ -169,11 +227,15 @@ jobs:
             echo "No .app left on disk (dmg-only bundle); DMG stapler validation passed."
           fi
 
-      - name: Upload DMG
+      - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: release/${{ matrix.artifact }}.dmg
+          path: |
+            release/${{ matrix.artifact }}.dmg
+            release/${{ matrix.artifact }}.app.tar.gz
+            release/${{ matrix.artifact }}.app.tar.gz.sig
+            release/release-metadata.json
           if-no-files-found: error
 
   publish:
@@ -204,17 +266,25 @@ jobs:
           - Export PDF, WeChat HTML, social share cards, and long images
           - Version snapshots with diff compare and restore
           - Light / dark themes; interface in Chinese and English
+          - In-app updates for installed copies
 
           Website: https://sheaf.reaidea.com
           EOF
 
-      - name: Download DMG artifacts
+      - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
 
+      - name: Generate updater manifest
+        env:
+          RELEASE_ASSETS_ROOT: release-assets
+          RELEASE_NOTES_PATH: release-notes.md
+          OUTPUT_PATH: release/latest.json
+        run: node .github/scripts/release/generate-updater-manifest.mjs
+
       - name: List release files
-        run: find release-assets -type f -name '*.dmg' | sort
+        run: find release-assets release -type f | sort
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -226,5 +296,10 @@ jobs:
           prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
           files: |
             release-assets/Sheaf-macos-arm64/Sheaf-macos-arm64.dmg
+            release-assets/Sheaf-macos-arm64/Sheaf-macos-arm64.app.tar.gz
+            release-assets/Sheaf-macos-arm64/Sheaf-macos-arm64.app.tar.gz.sig
             release-assets/Sheaf-macos-x64/Sheaf-macos-x64.dmg
+            release-assets/Sheaf-macos-x64/Sheaf-macos-x64.app.tar.gz
+            release-assets/Sheaf-macos-x64/Sheaf-macos-x64.app.tar.gz.sig
+            release/latest.json
           fail_on_unmatched_files: true

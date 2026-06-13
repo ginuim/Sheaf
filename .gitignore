@@ -11,8 +11,11 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
-release
+/release
 *.local
+.tauri/
+*.key
+src-tauri/tauri.updater.conf.json
 AGENTS.md
 
 # Editor directories and files
@@ -33,4 +36,4 @@ docs/superpowers/
 src-tauri/docs/ARCHIVED_MAC_APP_STORE.md
 
 # Local ops scripts (deploy, nginx, etc.) — not part of the public repo
-scripts/
+/scripts/

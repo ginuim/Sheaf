@@ -1,23 +1,37 @@
 import { ref } from "vue";
 
-export type AppToastKind = "success" | "error" | "info";
+export type AppToastKind = "success" | "error" | "info" | "loading";
+
+export type AppToastAction = {
+  label: string;
+  onClick: () => void;
+};
 
 export type AppToastState = {
   kind: AppToastKind;
   message: string;
+  action?: AppToastAction;
 };
 
 const toast = ref<AppToastState | null>(null);
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function useAppToast() {
-  function showToast(kind: AppToastKind, message: string, durationMs = 3200) {
-    toast.value = { kind, message };
+  function showToast(
+    kind: AppToastKind,
+    message: string,
+    durationMs = 3200,
+    action?: AppToastAction,
+  ) {
+    toast.value = { kind, message, action };
     if (hideTimer) clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => {
-      toast.value = null;
-      hideTimer = null;
-    }, durationMs);
+    hideTimer = null;
+    if (durationMs > 0) {
+      hideTimer = setTimeout(() => {
+        toast.value = null;
+        hideTimer = null;
+      }, durationMs);
+    }
   }
 
   function dismissToast() {

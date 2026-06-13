@@ -24,6 +24,7 @@ import { migrateDocumentVersionsKey, useDocumentVersions } from "./composables/u
 import { refreshRecentMenu, setupAppMenu, type AppMenuHandlers } from "./composables/useAppMenu";
 import { exportPdf, type ExportPdfStage } from "./composables/usePdfExport";
 import { useAppToast } from "./composables/useAppToast";
+import { useAutoUpdater } from "./composables/useAutoUpdater";
 import { buildWechatHtmlForCopy, copyWechatHtml } from "./composables/useWechatExport";
 import { resolveLinkHref } from "./composables/resolveMediaSrc";
 import { useFile } from "./composables/useFile";
@@ -68,6 +69,11 @@ const exporting = ref(false);
 const exportingPdf = ref(false);
 const exportPdfStage = ref<ExportPdfStage>("rendering");
 const { showToast } = useAppToast();
+const {
+  appVersion,
+  checkForUpdates,
+  enabled: updatesEnabled,
+} = useAutoUpdater();
 const exportPdfLoadingText = computed(() =>
   exportPdfStage.value === "rendering" ? t("app.renderingDoc") : t("app.generatingPdf"),
 );
@@ -738,6 +744,11 @@ const appMenuHandlers: AppMenuHandlers = {
   onOpenAbout: () => {
     showAbout.value = true;
   },
+  onCheckForUpdates: updatesEnabled
+    ? () => {
+        void checkForUpdates({ manual: true });
+      }
+    : undefined,
   onClearRecent: handleClearRecent,
 };
 
@@ -825,7 +836,13 @@ onUnmounted(() => {
       @update:view-mode="viewMode = $event"
     />
 
-    <SettingsPanel :open="showSettings" @close="showSettings = false" />
+    <SettingsPanel
+      :open="showSettings"
+      :app-version="appVersion"
+      :updates-enabled="updatesEnabled"
+      :on-check-for-updates="() => checkForUpdates({ manual: true })"
+      @close="showSettings = false"
+    />
     <AboutPanel :open="showAbout" @close="showAbout = false" />
 
     <StartPage

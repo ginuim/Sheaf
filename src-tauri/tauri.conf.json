@@ -32,6 +32,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": false,
     "targets": ["dmg"],
     "category": "Productivity",
     "macOS": {
@@ -54,5 +55,13 @@
         "rank": "Owner"
       }
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/ginuim/Sheaf/releases/latest/download/latest.json"
+      ],
+      "pubkey": ""
+    }
   }
 }
