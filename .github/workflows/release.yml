@@ -228,12 +228,18 @@ jobs:
             echo "No .app left on disk (dmg-only bundle); DMG stapler validation passed."
           fi
 
-      - name: Upload release artifacts
+      - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: ${{ matrix.artifact }}-dmg
+          path: release/${{ matrix.artifact }}.dmg
+          if-no-files-found: error
+
+      - name: Upload updater artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-updater
           path: |
-            release/${{ matrix.artifact }}.dmg
             release/${{ matrix.artifact }}.app.tar.gz
             release/${{ matrix.artifact }}.app.tar.gz.sig
             release/release-metadata.json
@@ -251,41 +257,40 @@ jobs:
 
       - name: Write release notes
         run: |
-          cat > release-notes.md <<'EOF'
-          ## Sheaf 0.1.0 — First public release
+          version="${RELEASE_TAG#v}"
+          cat > release-notes.md <<EOF
+          ## Sheaf ${version}
 
-          A local-first macOS Markdown editor for focused writing.
+          ### 下载安装
+          请下载对应架构的 **DMG** 安装包（其余文件供应用内自动更新使用，无需手动下载）：
+          - **Apple Silicon：** [Sheaf-macos-arm64.dmg](https://github.com/ginuim/Sheaf/releases/download/${RELEASE_TAG}/Sheaf-macos-arm64.dmg)
+          - **Intel Mac：** [Sheaf-macos-x64.dmg](https://github.com/ginuim/Sheaf/releases/download/${RELEASE_TAG}/Sheaf-macos-x64.dmg)
 
-          ### Downloads
-          - **Apple Silicon:** `Sheaf-macos-arm64.dmg`
-          - **Intel Mac:** `Sheaf-macos-x64.dmg`
-
-          ### Highlights
-          - Split editing and live preview with synchronized scrolling
-          - Outline panel with click-to-jump headings
-          - AI paragraph rewrite with diff review
-          - Export PDF, WeChat HTML, social share cards, and long images
-          - Version snapshots with diff compare and restore
-          - Light / dark themes; interface in Chinese and English
-          - In-app updates for installed copies
-
-          Website: https://sheaf.reaidea.com
+          官网下载：[sheaf.reaidea.com](https://sheaf.reaidea.com)
           EOF
 
-      - name: Download release artifacts
+      - name: Download DMG artifacts
         uses: actions/download-artifact@v4
         with:
-          path: release-assets
+          pattern: Sheaf-macos-*-dmg
+          path: release-dmg
+          merge-multiple: true
+
+      - name: Download updater artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Sheaf-macos-*-updater
+          path: release-updater
 
       - name: Generate updater manifest
         env:
-          RELEASE_ASSETS_ROOT: release-assets
+          RELEASE_ASSETS_ROOT: release-updater
           RELEASE_NOTES_PATH: release-notes.md
           OUTPUT_PATH: release/latest.json
         run: node .github/scripts/release/generate-updater-manifest.mjs
 
       - name: List release files
-        run: find release-assets release -type f | sort
+        run: find release-dmg release-updater release -type f | sort
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -296,11 +301,9 @@ jobs:
           draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
           prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
           files: |
-            release-assets/Sheaf-macos-arm64/Sheaf-macos-arm64.dmg
-            release-assets/Sheaf-macos-arm64/Sheaf-macos-arm64.app.tar.gz
-            release-assets/Sheaf-macos-arm64/Sheaf-macos-arm64.app.tar.gz.sig
-            release-assets/Sheaf-macos-x64/Sheaf-macos-x64.dmg
-            release-assets/Sheaf-macos-x64/Sheaf-macos-x64.app.tar.gz
-            release-assets/Sheaf-macos-x64/Sheaf-macos-x64.app.tar.gz.sig
+            release-dmg/Sheaf-macos-arm64.dmg
+            release-dmg/Sheaf-macos-x64.dmg
+            release-updater/Sheaf-macos-arm64-updater/Sheaf-macos-arm64.app.tar.gz
+            release-updater/Sheaf-macos-x64-updater/Sheaf-macos-x64.app.tar.gz
             release/latest.json
           fail_on_unmatched_files: true
