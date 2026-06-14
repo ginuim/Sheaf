@@ -9,6 +9,16 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.6",
+    date: "2026-06",
+    title: "AI 选区上下文",
+    items: [
+      "编辑器选区右键可添加到 AI 对话上下文，发送指令时一并参考",
+      "AI 面板显示上下文 chip，可随时移除",
+      "简化 Agent 任务判断逻辑，由模型自行决定编辑文档或文字回复",
+    ],
+  },
+  {
     version: "0.2.5",
     date: "2026-06",
     title: "AI 桌面代理与设置优化",
@@ -86,6 +96,16 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.6",
+    date: "2026-06",
+    title: "AI selection context",
+    items: [
+      "Add editor selection to AI conversation context via right-click menu",
+      "Show a context chip in the AI panel with one-click removal",
+      "Simplify agent task routing so the model chooses edit tools vs chat replies",
+    ],
+  },
   {
     version: "0.2.5",
     date: "2026-06",
