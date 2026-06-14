@@ -433,8 +433,33 @@ jobs:
           OUTPUT_PATH: release/latest.json
         run: node .github/scripts/release/generate-updater-manifest.mjs
 
+      - name: Prepare release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+
+          copy_one() {
+            local name="$1"
+            local file
+            file=$(find "$2" -type f -name "$name" -print -quit)
+            if [ -z "$file" ]; then
+              echo "Release asset not found: $name under $2" >&2
+              find "$2" -type f | sort >&2 || true
+              exit 1
+            fi
+            cp -f "$file" "release-assets/$name"
+          }
+
+          copy_one "Sheaf-macos-arm64.dmg" release-dmg
+          copy_one "Sheaf-macos-x64.dmg" release-dmg
+          copy_one "Sheaf-windows-x64-setup.exe" release-windows
+          copy_one "Sheaf-macos-arm64.app.tar.gz" release-updater
+          copy_one "Sheaf-macos-x64.app.tar.gz" release-updater
+          cp -f release/latest.json release-assets/latest.json
+          ls -la release-assets/
+
       - name: List release files
-        run: find release-dmg release-windows release-updater release -type f | sort
+        run: find release-dmg release-windows release-updater release release-assets -type f | sort
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -445,10 +470,10 @@ jobs:
           draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
           prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
           files: |
-            release-dmg/Sheaf-macos-arm64.dmg
-            release-dmg/Sheaf-macos-x64.dmg
-            release-windows/Sheaf-windows-x64-setup.exe
-            release-updater/Sheaf-macos-arm64-updater/Sheaf-macos-arm64.app.tar.gz
-            release-updater/Sheaf-macos-x64-updater/Sheaf-macos-x64.app.tar.gz
-            release/latest.json
+            release-assets/Sheaf-macos-arm64.dmg
+            release-assets/Sheaf-macos-x64.dmg
+            release-assets/Sheaf-windows-x64-setup.exe
+            release-assets/Sheaf-macos-arm64.app.tar.gz
+            release-assets/Sheaf-macos-x64.app.tar.gz
+            release-assets/latest.json
           fail_on_unmatched_files: true

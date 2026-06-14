@@ -9,6 +9,14 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.10",
+    date: "2026-06",
+    title: "发布流程修复",
+    items: [
+      "修复 GitHub Release 发布时产物路径不匹配导致上传失败的问题",
+    ],
+  },
+  {
     version: "0.2.9",
     date: "2026-06",
     title: "Windows 打包支持",
@@ -125,6 +133,14 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.10",
+    date: "2026-06",
+    title: "Release pipeline fix",
+    items: [
+      "Fix GitHub Release publish failures caused by mismatched artifact paths",
+    ],
+  },
   {
     version: "0.2.9",
     date: "2026-06",
