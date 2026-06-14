@@ -9,6 +9,18 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.5",
+    date: "2026-06",
+    title: "AI 桌面代理与设置优化",
+    items: [
+      "桌面端 AI 请求经 Tauri 代理，规避浏览器 CORS 限制",
+      "刷新 AI 提供商目录，移除已弃用模型，启用前需填写 API Key",
+      "提供商设置自动保存，设置面板布局优化",
+      "文档编辑 Agent 支持研究类工具自动调用",
+      "历史指令折叠后仍可操作「应用 / 放弃」按钮",
+    ],
+  },
+  {
     version: "0.2.4",
     date: "2026-06",
     title: "更新体验优化",
@@ -74,6 +86,18 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.5",
+    date: "2026-06",
+    title: "AI desktop transport and settings",
+    items: [
+      "Route desktop AI requests through Tauri to avoid browser CORS limits",
+      "Refresh AI provider catalog, remove deprecated models, require API keys before enabling",
+      "Auto-save provider settings with improved settings panel layout",
+      "Document-edit agent can use research tools with automatic tool choice",
+      "Keep apply/discard actions visible when instruction cards are collapsed",
+    ],
+  },
   {
     version: "0.2.4",
     date: "2026-06",
