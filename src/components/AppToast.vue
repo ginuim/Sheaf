@@ -42,7 +42,7 @@ const { toast, dismissToast } = useAppToast();
   position: fixed;
   left: 50%;
   bottom: 28px;
-  z-index: 10000;
+  z-index: 10200;
   display: flex;
   align-items: center;
   gap: 10px;

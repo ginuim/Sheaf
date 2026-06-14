@@ -1,4 +1,5 @@
 import { onMounted, onUnmounted, ref } from "vue";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import { checkAppUpdate, isUpdaterRuntime, type AppUpdate } from "../lib/appUpdater";
 import { loadAppPreferences } from "../lib/appPreferences";
@@ -50,6 +51,31 @@ export function useAutoUpdater() {
     );
   }
 
+  async function confirmUpdate(update: AppUpdate) {
+    const notes = update.body?.trim();
+    const message = notes
+      ? `${t("app.updateAvailableMessage", { version: update.version })}\n\n${notes}`
+      : t("app.updateAvailableMessage", { version: update.version });
+
+    const confirmed = await ask(message, {
+      title: t("app.updateAvailableTitle"),
+      kind: "info",
+      okLabel: t("app.updateInstallNow"),
+      cancelLabel: t("app.updateLater"),
+    });
+
+    return confirmed === true;
+  }
+
+  async function handleAvailableUpdate(
+    update: AppUpdate,
+    options: { notifyFailure?: boolean } = {},
+  ) {
+    const confirmed = await confirmUpdate(update);
+    if (!confirmed) return;
+    await downloadUpdate(update, options);
+  }
+
   async function downloadUpdate(update: AppUpdate, options: { notifyFailure?: boolean } = {}) {
     if (downloading.value) return;
     if (downloadedUpdate.value?.version === update.version) {
@@ -87,7 +113,7 @@ export function useAutoUpdater() {
     try {
       const update = await checkAppUpdate();
       if (update) {
-        await downloadUpdate(update, { notifyFailure: options.manual });
+        await handleAvailableUpdate(update, { notifyFailure: options.manual });
         return;
       }
 
@@ -113,7 +139,7 @@ export function useAutoUpdater() {
     try {
       const update = await checkAppUpdate();
       if (update) {
-        await downloadUpdate(update, { notifyFailure: false });
+        await handleAvailableUpdate(update, { notifyFailure: false });
       }
     } catch {
       // Background checks should stay silent.

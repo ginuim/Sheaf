@@ -9,6 +9,15 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.4",
+    date: "2026-06",
+    title: "更新体验优化",
+    items: [
+      "发现新版本时弹窗询问后再下载，不再自动安装",
+      "修复设置页检查更新时 Toast 被遮罩层挡住",
+    ],
+  },
+  {
     version: "0.2.3",
     date: "2026-06",
     title: "工具栏标题显示优化",
@@ -65,6 +74,15 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.4",
+    date: "2026-06",
+    title: "Update UX improvements",
+    items: [
+      "Prompt before downloading updates instead of installing automatically",
+      "Fix update toasts appearing behind the Settings overlay",
+    ],
+  },
   {
     version: "0.2.3",
     date: "2026-06",
