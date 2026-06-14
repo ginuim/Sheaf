@@ -10,7 +10,19 @@ if (!releaseDir || !updaterPlatform || !artifactBase) {
   throw new Error("RELEASE_DIR, UPDATER_PLATFORM, and ARTIFACT_BASE are required.");
 }
 
-const bundleName = `${artifactBase}.app.tar.gz`;
+function resolveBundleName(platform, artifactBase) {
+  if (platform.startsWith("darwin-")) {
+    return `${artifactBase}.app.tar.gz`;
+  }
+
+  if (platform.startsWith("windows-")) {
+    return `${artifactBase}-setup.exe`;
+  }
+
+  throw new Error(`Unsupported updater platform: ${platform}`);
+}
+
+const bundleName = resolveBundleName(updaterPlatform, artifactBase);
 const bundlePath = path.join(releaseDir, bundleName);
 const signaturePath = `${bundlePath}.sig`;
 

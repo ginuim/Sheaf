@@ -9,6 +9,17 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.9",
+    date: "2026-06",
+    title: "Windows 打包支持",
+    items: [
+      "支持 Windows x64 安装包构建与 GitHub Release 发布",
+      "官网下载页开放 Windows 下载",
+      "应用内更新支持 Windows 平台",
+      "安装包内嵌 WebView2 引导程序，无需单独安装运行时",
+    ],
+  },
+  {
     version: "0.2.8",
     date: "2026-06",
     title: "系统标题栏主题同步",
@@ -114,6 +125,17 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.9",
+    date: "2026-06",
+    title: "Windows packaging support",
+    items: [
+      "Build and publish Windows x64 NSIS installers via GitHub Actions",
+      "Enable Windows downloads on the landing page",
+      "In-app updates now support the Windows platform",
+      "Embed the WebView2 bootstrapper so users do not need a separate runtime install",
+    ],
+  },
   {
     version: "0.2.8",
     date: "2026-06",

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Sheaf",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "identifier": "com.reaidea.blank",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -39,6 +39,11 @@
       "entitlements": "./Entitlements.plist",
       "hardenedRuntime": true
     },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -61,7 +66,10 @@
       "endpoints": [
         "https://github.com/ginuim/Sheaf/releases/latest/download/latest.json"
       ],
-      "pubkey": ""
+      "pubkey": "",
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

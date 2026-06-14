@@ -14,6 +14,8 @@ const MAC_DMG_NAMES: Record<MacArch, string> = {
   x64: "Sheaf-macos-x64.dmg",
 };
 
+const WINDOWS_SETUP_NAME = "Sheaf-windows-x64-setup.exe";
+
 export interface DownloadVariant {
   id: DownloadVariantId;
   platform: Platform;
@@ -37,8 +39,8 @@ export const DOWNLOAD_PLATFORMS: DownloadPlatformGroup[] = [
   },
   {
     platform: "windows",
-    available: false,
-    variants: [{ id: "windows-x64", platform: "windows", available: false }],
+    available: true,
+    variants: [{ id: "windows-x64", platform: "windows", available: true }],
   },
   {
     platform: "linux",
@@ -69,6 +71,9 @@ export function getDownloadUrl(
   }
   if (variantId === "macos-x64") {
     return githubMacAssetUrl("x64");
+  }
+  if (variantId === "windows-x64") {
+    return `https://github.com/${GITHUB_REPO}/releases/latest/download/${WINDOWS_SETUP_NAME}`;
   }
   return "";
 }
