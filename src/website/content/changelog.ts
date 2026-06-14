@@ -9,6 +9,15 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.8",
+    date: "2026-06",
+    title: "系统标题栏主题同步",
+    items: [
+      "切换浅色 / 深色主题时，macOS 系统标题栏同步跟随",
+      "跟随系统外观时，系统主题变化会正确更新应用与标题栏",
+    ],
+  },
+  {
     version: "0.2.7",
     date: "2026-06",
     title: "更新弹窗优化",
@@ -105,6 +114,15 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.8",
+    date: "2026-06",
+    title: "System title bar theme sync",
+    items: [
+      "Sync the macOS system title bar when switching light or dark theme",
+      "Follow system appearance changes for both app UI and title bar",
+    ],
+  },
   {
     version: "0.2.7",
     date: "2026-06",
