@@ -9,6 +9,15 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.7",
+    date: "2026-06",
+    title: "更新弹窗优化",
+    items: [
+      "发现新版本时使用应用内弹窗确认，替代系统原生对话框",
+      "弹窗文案支持国际化，仅提示版本可更新",
+    ],
+  },
+  {
     version: "0.2.6",
     date: "2026-06",
     title: "AI 选区上下文",
@@ -96,6 +105,15 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.7",
+    date: "2026-06",
+    title: "Update prompt improvements",
+    items: [
+      "Use an in-app dialog instead of the native system prompt when updates are available",
+      "Localize update prompt copy and show a concise version notice only",
+    ],
+  },
   {
     version: "0.2.6",
     date: "2026-06",
