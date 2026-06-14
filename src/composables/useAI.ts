@@ -1,7 +1,7 @@
 import { reactive, watch, ref, computed } from "vue";
 import { createAiFetch } from "../agent/ai-transport";
 import { runSheafAgent } from "../agent/run-agent";
-import type { AgentActivity, AgentHistoryMessage } from "../agent/types";
+import type { AgentActivity, AgentContextSnippet, AgentHistoryMessage } from "../agent/types";
 import { resolveAgentModel } from "../ai-providers/resolve";
 import {
   loadAiSettings,
@@ -253,6 +253,18 @@ function resolveChanges(doc: string, accumulated: string): EditChange[] {
   if (blockChanges.length > 0) return blockChanges;
 
   return fullDocumentChange(doc, extractResponseBody(accumulated));
+}
+
+function formatInlineContext(context: AgentContextSnippet | null | undefined): string {
+  if (!context?.text.trim()) return "";
+
+  return [
+    "用户手动添加的选区上下文：",
+    `来源: ${context.documentPath ?? "当前未保存文档"}`,
+    `范围: ${context.from}-${context.to}`,
+    "",
+    context.text.trim(),
+  ].join("\n");
 }
 
 function extractJsonPayload(text: string): string {
@@ -799,7 +811,7 @@ export function buildAgentHistoryFromItems(
   return messages;
 }
 
-export type { AgentActivity, AgentHistoryMessage } from "../agent/types";
+export type { AgentActivity, AgentContextSnippet, AgentHistoryMessage } from "../agent/types";
 
 export function summarizeItemDiff(item: AIHistoryItem) {
   if (item.changes.length === 0) {
@@ -875,6 +887,7 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     doc: string,
     onChunk: (delta: string) => void,
     signal: AbortSignal,
+    context?: AgentContextSnippet | null,
   ): Promise<EditChange[]> {
     const resolved = resolveAgentModel(settings);
     if (!resolved) throw new Error("请先在设置中启用服务商并填写 API Key");
@@ -893,7 +906,11 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
           { role: "system", content: SYSTEM_PROMPT },
           {
             role: "user",
-            content: `---文档开始---\n${doc}\n---文档结束---\n\n修改指令: ${instruction}`,
+            content: [
+              `---文档开始---\n${doc}\n---文档结束---`,
+              formatInlineContext(context),
+              `修改指令: ${instruction}`,
+            ].filter(Boolean).join("\n\n"),
           },
         ],
       }),
@@ -991,6 +1008,7 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
       history?: AgentHistoryMessage[];
       onTextDelta?: (text: string) => void;
       onActivity?: (activity: AgentActivity) => void;
+      context?: AgentContextSnippet | null;
       signal: AbortSignal;
     },
   ) {
@@ -1001,6 +1019,7 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     return runSheafAgent({
       prompt: instruction,
       history: options.history,
+      contexts: options.context ? [options.context] : [],
       doc,
       documentPath: options.documentPath,
       workspacePaths: options.workspacePaths,

@@ -17,7 +17,7 @@ import SettingsPanel from "./components/SettingsPanel.vue";
 import StartPage from "./components/StartPage.vue";
 import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
-import type { EditChange } from "./composables/useAI";
+import type { AgentContextSnippet, EditChange } from "./composables/useAI";
 import { migrateAiHistoryKey } from "./composables/useAI";
 import type { ProofreadIssue } from "./types/proofreading";
 import { migrateDocumentVersionsKey, useDocumentVersions } from "./composables/useDocumentVersions";
@@ -85,6 +85,7 @@ const activeVersionId = ref<string | null>(null);
 const proofreadIssues = ref<ProofreadIssue[]>([]);
 const currentProofreadItemId = ref<string | null>(null);
 const activeProofreadIssueId = ref<string | null>(null);
+const pendingAiContext = ref<AgentContextSnippet | null>(null);
 const showStartPage = ref(true);
 const recentFiles = ref<string[]>(loadRecent());
 const pendingDraft = ref<UnsavedDraft | null>(loadUnsavedDraft());
@@ -531,6 +532,19 @@ function applyAIChanges(changes: EditChange[]) {
   editorRef.value?.applyChanges(changes);
 }
 
+function handleAddSelectionContext(context: { text: string; from: number; to: number }) {
+  pendingAiContext.value = {
+    ...context,
+    documentPath: filePath.value,
+  };
+  showAI.value = true;
+  showToast("success", t("ai.contextAdded"));
+}
+
+function clearPendingAiContext() {
+  pendingAiContext.value = null;
+}
+
 function clearProofreadIssues() {
   proofreadIssues.value = [];
   currentProofreadItemId.value = null;
@@ -878,6 +892,7 @@ onUnmounted(() => {
           :proofread-issues="proofreadIssues"
           :active-proofread-issue-id="activeProofreadIssueId"
           @scroll="onEditorScroll"
+          @add-selection-context="handleAddSelectionContext"
           @proofread-select="handleProofreadSelect"
           @proofread-apply="handleProofreadApply"
           @proofread-dismiss="handleProofreadDismiss"
@@ -907,10 +922,12 @@ onUnmounted(() => {
         :document-path="filePath"
         :workspace-paths="recentFiles"
         :read-workspace-file="readAiWorkspaceFile"
+        :pending-context="pendingAiContext"
         :proofread-issues="proofreadIssues"
         :current-proofread-item-id="currentProofreadItemId"
         :active-proofread-issue-id="activeProofreadIssueId"
         @apply="applyAIChanges"
+        @clear-context="clearPendingAiContext"
         @proofread="handleProofreadIssues"
         @proofread-navigate="handleProofreadNavigate"
         @proofread-apply="handleProofreadApply"

@@ -30,9 +30,17 @@ export type AgentHistoryMessage = {
   text: string;
 };
 
+export type AgentContextSnippet = {
+  text: string;
+  from: number;
+  to: number;
+  documentPath: string | null;
+};
+
 export type AgentRunInput = {
   prompt: string;
   history?: AgentHistoryMessage[];
+  contexts?: AgentContextSnippet[];
   doc: string;
   documentPath: string | null;
   workspacePaths: string[];

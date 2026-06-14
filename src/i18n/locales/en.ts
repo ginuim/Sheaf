@@ -153,6 +153,7 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
   editor: {
     imageRequiresSavedDocument: "Save the document before inserting images.",
     imageInsertFailed: "Could not save the image. Please try again.",
+    addSelectionToAiContext: "Add to conversation context",
   },
   search: {
     ariaLabel: "Search in document",
@@ -300,6 +301,9 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     statusDiscarded: "Discarded",
     statusLoading: "Generating",
     noChangesHint: "Agent returned nothing to apply",
+    contextAdded: "Added to conversation context",
+    contextLabel: "Selection context",
+    contextRemove: "Remove context",
     editLabel: "AI edit",
     noRounds: "No rounds",
     roundCount: "{count} rounds",

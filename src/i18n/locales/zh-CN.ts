@@ -153,6 +153,7 @@ console.log(greeting);
   editor: {
     imageRequiresSavedDocument: "请先保存文档，再插入图片。",
     imageInsertFailed: "无法保存图片，请重试。",
+    addSelectionToAiContext: "添加到对话上下文",
   },
   search: {
     ariaLabel: "在文档中搜索",
@@ -300,6 +301,9 @@ console.log(greeting);
     statusDiscarded: "已忽略",
     statusLoading: "生成中",
     noChangesHint: "Agent 未返回可应用的内容",
+    contextAdded: "已添加到对话上下文",
+    contextLabel: "选区上下文",
+    contextRemove: "移除上下文",
     editLabel: "AI 修改",
     noRounds: "暂无轮次",
     roundCount: "{count} 轮",
