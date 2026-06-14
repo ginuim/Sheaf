@@ -1381,14 +1381,6 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-
-            <div class="card-actions card-actions-split">
-              <div v-if="item.status === 'done'" class="card-actions-main">
-                <button class="ai-btn ai-btn-apply" @click="applyItemChanges(item)">{{ t("ai.apply") }}</button>
-                <button class="ai-btn ai-btn-ghost" @click="discardItem(item)">{{ t("ai.discard") }}</button>
-              </div>
-              <span v-else class="applied-badge">{{ t("ai.applied") }}</span>
-            </div>
           </div>
           </div>
           </div>
@@ -1401,6 +1393,17 @@ onUnmounted(() => {
           >
             {{ isLongMessageExpanded(item) ? t("ai.showLess") : t("ai.showMore") }}
           </button>
+        </div>
+
+        <div
+          v-if="item.status === 'done' || item.status === 'applied'"
+          class="card-actions card-actions-split"
+        >
+          <div v-if="item.status === 'done'" class="card-actions-main">
+            <button class="ai-btn ai-btn-apply" @click="applyItemChanges(item)">{{ t("ai.apply") }}</button>
+            <button class="ai-btn ai-btn-ghost" @click="discardItem(item)">{{ t("ai.discard") }}</button>
+          </div>
+          <span v-else class="applied-badge">{{ t("ai.applied") }}</span>
         </div>
       </div>
       </template>
