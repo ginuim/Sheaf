@@ -1,4 +1,5 @@
 import { reactive, watch, ref, computed } from "vue";
+import { createAiFetch } from "../agent/ai-transport";
 import { runSheafAgent } from "../agent/run-agent";
 import type { AgentActivity, AgentHistoryMessage } from "../agent/types";
 import { resolveAgentModel } from "../ai-providers/resolve";
@@ -879,7 +880,7 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     if (!resolved) throw new Error("请先在设置中启用服务商并填写 API Key");
 
     const url = `${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`;
-    const res = await fetch(url, {
+    const res = await createAiFetch()(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${resolved.apiKey}`,
@@ -945,7 +946,7 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     if (!resolved) throw new Error("请先在设置中启用服务商并填写 API Key");
 
     const url = `${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`;
-    const res = await fetch(url, {
+    const res = await createAiFetch()(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${resolved.apiKey}`,

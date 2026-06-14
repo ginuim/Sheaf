@@ -1694,19 +1694,7 @@ onUnmounted(() => {
   text-align: center;
 }
 
-.ai-empty::before {
-  content: "";
-  width: 42px;
-  height: 42px;
-  margin-bottom: 14px;
-  border: 1px solid color-mix(in srgb, var(--ink-accent) 24%, var(--ink-border));
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at center, var(--ink-accent) 0 3px, transparent 4px),
-    linear-gradient(var(--ink-accent-soft), var(--ink-accent-soft));
-  box-shadow: inset 0 0 0 10px color-mix(in srgb, var(--ink-surface) 80%, transparent);
-  opacity: 0.9;
-}
+
 
 .ai-empty-title {
   margin-bottom: 6px;

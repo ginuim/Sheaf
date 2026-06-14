@@ -1465,32 +1465,16 @@ describe("app settings", () => {
           models: [{ capability: "text", enabled: true, id: "gpt-4o", name: "GPT-4o" }],
           name: "OpenAI",
           type: "openai"
-        },
-        {
-          apiKey: "",
-          baseUrl: "",
-          defaultModelId: "deepseek-chat",
-          enabled: false,
-          id: "deepseek",
-          models: [
-            { capability: "text", enabled: true, id: "deepseek-chat", name: "DeepSeek Chat" },
-            { capability: "text", enabled: true, id: "deepseek-reasoner", name: "DeepSeek Reasoner" }
-          ],
-          name: "DeepSeek",
-          type: "deepseek"
         }
       ]
     });
 
     const settings = await getStoredAiSettings();
     const openai = settings.providers.find((provider) => provider.id === "openai");
-    const deepseek = settings.providers.find((provider) => provider.id === "deepseek");
 
     expect(settings.defaultModelId).toBe("gpt-5.5");
     expect(openai?.defaultModelId).toBe("gpt-5.5");
     expect(openai?.models.map((model) => model.id)).toEqual(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-image-2"]);
-    expect(deepseek?.defaultModelId).toBe("deepseek-v4-pro");
-    expect(deepseek?.models.map((model) => model.id)).toEqual(["deepseek-v4-pro", "deepseek-v4-flash"]);
   });
 
   it("preserves user-added AI provider models during normalization", async () => {

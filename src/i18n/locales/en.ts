@@ -189,10 +189,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     },
     models: {
       deepseek: {
-        v4: "DeepSeek V4",
+        v4: "DeepSeek V4 Pro",
         v4Flash: "DeepSeek V4 Flash",
-        chat: "DeepSeek Chat (deprecated 2026/07/24)",
-        reasoner: "DeepSeek Reasoner (deprecated 2026/07/24)",
       },
     },
   },

@@ -76,9 +76,6 @@ describe("AI provider requests", () => {
       "gpt-5.4-nano",
       "gpt-image-2"
     ]);
-    expect(settings.providers.find((item) => item.id === "deepseek")?.models.map((model) => model.id)).not.toContain(
-      "deepseek-chat"
-    );
     expect(findModelCapabilities("openai", "gpt-5.5")).toEqual(["text", "vision", "reasoning", "tools", "web"]);
     expect(findModelCapabilities("anthropic", "claude-haiku-4-5")).toEqual([
       "text",

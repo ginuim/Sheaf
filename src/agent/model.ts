@@ -3,6 +3,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
 import { resolveAgentModel } from "../ai-providers/resolve";
 import type { AiProviderSettings } from "../ai-providers/types";
+import { createAiFetch } from "./ai-transport";
 
 export type AgentModelSettings = {
   baseUrl: string;
@@ -26,11 +27,13 @@ export function createAgentLanguageModel(settings: AiProviderSettings): Language
 
   const baseURL = normalizedBaseUrl(resolved.baseUrl);
   const apiKey = resolved.apiKey.trim();
+  const fetch = createAiFetch();
 
   if (resolved.apiStyle === "anthropic" || usesAnthropicApi(baseURL)) {
     const provider = createAnthropic({
       apiKey,
       baseURL: baseURL.endsWith("/v1") ? baseURL : `${baseURL}/v1`,
+      fetch,
     });
     return provider(resolved.model);
   }
@@ -39,6 +42,7 @@ export function createAgentLanguageModel(settings: AiProviderSettings): Language
     name: "sheaf",
     baseURL,
     apiKey,
+    fetch,
   });
   return provider(resolved.model);
 }

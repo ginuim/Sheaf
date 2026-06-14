@@ -1,3 +1,4 @@
+import { createAiFetch } from "./ai-transport";
 import { isMinimaxProvider } from "../ai-providers/catalog";
 import { translate } from "../composables/useLocale";
 import type { ResolvedImageModel } from "../ai-providers/types";
@@ -42,7 +43,7 @@ async function generateMinimaxImage(
   aspectRatio?: string,
 ): Promise<GeneratedImage> {
   const host = minimaxApiHost(config.baseUrl);
-  const response = await fetch(`${host}/v1/image_generation`, {
+  const response = await createAiFetch()(`${host}/v1/image_generation`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
@@ -85,7 +86,7 @@ async function generateOpenAiCompatibleImage(
 ): Promise<GeneratedImage> {
   const base = openAiCompatibleBase(config.baseUrl);
   const size = aspectRatioToOpenAiSize(aspectRatio);
-  const response = await fetch(`${base}/images/generations`, {
+  const response = await createAiFetch()(`${base}/images/generations`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.apiKey}`,

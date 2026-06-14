@@ -189,10 +189,8 @@ console.log(greeting);
     },
     models: {
       deepseek: {
-        v4: "DeepSeek V4",
+        v4: "DeepSeek V4 Pro",
         v4Flash: "DeepSeek V4 Flash",
-        chat: "DeepSeek Chat（将于 2026/07/24 弃用）",
-        reasoner: "DeepSeek Reasoner（将于 2026/07/24 弃用）",
       },
     },
   },

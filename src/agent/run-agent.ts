@@ -44,6 +44,7 @@ const DOCUMENT_EDIT_FLOW_TOOLS = [
   "validate_markdown",
   ...WRITE_TOOLS,
 ] as const;
+const RESEARCH_TOOLS = ["web_search", "fetch_url"] as const;
 
 function stepCalledTool(steps: unknown, toolName: string) {
   if (!Array.isArray(steps)) return false;
@@ -156,15 +157,16 @@ export async function runSheafAgent(input: AgentRunInput): Promise<AgentRunResul
     prepareStep: writeTask
       ? ({ steps }) => {
           if (stepCalledWriteTool(steps)) return undefined;
+          const researchTools = webSearch.enabled ? RESEARCH_TOOLS : [];
           if (Array.isArray(steps) && steps.length < 3) {
             return {
-              toolChoice: "required",
-              activeTools: [...DOCUMENT_EDIT_FLOW_TOOLS],
+              toolChoice: "auto",
+              activeTools: [...DOCUMENT_EDIT_FLOW_TOOLS, ...researchTools],
             };
           }
           return {
-            toolChoice: "required",
-            activeTools: [...WRITE_TOOLS],
+            toolChoice: "auto",
+            activeTools: [...WRITE_TOOLS, ...researchTools],
           };
         }
       : undefined,

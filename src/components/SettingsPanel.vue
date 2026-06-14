@@ -93,7 +93,7 @@ const tabTitles = computed<Record<SettingsTab, string>>(() => ({
           </button>
         </nav>
 
-        <div class="settings-body">
+        <div class="settings-body" :class="{ 'settings-body--panel': activeTab === 'aiModels' }">
           <h2 id="settings-title" class="settings-title">
             {{ tabTitles[activeTab] }}
           </h2>
@@ -300,9 +300,15 @@ const tabTitles = computed<Record<SettingsTab, string>>(() => ({
   gap: 20px;
 }
 
+.settings-body--panel {
+  overflow: hidden;
+}
+
 .ai-settings-section {
   min-height: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .setting-row {
