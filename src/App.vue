@@ -14,6 +14,7 @@ import ExportStudio from "./components/ExportStudio.vue";
 import OutlinePanel from "./components/OutlinePanel.vue";
 import AboutPanel from "./components/AboutPanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
+import UpdateDialog from "./components/UpdateDialog.vue";
 import StartPage from "./components/StartPage.vue";
 import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
@@ -72,7 +73,11 @@ const { showToast } = useAppToast();
 const {
   appVersion,
   checkForUpdates,
+  confirmPendingUpdate,
+  dismissPendingUpdate,
   enabled: updatesEnabled,
+  pendingUpdate,
+  updateDialogOpen,
 } = useAutoUpdater();
 const exportPdfLoadingText = computed(() =>
   exportPdfStage.value === "rendering" ? t("app.renderingDoc") : t("app.generatingPdf"),
@@ -858,6 +863,13 @@ onUnmounted(() => {
       @close="showSettings = false"
     />
     <AboutPanel :open="showAbout" @close="showAbout = false" />
+
+    <UpdateDialog
+      :open="updateDialogOpen"
+      :version="pendingUpdate?.version ?? ''"
+      @confirm="confirmPendingUpdate"
+      @cancel="dismissPendingUpdate"
+    />
 
     <StartPage
       v-if="showStartPage"

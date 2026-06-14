@@ -1,5 +1,4 @@
 import { onMounted, onUnmounted, ref } from "vue";
-import { ask } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import { checkAppUpdate, isUpdaterRuntime, type AppUpdate } from "../lib/appUpdater";
 import { loadAppPreferences } from "../lib/appPreferences";
@@ -16,7 +15,10 @@ export function useAutoUpdater() {
   const checking = ref(false);
   const downloading = ref(false);
   const downloadedUpdate = ref<AppUpdate | null>(null);
+  const updateDialogOpen = ref(false);
+  const pendingUpdate = ref<AppUpdate | null>(null);
   let intervalId: ReturnType<typeof setInterval> | null = null;
+  let confirmUpdateResolve: ((confirmed: boolean) => void) | null = null;
 
   function formatVersionMessage(message: string, update: AppUpdate, progress?: number | null) {
     const suffix =
@@ -51,20 +53,28 @@ export function useAutoUpdater() {
     );
   }
 
+  function closeUpdateDialog(confirmed: boolean) {
+    updateDialogOpen.value = false;
+    pendingUpdate.value = null;
+    confirmUpdateResolve?.(confirmed);
+    confirmUpdateResolve = null;
+  }
+
+  function confirmPendingUpdate() {
+    closeUpdateDialog(true);
+  }
+
+  function dismissPendingUpdate() {
+    closeUpdateDialog(false);
+  }
+
   async function confirmUpdate(update: AppUpdate) {
-    const notes = update.body?.trim();
-    const message = notes
-      ? `${t("app.updateAvailableMessage", { version: update.version })}\n\n${notes}`
-      : t("app.updateAvailableMessage", { version: update.version });
+    pendingUpdate.value = update;
+    updateDialogOpen.value = true;
 
-    const confirmed = await ask(message, {
-      title: t("app.updateAvailableTitle"),
-      kind: "info",
-      okLabel: t("app.updateInstallNow"),
-      cancelLabel: t("app.updateLater"),
+    return new Promise<boolean>((resolve) => {
+      confirmUpdateResolve = resolve;
     });
-
-    return confirmed === true;
   }
 
   async function handleAvailableUpdate(
@@ -170,6 +180,10 @@ export function useAutoUpdater() {
   return {
     appVersion,
     checkForUpdates,
+    dismissPendingUpdate,
+    confirmPendingUpdate,
     enabled,
+    pendingUpdate,
+    updateDialogOpen,
   };
 }
