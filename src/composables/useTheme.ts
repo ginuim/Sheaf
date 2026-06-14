@@ -1,3 +1,5 @@
+import { setTheme as setAppTheme } from "@tauri-apps/api/app";
+import { isTauri } from "@tauri-apps/api/core";
 import { computed, ref, watch } from "vue";
 
 const STORAGE_KEY = "blank-theme";
@@ -17,18 +19,25 @@ function getStoredPreference(): ThemePreference {
   return "system";
 }
 
-function resolveTheme(preference: ThemePreference): Theme {
-  return preference === "system" ? getSystemTheme() : preference;
-}
-
 function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
 }
 
 const preference = ref<ThemePreference>(getStoredPreference());
-const theme = computed<Theme>(() => resolveTheme(preference.value));
+const systemTheme = ref<Theme>(getSystemTheme());
+const theme = computed<Theme>(() =>
+  preference.value === "system" ? systemTheme.value : preference.value
+);
 
 let systemListenerAttached = false;
+
+function syncWindowTheme(theme: Theme) {
+  if (!isTauri()) return;
+
+  void setAppTheme(theme).catch((error) => {
+    console.warn("Failed to sync Tauri window theme:", error);
+  });
+}
 
 function attachSystemListener() {
   if (systemListenerAttached) return;
@@ -37,23 +46,25 @@ function attachSystemListener() {
   window
     .matchMedia("(prefers-color-scheme: dark)")
     .addEventListener("change", () => {
-      if (preference.value === "system") {
-        applyTheme(getSystemTheme());
-      }
+      systemTheme.value = getSystemTheme();
     });
 }
 
 watch(
-  preference,
+  theme,
   (value) => {
-    applyTheme(resolveTheme(value));
-    localStorage.setItem(STORAGE_KEY, value);
+    applyTheme(value);
+    syncWindowTheme(value);
   },
-  { immediate: true },
 );
 
+watch(preference, (value) => {
+  localStorage.setItem(STORAGE_KEY, value);
+});
+
 export function initTheme() {
-  applyTheme(resolveTheme(preference.value));
+  applyTheme(theme.value);
+  syncWindowTheme(theme.value);
   attachSystemListener();
 }
 
