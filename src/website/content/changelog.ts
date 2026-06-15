@@ -9,6 +9,15 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.13",
+    date: "2026-06",
+    title: "官网小屏适配",
+    items: [
+      "小屏设备上 Demo 自适应缩放，交互坐标同步修正",
+      "页脚响应式布局优化，窄屏隐藏联系栏目",
+    ],
+  },
+  {
     version: "0.2.12",
     date: "2026-06",
     title: "微信导出修复与官网 Demo",
@@ -152,6 +161,15 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.13",
+    date: "2026-06",
+    title: "Landing page small-screen layout",
+    items: [
+      "Responsive scaling for the landing demo on narrow viewports with corrected interaction coordinates",
+      "Responsive footer layout; hide the contact column on smaller screens",
+    ],
+  },
   {
     version: "0.2.12",
     date: "2026-06",
