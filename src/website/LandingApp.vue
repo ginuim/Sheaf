@@ -26,6 +26,7 @@ const { docSections, changelog, privacyPolicy, termsOfService } = useLandingCont
 const { downloadHref } = useDownloadLink();
 const demoRef = ref<InstanceType<typeof SheafProductDemo> | null>(null);
 const isDark = ref(false);
+const activeDemoScenario = ref<DemoScenarioId | null>(null);
 const activeOverlay = ref<LandingOverlayPanel | null>(null);
 
 function openOverlay(panel: LandingOverlayPanel) {
@@ -55,6 +56,7 @@ function toggleLandingTheme() {
 }
 
 function toggleDemoTheme() {
+  activeDemoScenario.value = null;
   demoRef.value?.runThemeToggle();
 }
 
@@ -80,6 +82,7 @@ const demoScenarios = computed(() => {
 });
 
 function runDemoScenario(id: DemoScenarioId) {
+  activeDemoScenario.value = id;
   demoRef.value?.runScenario(id);
 }
 
@@ -180,6 +183,8 @@ const features = computed(() => [
           :key="item.id"
           type="button"
           class="landing-demo-scenario-btn"
+          :class="{ active: activeDemoScenario === item.id }"
+          :aria-pressed="activeDemoScenario === item.id"
           @click="runDemoScenario(item.id)"
         >
           {{ item.label }}
