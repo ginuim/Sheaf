@@ -4,7 +4,6 @@ import {
   formatToolResultSummary,
   isToolErrorOutput,
 } from "./activity-format";
-import { looksLikeDocumentWriteTask } from "./intent";
 import { buildAgentTurnMessages } from "./messages";
 import { createAgentLanguageModel } from "./model";
 import { resolveImageModel } from "../ai-providers/resolve";
@@ -19,6 +18,7 @@ const AGENT_SYSTEM = [
   "web_search 返回了预报或正文时，必须基于结果回答并标注来源；不要回复「查不到」或让用户自己去网站看。",
   "不要声称已读文件、已改文档或已搜索网页，除非对应工具返回成功。",
   "用户要求写入、修改、插入、重写、起草、完善、补充或结合资料更新文档时，必须调用 insert_content、replace_content、batch_edit、append_content 或 propose_edits 准备编辑器 diff 预览，不要只在聊天里输出正文。",
+  "翻译、润色、改写或续写当前文档时，不要使用 web_search / fetch_url；只有用户明确要求联网、查资料、最新信息、来源、链接或网页内容时才使用联网工具。",
   "定位不明确时，先 inspect_document_structure 或 locate_content；替换已有内容时优先使用 anchorId、headingTitle 或 exactText，不要凭空猜 from/to 偏移。",
   "新增章节/段落优先 insert_content；重写某节用 replace_content targetKind=section；改表格用 targetKind=table；多处短小替换用 batch_edit；只有用户明确要求全文重写才替换 whole-document。",
   "复杂结构改写后可调用 validate_markdown 检查候选内容或当前文档结构。",
@@ -29,38 +29,6 @@ const AGENT_SYSTEM = [
   "用户可见回复使用其使用的语言，简洁务实。",
   "改文档成功后简短说明改了什么；若未改文档，说明原因。",
 ].join("\n");
-
-const WRITE_TOOLS = [
-  "append_content",
-  "batch_edit",
-  "insert_content",
-  "propose_edits",
-  "replace_content",
-] as const;
-const DOCUMENT_EDIT_FLOW_TOOLS = [
-  "inspect_document_structure",
-  "locate_content",
-  "read_document",
-  "validate_markdown",
-  ...WRITE_TOOLS,
-] as const;
-
-function stepCalledTool(steps: unknown, toolName: string) {
-  if (!Array.isArray(steps)) return false;
-  return steps.some((step) => {
-    if (!step || typeof step !== "object") return false;
-    const toolCalls = (step as { toolCalls?: unknown }).toolCalls;
-    if (!Array.isArray(toolCalls)) return false;
-    return toolCalls.some((call) => {
-      if (!call || typeof call !== "object") return false;
-      return toolNameFromCall(call as { toolName?: string; tool?: string }) === toolName;
-    });
-  });
-}
-
-function stepCalledWriteTool(steps: unknown) {
-  return WRITE_TOOLS.some((toolName) => stepCalledTool(steps, toolName));
-}
 
 function toolNameFromCall(call: { toolName?: string; tool?: string }): string {
   return call.toolName ?? call.tool ?? "tool";
@@ -145,29 +113,13 @@ export async function runSheafAgent(input: AgentRunInput): Promise<AgentRunResul
   };
 
   const model = createAgentLanguageModel(input.providerSettings);
-  const writeTask = looksLikeDocumentWriteTask(input.prompt);
-  const maxSteps = input.maxSteps ?? (writeTask ? 12 : 8);
+  const maxSteps = input.maxSteps ?? 12;
 
   const agent = new ToolLoopAgent({
     model,
     instructions: AGENT_SYSTEM,
     tools: createSheafAgentTools(runtime),
     stopWhen: stepCountIs(maxSteps),
-    prepareStep: writeTask
-      ? ({ steps }) => {
-          if (stepCalledWriteTool(steps)) return undefined;
-          if (Array.isArray(steps) && steps.length < 3) {
-            return {
-              toolChoice: "required",
-              activeTools: [...DOCUMENT_EDIT_FLOW_TOOLS],
-            };
-          }
-          return {
-            toolChoice: "required",
-            activeTools: [...WRITE_TOOLS],
-          };
-        }
-      : undefined,
     onStepFinish: async (step) => {
       trackStepTools(
         {
@@ -197,6 +149,7 @@ export async function runSheafAgent(input: AgentRunInput): Promise<AgentRunResul
       input.prompt,
       input.doc,
       input.documentPath,
+      input.contexts,
     ),
     abortSignal: input.signal,
   });

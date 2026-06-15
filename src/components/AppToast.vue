@@ -15,9 +15,20 @@ const { toast, dismissToast } = useAppToast();
         aria-live="polite"
       >
         <span class="app-toast-icon" aria-hidden="true">
-          {{ toast.kind === "success" ? "✓" : toast.kind === "error" ? "!" : "i" }}
+          <span v-if="toast.kind === 'loading'" class="app-toast-spinner" />
+          <template v-else>
+            {{ toast.kind === "success" ? "✓" : toast.kind === "error" ? "!" : "i" }}
+          </template>
         </span>
         <p class="app-toast-message">{{ toast.message }}</p>
+        <button
+          v-if="toast.action"
+          class="app-toast-action"
+          type="button"
+          @click="toast.action.onClick()"
+        >
+          {{ toast.action.label }}
+        </button>
         <button class="app-toast-close" type="button" aria-label="关闭" @click="dismissToast">
           ×
         </button>
@@ -31,7 +42,7 @@ const { toast, dismissToast } = useAppToast();
   position: fixed;
   left: 50%;
   bottom: 28px;
-  z-index: 10000;
+  z-index: 10200;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -75,9 +86,19 @@ const { toast, dismissToast } = useAppToast();
   background: color-mix(in srgb, #e53e3e 12%, transparent);
 }
 
-.app-toast.info .app-toast-icon {
+.app-toast.info .app-toast-icon,
+.app-toast.loading .app-toast-icon {
   color: var(--ink-text-muted);
   background: var(--ink-code-bg);
+}
+
+.app-toast-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, var(--ink-text-muted) 25%, transparent);
+  border-top-color: var(--ink-accent);
+  border-radius: 999px;
+  animation: app-toast-spin 0.8s linear infinite;
 }
 
 .app-toast-message {
@@ -85,6 +106,20 @@ const { toast, dismissToast } = useAppToast();
   margin: 0;
   font-size: 13px;
   line-height: 1.45;
+}
+
+.app-toast-action {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-accent);
+  background: var(--ink-accent-soft);
+  flex-shrink: 0;
+}
+
+.app-toast-action:hover {
+  filter: brightness(0.98);
 }
 
 .app-toast-close {
@@ -111,5 +146,11 @@ const { toast, dismissToast } = useAppToast();
 .app-toast-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(12px);
+}
+
+@keyframes app-toast-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

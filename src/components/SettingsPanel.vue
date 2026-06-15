@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, withDefaults } from "vue";
 import {
   useTheme,
 } from "../composables/useTheme";
@@ -7,12 +7,22 @@ import { useLocale } from "../composables/useLocale";
 import type { AppLocale } from "../i18n";
 import { useAI } from "../composables/useAI";
 import { useExportTypography } from "../composables/useExportTypography";
+import { loadAppPreferences, saveAppPreferences } from "../lib/appPreferences";
 import AiProviderSettingsPanel from "./AiProviderSettingsPanel.vue";
 import AiToolsSettingsPanel from "./AiToolsSettingsPanel.vue";
 
-defineProps<{
-  open: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    open: boolean;
+    appVersion?: string;
+    updatesEnabled?: boolean;
+    onCheckForUpdates?: () => void | Promise<void>;
+  }>(),
+  {
+    appVersion: "",
+    updatesEnabled: false,
+  },
+);
 
 const emit = defineEmits<{
   close: [];
@@ -22,6 +32,12 @@ const { preference, setPreference } = useTheme();
 const { locale, setLocale, t } = useLocale();
 const { settings: aiSettings } = useAI();
 const { settings: exportTypographySettings } = useExportTypography();
+const appPreferences = ref(loadAppPreferences());
+
+function setAutoUpdateEnabled(enabled: boolean) {
+  appPreferences.value = { ...appPreferences.value, autoUpdateEnabled: enabled };
+  saveAppPreferences(appPreferences.value);
+}
 
 type SettingsTab = "appearance" | "aiModels" | "aiTools";
 
@@ -77,7 +93,7 @@ const tabTitles = computed<Record<SettingsTab, string>>(() => ({
           </button>
         </nav>
 
-        <div class="settings-body">
+        <div class="settings-body" :class="{ 'settings-body--panel': activeTab === 'aiModels' }">
           <h2 id="settings-title" class="settings-title">
             {{ tabTitles[activeTab] }}
           </h2>
@@ -139,6 +155,44 @@ const tabTitles = computed<Record<SettingsTab, string>>(() => ({
                 }}</span>
               </label>
             </div>
+
+            <template v-if="props.updatesEnabled">
+              <div class="setting-row">
+                <div class="setting-label">
+                  <span class="setting-name">{{ t("settings.update.currentVersion") }}</span>
+                  <span class="setting-desc">Sheaf {{ props.appVersion || "—" }}</span>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <span class="setting-name">{{ t("settings.update.autoCheck") }}</span>
+                  <span class="setting-desc">{{ t("settings.update.autoCheckDescription") }}</span>
+                </div>
+                <label class="toggle">
+                  <input
+                    :checked="appPreferences.autoUpdateEnabled"
+                    type="checkbox"
+                    @change="setAutoUpdateEnabled(!appPreferences.autoUpdateEnabled)"
+                  />
+                  <span>{{
+                    appPreferences.autoUpdateEnabled
+                      ? t("settings.appearance.on")
+                      : t("settings.appearance.off")
+                  }}</span>
+                </label>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <span class="setting-name">{{ t("settings.update.title") }}</span>
+                  <span class="setting-desc">{{ t("settings.update.description") }}</span>
+                </div>
+                <button class="settings-action-btn" type="button" @click="props.onCheckForUpdates?.()">
+                  {{ t("settings.update.check") }}
+                </button>
+              </div>
+            </template>
           </section>
 
           <section v-else-if="activeTab === 'aiModels'" class="settings-section ai-settings-section">
@@ -246,9 +300,15 @@ const tabTitles = computed<Record<SettingsTab, string>>(() => ({
   gap: 20px;
 }
 
+.settings-body--panel {
+  overflow: hidden;
+}
+
 .ai-settings-section {
   min-height: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .setting-row {
@@ -348,5 +408,24 @@ const tabTitles = computed<Record<SettingsTab, string>>(() => ({
 
 .toggle input {
   accent-color: var(--ink-accent);
+}
+
+.settings-action-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-text);
+  background: var(--ink-bg);
+  border: 1px solid var(--ink-border-strong);
+  border-radius: 6px;
+  flex-shrink: 0;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.settings-action-btn:hover {
+  background: var(--ink-accent-soft);
+  border-color: var(--ink-accent);
 }
 </style>

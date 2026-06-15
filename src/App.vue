@@ -14,16 +14,18 @@ import ExportStudio from "./components/ExportStudio.vue";
 import OutlinePanel from "./components/OutlinePanel.vue";
 import AboutPanel from "./components/AboutPanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
+import UpdateDialog from "./components/UpdateDialog.vue";
 import StartPage from "./components/StartPage.vue";
 import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
-import type { EditChange } from "./composables/useAI";
+import type { AgentContextSnippet, EditChange } from "./composables/useAI";
 import { migrateAiHistoryKey } from "./composables/useAI";
 import type { ProofreadIssue } from "./types/proofreading";
 import { migrateDocumentVersionsKey, useDocumentVersions } from "./composables/useDocumentVersions";
 import { refreshRecentMenu, setupAppMenu, type AppMenuHandlers } from "./composables/useAppMenu";
 import { exportPdf, type ExportPdfStage } from "./composables/usePdfExport";
 import { useAppToast } from "./composables/useAppToast";
+import { useAutoUpdater } from "./composables/useAutoUpdater";
 import { buildWechatHtmlForCopy, copyWechatHtml } from "./composables/useWechatExport";
 import { resolveLinkHref } from "./composables/resolveMediaSrc";
 import { useFile } from "./composables/useFile";
@@ -36,7 +38,10 @@ import {
 } from "./composables/useRecentFiles";
 import { useTheme } from "./composables/useTheme";
 import { translate, useLocale } from "./composables/useLocale";
-import { applyChineseEnglishSpacingToMarkdownSource } from "./lib/cjkSpacing";
+import {
+  applyChineseEnglishSpacingToMarkdownSource,
+  needsChineseEnglishSpacingFormatting,
+} from "./lib/cjkSpacing";
 import { filterDocumentPaths, filterImagePaths } from "./lib/dropped-paths";
 import {
   clearUnsavedDraft,
@@ -52,6 +57,9 @@ const { t, locale } = useLocale();
 const content = ref(DEFAULT_CONTENT);
 const baselineContent = ref(DEFAULT_CONTENT);
 const isDirty = computed(() => content.value !== baselineContent.value);
+const needsFormatSpacing = computed(() =>
+  needsChineseEnglishSpacingFormatting(content.value),
+);
 const viewMode = ref<ViewMode>("split");
 const showOutline = ref(parseOutline(DEFAULT_CONTENT).length > 0);
 const showExport = ref(false);
@@ -62,6 +70,15 @@ const exporting = ref(false);
 const exportingPdf = ref(false);
 const exportPdfStage = ref<ExportPdfStage>("rendering");
 const { showToast } = useAppToast();
+const {
+  appVersion,
+  checkForUpdates,
+  confirmPendingUpdate,
+  dismissPendingUpdate,
+  enabled: updatesEnabled,
+  pendingUpdate,
+  updateDialogOpen,
+} = useAutoUpdater();
 const exportPdfLoadingText = computed(() =>
   exportPdfStage.value === "rendering" ? t("app.renderingDoc") : t("app.generatingPdf"),
 );
@@ -73,6 +90,7 @@ const activeVersionId = ref<string | null>(null);
 const proofreadIssues = ref<ProofreadIssue[]>([]);
 const currentProofreadItemId = ref<string | null>(null);
 const activeProofreadIssueId = ref<string | null>(null);
+const pendingAiContext = ref<AgentContextSnippet | null>(null);
 const showStartPage = ref(true);
 const recentFiles = ref<string[]>(loadRecent());
 const pendingDraft = ref<UnsavedDraft | null>(loadUnsavedDraft());
@@ -519,6 +537,19 @@ function applyAIChanges(changes: EditChange[]) {
   editorRef.value?.applyChanges(changes);
 }
 
+function handleAddSelectionContext(context: { text: string; from: number; to: number }) {
+  pendingAiContext.value = {
+    ...context,
+    documentPath: filePath.value,
+  };
+  showAI.value = true;
+  showToast("success", t("ai.contextAdded"));
+}
+
+function clearPendingAiContext() {
+  pendingAiContext.value = null;
+}
+
 function clearProofreadIssues() {
   proofreadIssues.value = [];
   currentProofreadItemId.value = null;
@@ -732,6 +763,11 @@ const appMenuHandlers: AppMenuHandlers = {
   onOpenAbout: () => {
     showAbout.value = true;
   },
+  onCheckForUpdates: updatesEnabled
+    ? () => {
+        void checkForUpdates({ manual: true });
+      }
+    : undefined,
   onClearRecent: handleClearRecent,
 };
 
@@ -804,6 +840,7 @@ onUnmounted(() => {
       :show-a-i="showAI"
       :show-versions="showVersionHistory"
       :has-versions="documentVersionList.length > 0"
+      :needs-format-spacing="needsFormatSpacing"
       @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @save="saveFile(content)"
@@ -818,8 +855,21 @@ onUnmounted(() => {
       @update:view-mode="viewMode = $event"
     />
 
-    <SettingsPanel :open="showSettings" @close="showSettings = false" />
+    <SettingsPanel
+      :open="showSettings"
+      :app-version="appVersion"
+      :updates-enabled="updatesEnabled"
+      :on-check-for-updates="() => checkForUpdates({ manual: true })"
+      @close="showSettings = false"
+    />
     <AboutPanel :open="showAbout" @close="showAbout = false" />
+
+    <UpdateDialog
+      :open="updateDialogOpen"
+      :version="pendingUpdate?.version ?? ''"
+      @confirm="confirmPendingUpdate"
+      @cancel="dismissPendingUpdate"
+    />
 
     <StartPage
       v-if="showStartPage"
@@ -854,6 +904,7 @@ onUnmounted(() => {
           :proofread-issues="proofreadIssues"
           :active-proofread-issue-id="activeProofreadIssueId"
           @scroll="onEditorScroll"
+          @add-selection-context="handleAddSelectionContext"
           @proofread-select="handleProofreadSelect"
           @proofread-apply="handleProofreadApply"
           @proofread-dismiss="handleProofreadDismiss"
@@ -883,10 +934,12 @@ onUnmounted(() => {
         :document-path="filePath"
         :workspace-paths="recentFiles"
         :read-workspace-file="readAiWorkspaceFile"
+        :pending-context="pendingAiContext"
         :proofread-issues="proofreadIssues"
         :current-proofread-item-id="currentProofreadItemId"
         :active-proofread-issue-id="activeProofreadIssueId"
         @apply="applyAIChanges"
+        @clear-context="clearPendingAiContext"
         @proofread="handleProofreadIssues"
         @proofread-navigate="handleProofreadNavigate"
         @proofread-apply="handleProofreadApply"

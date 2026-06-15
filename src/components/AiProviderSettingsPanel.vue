@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import {
   isBuiltinProvider,
   localizedBuiltinModelName,
@@ -45,6 +45,9 @@ const editModelDraft = ref({
   capabilities: ["text"] as AiModelCapability[],
 });
 
+let syncingDraft = false;
+let commitTimer: ReturnType<typeof setTimeout> | null = null;
+
 function displayProviderName(provider: AiProviderConfig) {
   if (isBuiltinProvider(provider.id)) {
     return localizedBuiltinProviderName(provider.id, provider.name);
@@ -89,20 +92,26 @@ const enabledAgentModels = computed(() => {
 });
 
 const selectedProviderEnabled = computed({
-  get: () => providerDraft.value?.enabled ?? false,
+  get: () => {
+    const draft = providerDraft.value;
+    if (!draft) return false;
+    return Boolean(draft.apiKey.trim()) && draft.enabled;
+  },
   set: (enabled: boolean) => {
     if (!providerDraft.value) return;
+    if (enabled && !providerDraft.value.apiKey.trim()) return;
     providerDraft.value.enabled = enabled;
   },
 });
 
 function syncDraftFromProvider(provider: AiProviderConfig) {
+  syncingDraft = true;
   const isCurrentDefault = settings.value.agentDefaultProviderId === provider.id;
   providerDraft.value = {
     apiKey: provider.apiKey ?? "",
     baseUrl: provider.baseUrl ?? "",
     name: provider.name,
-    enabled: provider.enabled,
+    enabled: provider.enabled && Boolean((provider.apiKey ?? "").trim()),
     agentDefaultModelId: isCurrentDefault
       ? (settings.value.agentDefaultModelId ?? provider.defaultModelId ?? "")
       : (provider.defaultModelId ?? ""),
@@ -111,6 +120,9 @@ function syncDraftFromProvider(provider: AiProviderConfig) {
       capabilities: [...model.capabilities],
     })),
   };
+  nextTick(() => {
+    syncingDraft = false;
+  });
 }
 
 watch(
@@ -122,27 +134,14 @@ watch(
   { immediate: true },
 );
 
-function selectProvider(providerId: string) {
-  selectedProviderId.value = providerId;
-  editingModelId.value = null;
-  isAddingModel.value = false;
-}
-
-function updateDraftApiKey(value: string) {
-  if (!providerDraft.value) return;
-  providerDraft.value.apiKey = value;
-  if (value.trim()) {
-    providerDraft.value.enabled = true;
-  }
-}
-
-function saveProviderDraft() {
+function commitProviderDraft() {
   const provider = selectedProvider.value;
   const draft = providerDraft.value;
   if (!provider || !draft) return;
 
   const apiKey = draft.apiKey.trim();
-  const enabled = apiKey.length > 0 ? true : draft.enabled;
+  const enabled = apiKey.length > 0 && draft.enabled;
+  draft.enabled = enabled;
   const agentDefaultModelId =
     draft.agentDefaultModelId ||
     enabledAgentModels.value[0]?.id ||
@@ -167,12 +166,60 @@ function saveProviderDraft() {
     settings.value.agentDefaultProviderId = provider.id;
     settings.value.agentDefaultModelId = agentDefaultModelId;
   }
+}
 
-  const savedProvider = settings.value.providers.find((item) => item.id === provider.id);
-  if (savedProvider) syncDraftFromProvider(savedProvider);
+function scheduleCommitProviderDraft() {
+  if (commitTimer) clearTimeout(commitTimer);
+  commitTimer = setTimeout(() => {
+    commitTimer = null;
+    commitProviderDraft();
+  }, 300);
+}
+
+function flushCommitProviderDraft() {
+  if (commitTimer) {
+    clearTimeout(commitTimer);
+    commitTimer = null;
+  }
+  commitProviderDraft();
+}
+
+watch(
+  providerDraft,
+  () => {
+    if (syncingDraft || !providerDraft.value) return;
+    scheduleCommitProviderDraft();
+  },
+  { deep: true },
+);
+
+onBeforeUnmount(flushCommitProviderDraft);
+
+watch(
+  () => providerDraft.value?.apiKey,
+  (apiKey, previousApiKey) => {
+    if (syncingDraft || !providerDraft.value || previousApiKey === undefined) return;
+    if (!apiKey?.trim()) {
+      providerDraft.value.enabled = false;
+      flushCommitProviderDraft();
+      return;
+    }
+    if (!previousApiKey.trim()) {
+      providerDraft.value.enabled = true;
+    }
+  },
+);
+
+function selectProvider(providerId: string) {
+  if (providerId === selectedProviderId.value) return;
+  flushCommitProviderDraft();
+  selectedProviderId.value = providerId;
+  editingModelId.value = null;
+  isAddingModel.value = false;
 }
 
 function addProvider() {
+  flushCommitProviderDraft();
   const customCount = settings.value.providers.filter((provider) =>
     provider.id.startsWith("custom-provider-"),
   ).length;
@@ -182,6 +229,7 @@ function addProvider() {
 }
 
 function deleteProvider() {
+  flushCommitProviderDraft();
   const provider = selectedProvider.value;
   if (!provider || !provider.id.startsWith("custom-provider-")) return;
   const index = settings.value.providers.findIndex((item) => item.id === provider.id);
@@ -323,6 +371,7 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
         </div>
       </div>
 
+      <div class="detail-body">
       <div class="detail-section">
         <label class="field">
           <span class="field-label">{{ t("aiSettings.apiUrl") }}</span>
@@ -335,12 +384,11 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
         <label class="field">
           <span class="field-label">API Key</span>
           <input
-            :value="providerDraft.apiKey"
+            v-model="providerDraft.apiKey"
             class="setting-input"
             type="password"
             autocomplete="off"
             spellcheck="false"
-            @input="updateDraftApiKey(($event.target as HTMLInputElement).value)"
           />
         </label>
         <label v-if="selectedProvider.id.startsWith('custom-provider-')" class="field">
@@ -460,11 +508,6 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
           </div>
         </div>
       </div>
-
-      <div class="detail-section save-section">
-        <button class="primary-btn" type="button" @click="saveProviderDraft">
-          {{ t("aiSettings.saveProvider") }}
-        </button>
       </div>
     </section>
   </div>
@@ -475,7 +518,9 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr);
   gap: 16px;
-  min-height: 360px;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 
 .provider-sidebar {
@@ -538,17 +583,31 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
 }
 
 .provider-detail {
-  overflow: auto;
   min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 16px;
 }
 
 .detail-header {
+  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ink-border);
+  background: var(--ink-surface);
+}
+
+.detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 16px;
+  padding-right: 2px;
 }
 
 .detail-title {
@@ -684,25 +743,6 @@ function toggleModelEnabled(modelId: string, enabled: boolean) {
 
 .ghost-btn.danger {
   color: #c44;
-}
-
-.primary-btn {
-  align-self: flex-start;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 8px 16px;
-  border-radius: 8px;
-  color: #fff;
-  background: var(--ink-accent);
-  border: 1px solid var(--ink-accent);
-}
-
-.primary-btn:hover {
-  opacity: 0.92;
-}
-
-.save-section {
-  padding-bottom: 4px;
 }
 
 .setting-input {

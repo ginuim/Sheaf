@@ -10,15 +10,9 @@ const BUILTIN_PROVIDER_NAME_KEYS: Partial<Record<string, string>> = {
 
 const BUILTIN_MODEL_NAME_KEYS: Partial<Record<string, Partial<Record<string, string>>>> = {
   deepseek: {
-    "deepseek-chat": "aiProviders.models.deepseek.chat",
-    "deepseek-reasoner": "aiProviders.models.deepseek.reasoner",
     "deepseek-v4-flash": "aiProviders.models.deepseek.v4Flash",
     "deepseek-v4-pro": "aiProviders.models.deepseek.v4",
   },
-};
-
-export const staleDefaultModelIdsByProviderId: Partial<Record<string, string[]>> = {
-  deepseek: ["deepseek-chat", "deepseek-reasoner"],
 };
 
 export const defaultProviderTemplates: AiProviderConfigSeed[] = [
@@ -99,7 +93,7 @@ export const defaultProviderTemplates: AiProviderConfigSeed[] = [
   },
   {
     apiKey: "",
-    baseUrl: "https://api.deepseek.com",
+    baseUrl: "https://api.deepseek.com/v1",
     defaultModelId: "deepseek-v4-flash",
     enabled: false,
     id: "deepseek",
@@ -116,19 +110,7 @@ export const defaultProviderTemplates: AiProviderConfigSeed[] = [
         capabilities: ["text", "reasoning", "tools"],
         enabled: true,
         id: "deepseek-v4-pro",
-        name: "DeepSeek V4",
-      },
-      {
-        capabilities: ["text", "reasoning", "tools"],
-        enabled: true,
-        id: "deepseek-chat",
-        name: "DeepSeek Chat (deprecated 2026/07/24)",
-      },
-      {
-        capabilities: ["text", "reasoning", "tools"],
-        enabled: true,
-        id: "deepseek-reasoner",
-        name: "DeepSeek Reasoner (deprecated 2026/07/24)",
+        name: "DeepSeek V4 Pro",
       },
     ],
   },

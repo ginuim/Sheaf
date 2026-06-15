@@ -786,7 +786,7 @@ describe("chatCompletion", () => {
     {
       baseUrl: "https://api.deepseek.com",
       id: "deepseek",
-      model: "deepseek-chat",
+      model: "deepseek-v4-pro",
       name: "DeepSeek",
       type: "deepseek",
       url: "https://api.deepseek.com/chat/completions",

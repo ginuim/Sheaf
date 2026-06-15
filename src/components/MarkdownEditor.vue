@@ -45,6 +45,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:modelValue": [value: string];
   scroll: [];
+  "add-selection-context": [context: { text: string; from: number; to: number }];
   "proofread-select": [issueId: string];
   "proofread-apply": [issueId: string];
   "proofread-dismiss": [issueId: string];
@@ -74,6 +75,13 @@ const caseSensitive = ref(false);
 const matchTotal = ref(0);
 const matchCurrent = ref(0);
 const proofreadPopoverStyle = ref<Record<string, string> | null>(null);
+const selectionContextMenu = ref<{
+  text: string;
+  from: number;
+  to: number;
+  left: number;
+  top: number;
+} | null>(null);
 let view: EditorView | null = null;
 let syncing = false;
 let proofreadPopoverFrame = 0;
@@ -479,6 +487,61 @@ function handleProofreadClick(event: MouseEvent) {
   return true;
 }
 
+function closeSelectionContextMenu() {
+  selectionContextMenu.value = null;
+}
+
+function handleEditorContextMenu(event: MouseEvent) {
+  if (!view || !root.value) return false;
+
+  const selection = view.state.selection.main;
+  if (selection.empty) {
+    closeSelectionContextMenu();
+    return false;
+  }
+
+  const from = Math.min(selection.from, selection.to);
+  const to = Math.max(selection.from, selection.to);
+  const text = view.state.sliceDoc(from, to).trim();
+  if (!text) {
+    closeSelectionContextMenu();
+    return false;
+  }
+
+  event.preventDefault();
+  const rootRect = root.value.getBoundingClientRect();
+  selectionContextMenu.value = {
+    text,
+    from,
+    to,
+    left: Math.min(Math.max(8, event.clientX - rootRect.left), Math.max(8, rootRect.width - 220)),
+    top: Math.min(Math.max(8, event.clientY - rootRect.top), Math.max(8, rootRect.height - 48)),
+  };
+  return true;
+}
+
+function addSelectionToContext() {
+  const context = selectionContextMenu.value;
+  if (!context) return;
+  emit("add-selection-context", {
+    text: context.text,
+    from: context.from,
+    to: context.to,
+  });
+  closeSelectionContextMenu();
+}
+
+function handleDocumentPointerDown(event: PointerEvent) {
+  if (!selectionContextMenu.value) return;
+  const target = event.target;
+  if (target instanceof HTMLElement && target.closest(".selection-context-menu")) return;
+  closeSelectionContextMenu();
+}
+
+function handleDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape") closeSelectionContextMenu();
+}
+
 watch([searchText, replaceText, caseSensitive], applySearchQuery);
 watch(
   [() => props.proofreadIssues, () => props.activeProofreadIssueId],
@@ -582,6 +645,7 @@ onMounted(() => {
         keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorView.domEventHandlers({
           click: handleProofreadClick,
+          contextmenu: handleEditorContextMenu,
         }),
         editorImageInsertExtension(imageInsertOptions),
         EditorView.updateListener.of((update) => {
@@ -597,6 +661,9 @@ onMounted(() => {
           if (update.geometryChanged || update.viewportChanged) {
             scheduleProofreadPopoverUpdate();
           }
+          if (update.docChanged || update.selectionSet) {
+            closeSelectionContextMenu();
+          }
         }),
       ],
     }),
@@ -605,11 +672,15 @@ onMounted(() => {
 
   syncProofreadDecorations();
   view.scrollDOM.addEventListener("scroll", handleEditorScroll, { passive: true });
+  document.addEventListener("pointerdown", handleDocumentPointerDown);
+  document.addEventListener("keydown", handleDocumentKeydown);
 });
 
 onUnmounted(() => {
   if (proofreadPopoverFrame) cancelAnimationFrame(proofreadPopoverFrame);
   view?.scrollDOM.removeEventListener("scroll", handleEditorScroll);
+  document.removeEventListener("pointerdown", handleDocumentPointerDown);
+  document.removeEventListener("keydown", handleDocumentKeydown);
   view?.destroy();
 });
 
@@ -690,6 +761,21 @@ defineExpose({
     />
     <div ref="container" class="editor-container" />
     <div
+      v-if="selectionContextMenu"
+      class="selection-context-menu"
+      :style="{ left: `${selectionContextMenu.left}px`, top: `${selectionContextMenu.top}px` }"
+      role="menu"
+    >
+      <button
+        type="button"
+        class="selection-context-menu-item"
+        role="menuitem"
+        @click="addSelectionToContext"
+      >
+        {{ t("editor.addSelectionToAiContext") }}
+      </button>
+    </div>
+    <div
       v-if="activeProofreadIssue && proofreadPopoverStyle"
       class="proofread-popover"
       :style="proofreadPopoverStyle"
@@ -752,6 +838,36 @@ defineExpose({
 .editor-root :deep(.cm-proofread-issue-active) {
   background: color-mix(in srgb, #e53e3e 24%, transparent);
   outline: 1px solid color-mix(in srgb, #e53e3e 58%, transparent);
+}
+
+.selection-context-menu {
+  position: absolute;
+  z-index: 40;
+  min-width: 190px;
+  padding: 5px;
+  border: 1px solid var(--ink-border-strong);
+  border-radius: 8px;
+  background: var(--ink-surface);
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--ink-shadow) 42%, transparent);
+}
+
+.selection-context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  color: var(--ink-text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.selection-context-menu-item:hover {
+  background: var(--ink-inset-hover);
 }
 
 .proofread-popover {

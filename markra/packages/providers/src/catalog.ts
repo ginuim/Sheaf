@@ -253,7 +253,6 @@ export const defaultProviderTemplates: AiProviderConfigSeed[] = [
 export const staleDefaultModelIdsByProviderId: Partial<Record<string, string[]>> = {
   anthropic: ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-3-5"],
   "azure-openai": ["gpt-4o"],
-  deepseek: ["deepseek-chat", "deepseek-reasoner"],
   google: ["gemini-2.5-pro", "gemini-2.5-flash"],
   groq: ["llama-3.3-70b-versatile"],
   mistral: ["mistral-large-latest", "mistral-small-latest"],

@@ -9,8 +9,6 @@ export type DownloadVariantId =
 
 import { GITHUB_REPO } from "./repo";
 
-export const RELEASE_VERSION = "0.1.0";
-
 const MAC_DMG_NAMES: Record<MacArch, string> = {
   arm64: "Sheaf-macos-arm64.dmg",
   x64: "Sheaf-macos-x64.dmg",
@@ -58,7 +56,7 @@ export const DOWNLOAD_PLATFORMS: DownloadPlatformGroup[] = [
 
 function githubMacAssetUrl(arch: MacArch): string {
   const file = MAC_DMG_NAMES[arch];
-  return `https://github.com/${GITHUB_REPO}/releases/download/v${RELEASE_VERSION}/${file}`;
+  return `https://github.com/${GITHUB_REPO}/releases/latest/download/${file}`;
 }
 
 export function getDownloadUrl(
@@ -80,10 +78,26 @@ export function getMacDownloadUrl(region: DownloadRegion, arch: MacArch): string
 }
 
 export function detectMacArch(): MacArch {
-  const ua = navigator.userAgent;
-  if (/Intel Mac OS X/.test(ua) || navigator.platform === "MacIntel") {
-    return "x64";
+  try {
+    const canvas = document.createElement("canvas");
+    const gl = canvas.getContext("webgl") || (canvas.getContext("experimental-webgl") as WebGLRenderingContext | null);
+    if (gl) {
+      const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+      if (debugInfo) {
+        const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+        if (renderer && /Apple/i.test(renderer)) {
+          return "arm64";
+        }
+      }
+    }
+  } catch (e) {
+    // 忽略异常，降级到默认架构推荐
   }
+
+  // 降级推荐：在 2026 年，Apple Silicon 已在 macOS 用户中占据绝对主导地位，
+  // 原先基于 UA/platform 的检测逻辑在所有 Apple Silicon 设备上都会因为浏览器兼容性伪装
+  // （即包含 "Intel Mac OS X" 和 "MacIntel"）而将其误判为 x64。
+  // 因此在检测失效时，默认推荐 arm64 是体验更优的方案。
   return "arm64";
 }
 

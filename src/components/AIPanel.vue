@@ -26,6 +26,7 @@ import {
   isBlankToAiEdit,
   buildAgentHistoryFromItems,
   type AgentActivity,
+  type AgentContextSnippet,
   type AIHistoryMode,
   type EditChange,
   type AIHistoryItem,
@@ -66,6 +67,7 @@ const props = defineProps<{
   documentPath?: string | null;
   workspacePaths?: string[];
   readWorkspaceFile?: (path: string) => Promise<string>;
+  pendingContext?: AgentContextSnippet | null;
   proofreadIssues?: ProofreadIssue[];
   currentProofreadItemId?: string | null;
   activeProofreadIssueId?: string | null;
@@ -75,6 +77,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   apply: [changes: EditChange[]];
   restore: [content: string];
+  "clear-context": [];
   proofread: [issues: ProofreadIssue[], itemId: string];
   "proofread-navigate": [issueId: string];
   "proofread-apply": [issueId: string];
@@ -120,6 +123,10 @@ let overflowMeasureFrame = 0;
 
 const isLoading = computed(() => historyList.value.some((item: AIHistoryItem) => item.status === "loading"));
 const instructionCharCount = computed(() => instruction.value.length);
+const pendingContextPreview = computed(() => {
+  const text = props.pendingContext?.text.trim() ?? "";
+  return text.length > 72 ? `${text.slice(0, 72)}…` : text;
+});
 const canSubmit = computed(
   () =>
     instruction.value.trim().length > 0 &&
@@ -510,6 +517,10 @@ function upsertAgentActivity(item: AIHistoryItem, activity: AgentActivity) {
   }
 }
 
+function clearPendingContext() {
+  emit("clear-context");
+}
+
 async function runDemoQuickEdit(
   itemId: string,
   signal: AbortSignal,
@@ -537,6 +548,7 @@ async function runDemoQuickEdit(
 async function submit() {
   const text = instruction.value.trim();
   if (!text || isLoading.value) return;
+  const contextForRequest = props.pendingContext ? { ...props.pendingContext } : null;
 
   const id = Math.random().toString(36).slice(2, 9);
   const newItem: AIHistoryItem = {
@@ -555,6 +567,7 @@ async function submit() {
   historyList.value.push(newItem);
   collapsePastMessages();
   instruction.value = "";
+  if (contextForRequest) emit("clear-context");
   activeAbortController = new AbortController();
 
   await nextTick();
@@ -574,6 +587,7 @@ async function submit() {
         workspacePaths: props.workspacePaths ?? [],
         readWorkspaceFile,
         history: buildAgentHistoryFromItems(historyList.value, id, activeConversationId.value),
+        context: contextForRequest,
         signal: activeAbortController.signal,
         onTextDelta: (assistantText) => {
           const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
@@ -639,6 +653,7 @@ async function submit() {
           }
         },
         activeAbortController.signal,
+        contextForRequest,
       );
 
       const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
@@ -1381,14 +1396,6 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-
-            <div class="card-actions card-actions-split">
-              <div v-if="item.status === 'done'" class="card-actions-main">
-                <button class="ai-btn ai-btn-apply" @click="applyItemChanges(item)">{{ t("ai.apply") }}</button>
-                <button class="ai-btn ai-btn-ghost" @click="discardItem(item)">{{ t("ai.discard") }}</button>
-              </div>
-              <span v-else class="applied-badge">{{ t("ai.applied") }}</span>
-            </div>
           </div>
           </div>
           </div>
@@ -1402,11 +1409,38 @@ onUnmounted(() => {
             {{ isLongMessageExpanded(item) ? t("ai.showLess") : t("ai.showMore") }}
           </button>
         </div>
+
+        <div
+          v-if="item.status === 'done' || item.status === 'applied'"
+          class="card-actions card-actions-split"
+        >
+          <div v-if="item.status === 'done'" class="card-actions-main">
+            <button class="ai-btn ai-btn-apply" @click="applyItemChanges(item)">{{ t("ai.apply") }}</button>
+            <button class="ai-btn ai-btn-ghost" @click="discardItem(item)">{{ t("ai.discard") }}</button>
+          </div>
+          <span v-else class="applied-badge">{{ t("ai.applied") }}</span>
+        </div>
       </div>
       </template>
     </div>
 
     <div class="ai-input-area">
+      <div v-if="pendingContext && pendingContextPreview" class="ai-context-chip">
+        <div class="ai-context-main">
+          <span class="ai-context-label">{{ t("ai.contextLabel") }}</span>
+          <span class="ai-context-preview">{{ pendingContextPreview }}</span>
+        </div>
+        <button
+          type="button"
+          class="ai-context-clear"
+          :aria-label="t('ai.contextRemove')"
+          :title="t('ai.contextRemove')"
+          :disabled="isLoading"
+          @click="clearPendingContext"
+        >
+          <X :size="12" aria-hidden="true" />
+        </button>
+      </div>
       <textarea
         v-model="instruction"
         class="ai-input"
@@ -1694,19 +1728,7 @@ onUnmounted(() => {
   text-align: center;
 }
 
-.ai-empty::before {
-  content: "";
-  width: 42px;
-  height: 42px;
-  margin-bottom: 14px;
-  border: 1px solid color-mix(in srgb, var(--ink-accent) 24%, var(--ink-border));
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at center, var(--ink-accent) 0 3px, transparent 4px),
-    linear-gradient(var(--ink-accent-soft), var(--ink-accent-soft));
-  box-shadow: inset 0 0 0 10px color-mix(in srgb, var(--ink-surface) 80%, transparent);
-  opacity: 0.9;
-}
+
 
 .ai-empty-title {
   margin-bottom: 6px;
@@ -2711,6 +2733,63 @@ onUnmounted(() => {
     linear-gradient(180deg, color-mix(in srgb, var(--ink-surface) 84%, transparent), var(--ink-surface)),
     var(--ink-surface);
   box-shadow: 0 -10px 20px color-mix(in srgb, var(--ink-shadow) 18%, transparent);
+}
+
+.ai-context-chip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--ink-accent) 28%, var(--ink-border));
+  border-radius: var(--ai-radius);
+  background: color-mix(in srgb, var(--ink-accent-soft) 48%, var(--ink-surface));
+}
+
+.ai-context-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 3px;
+}
+
+.ai-context-label {
+  color: var(--ink-text-muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.ai-context-preview {
+  overflow: hidden;
+  color: var(--ink-text);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-context-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--ink-text-muted);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ai-context-clear:hover:not(:disabled) {
+  color: var(--ink-text);
+  border-color: var(--ink-border);
+  background: var(--ink-inset-hover);
+}
+
+.ai-context-clear:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .ai-input {

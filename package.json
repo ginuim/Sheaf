@@ -1,7 +1,7 @@
 {
   "name": "blank",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.8",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -32,6 +32,8 @@
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "ai": "^6.0.196",
     "codemirror": "^6.0.2",
     "gsap": "^3.15.0",

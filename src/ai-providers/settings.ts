@@ -2,7 +2,6 @@ import {
   defaultApiUrlForProvider,
   defaultProviderTemplateForId,
   getDefaultProviderTemplates,
-  staleDefaultModelIdsByProviderId,
 } from "./catalog";
 import { readModelCapabilities } from "./capabilities";
 import type {
@@ -161,10 +160,8 @@ function normalizeProvider(value: unknown): AiProviderConfig | null {
 
   const storedDefaultModelId =
     typeof value.defaultModelId === "string" ? value.defaultModelId : "";
-  const staleModelIds = staleDefaultModelIdsByProviderId[providerId];
   const defaultModelId =
-    models.some((model) => model.id === storedDefaultModelId) &&
-    !staleModelIds?.includes(storedDefaultModelId)
+    models.some((model) => model.id === storedDefaultModelId)
       ? storedDefaultModelId
       : defaultProvider?.defaultModelId &&
           models.some((model) => model.id === defaultProvider.defaultModelId)
@@ -173,14 +170,16 @@ function normalizeProvider(value: unknown): AiProviderConfig | null {
 
   const storedBaseUrl = typeof value.baseUrl === "string" ? value.baseUrl : "";
 
+  const apiKey = typeof value.apiKey === "string" ? value.apiKey : "";
+
   return {
-    apiKey: typeof value.apiKey === "string" ? value.apiKey : "",
+    apiKey,
     baseUrl: storedBaseUrl || defaultApiUrlForProvider(providerId),
     ...(typeof value.customHeaders === "string" && value.customHeaders.trim()
       ? { customHeaders: value.customHeaders }
       : {}),
     defaultModelId,
-    enabled: value.enabled === true,
+    enabled: value.enabled === true && Boolean(apiKey.trim()),
     id: providerId,
     models,
     name: value.name,
@@ -220,24 +219,13 @@ function resolveDefaultTextModelId(provider?: AiProviderConfig) {
 
 function resolveAgentDefaultModelId(provider: AiProviderConfig | undefined, storedModelId: string) {
   if (!provider) return undefined;
-  const staleModelIds = staleDefaultModelIdsByProviderId[provider.id];
   if (
     storedModelId &&
-    provider.models.some((model) => model.id === storedModelId && model.enabled) &&
-    !staleModelIds?.includes(storedModelId)
+    provider.models.some((model) => model.id === storedModelId && model.enabled)
   ) {
     return storedModelId;
   }
   return resolveDefaultTextModelId(provider);
-}
-
-function shouldRefreshStoredDefaultModels(providerId: string, models: AiProviderModel[]) {
-  const staleModelIds = staleDefaultModelIdsByProviderId[providerId];
-  if (!staleModelIds || models.length === 0 || providerId.startsWith("custom-provider-")) {
-    return false;
-  }
-  const staleModelIdSet = new Set(staleModelIds);
-  return models.every((model) => staleModelIdSet.has(model.id));
 }
 
 function mergeBuiltinProviderModels(
@@ -246,10 +234,6 @@ function mergeBuiltinProviderModels(
 ): AiProviderModel[] {
   const template = defaultProviderTemplateForId(providerId);
   if (!template || providerId.startsWith("custom-provider-")) return storedModels;
-
-  if (shouldRefreshStoredDefaultModels(providerId, storedModels)) {
-    return template.models.map(cloneModel);
-  }
 
   const storedIds = new Set(storedModels.map((model) => model.id));
   const missing = template.models.filter((model) => !storedIds.has(model.id));

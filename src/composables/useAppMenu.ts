@@ -12,6 +12,7 @@ export type AppMenuHandlers = {
   onCopyWechatHtml: () => void;
   onOpenSettings: () => void;
   onOpenAbout: () => void;
+  onCheckForUpdates?: () => void;
   onClearRecent: () => void;
 };
 
@@ -145,6 +146,16 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
   const helpSubmenu = await Submenu.new({
     text: translate("menu.help"),
     items: [
+      ...(handlers.onCheckForUpdates
+        ? [
+            await MenuItem.new({
+              id: "help-check-updates",
+              text: translate("menu.checkForUpdates"),
+              action: () => handlers!.onCheckForUpdates?.(),
+            }),
+            await PredefinedMenuItem.new({ item: "Separator" }),
+          ]
+        : []),
       await MenuItem.new({
         id: "help-about",
         text: translate("menu.about"),
@@ -167,6 +178,15 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
             text: translate("menu.about"),
             action: () => handlers!.onOpenAbout(),
           }),
+          ...(handlers.onCheckForUpdates
+            ? [
+                await MenuItem.new({
+                  id: "app-check-updates",
+                  text: translate("menu.checkForUpdates"),
+                  action: () => handlers!.onCheckForUpdates?.(),
+                }),
+              ]
+            : []),
           await PredefinedMenuItem.new({ item: "Separator" }),
           await PredefinedMenuItem.new({ item: "Services" }),
           await PredefinedMenuItem.new({ item: "Separator" }),
