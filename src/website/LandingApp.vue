@@ -176,7 +176,12 @@ const features = computed(() => [
     </section>
 
     <section id="demo" class="landing-demo-wrap" :aria-label="t('landing.demo.ariaLabel')">
-      <SheafProductDemo ref="demoRef" v-model:dark="isDark" />
+      <div class="landing-demo-stage">
+        <SheafProductDemo
+          ref="demoRef"
+          v-model:dark="isDark"
+        />
+      </div>
       <div class="landing-demo-controls" role="group" :aria-label="t('landing.demo.controls')">
         <button
           v-for="item in demoScenarios"
