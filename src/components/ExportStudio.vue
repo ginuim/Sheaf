@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Undo2 } from "@lucide/vue";
 import { WECHAT_THEMES } from "../lib/wechatThemes";
 import {
@@ -89,6 +89,8 @@ const XIAOHONGSHU_CAPTURE_SIZE = {
   width: XIAOHONGSHU_EXPORT_SIZE.width / XIAOHONGSHU_EXPORT_PIXEL_RATIO,
   height: XIAOHONGSHU_EXPORT_SIZE.height / XIAOHONGSHU_EXPORT_PIXEL_RATIO,
 } as const;
+const CARD_MEDIA_MIN_SCALE = 0.6;
+const CARD_PAGE_HEIGHT_BUFFER = 8;
 
 const exporting = ref(false);
 const exportingImage = ref(false);
@@ -107,6 +109,7 @@ let paginationRunId = 0;
 let measureHostEl: HTMLDivElement | null = null;
 let measureSurfaceEl: HTMLElement | null = null;
 let measureSurfaceSignature = "";
+let measureHeightCache = new Map<string, number>();
 
 // 渲染 Markdown (微信和大图片预览使用)
 const renderedHtml = computed(() => {
@@ -355,6 +358,35 @@ function compactPaginatedCardBlocks(blocks: string[]) {
   return compacted;
 }
 
+function isScalableCardMediaBlock(html: string) {
+  const root = document.createElement("div");
+  root.innerHTML = html.trim();
+  const elements = Array.from(root.children) as HTMLElement[];
+  if (!elements.length) return false;
+
+  const directMedia = elements.length === 1
+    ? elements[0].matches("img, svg, canvas, video, figure, .mermaid, .math-block")
+    : false;
+  const nestedMedia = root.querySelector("img, svg, canvas, video, figure, .mermaid, .math-block");
+  if (!directMedia && !nestedMedia) return false;
+
+  const textProbe = root.cloneNode(true) as HTMLElement;
+  textProbe
+    .querySelectorAll("img, svg, canvas, video, figure, .mermaid, .math-block")
+    .forEach((node) => node.remove());
+  return (textProbe.textContent ?? "").replace(/\s+/g, "").length <= 12;
+}
+
+function buildScaledMediaCardBlock(html: string, scale: number, height: number) {
+  const safeScale = Math.min(1, Math.max(CARD_MEDIA_MIN_SCALE, scale));
+  const safeHeight = Math.max(1, Math.ceil(height));
+  return [
+    `<div class="card-scaled-media" style="--card-media-scale: ${safeScale.toFixed(3)}; height: ${safeHeight}px;">`,
+    `<div class="card-scaled-media-body">${html}</div>`,
+    "</div>",
+  ].join("");
+}
+
 function splitTextIntoCardChunks(text: string, maxChars: number) {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxChars) return [normalized];
@@ -550,7 +582,7 @@ async function splitCardBlockToFitPage(
 }
 
 function ensureMeasureSurface() {
-  const signature = config.value.type;
+  const signature = `${config.value.type}:${config.value.cardTheme}`;
 
   if (
     measureHostEl &&
@@ -585,14 +617,38 @@ function ensureMeasureSurface() {
   return measureSurfaceEl;
 }
 
+async function waitForMeasureImages(root: HTMLElement) {
+  const images = Array.from(root.querySelectorAll("img")).filter(
+    (image) => !image.complete || image.naturalHeight === 0,
+  );
+  if (!images.length) return;
+
+  await Promise.race([
+    Promise.all(
+      images.map((image) => {
+        const imageLoaded = new Promise<void>((resolve) => {
+          image.addEventListener("load", () => resolve(), { once: true });
+          image.addEventListener("error", () => resolve(), { once: true });
+        });
+        return Promise.race([
+          image.decode().catch(() => undefined),
+          imageLoaded,
+        ]);
+      }),
+    ),
+    new Promise<void>((resolve) => window.setTimeout(resolve, 180)),
+  ]);
+}
+
 async function measureContentHeight(html: string, runId: number) {
+  const cachedHeight = measureHeightCache.get(html);
+  if (cachedHeight !== undefined) return cachedHeight;
+
   const contentEl = ensureMeasureSurface();
   contentEl.innerHTML = `<div class="card-measure-inner">${html}</div>`;
   const measureTarget =
     (contentEl.firstElementChild as HTMLElement | null) ?? contentEl;
-  await nextTick();
-  await document.fonts.ready;
-  await waitForAnimationFrame();
+  await waitForMeasureImages(measureTarget);
   if (runId !== paginationRunId) return Number.POSITIVE_INFINITY;
 
   if (html.includes("data-mermaid-source")) {
@@ -606,7 +662,44 @@ async function measureContentHeight(html: string, runId: number) {
     measureTarget.scrollHeight,
     measureTarget.getBoundingClientRect().height,
   );
-  return Math.ceil(measuredHeight);
+  const height = Math.ceil(measuredHeight);
+  measureHeightCache.set(html, height);
+  return height;
+}
+
+async function buildScaledMediaBlockToFit(
+  currentHtml: string,
+  block: string,
+  targetHeight: number,
+  runId: number,
+) {
+  if (targetHeight <= 0 || !isScalableCardMediaBlock(block)) return null;
+
+  const blockHeight = await measureContentHeight(block, runId);
+  if (runId !== paginationRunId || blockHeight <= 0) return null;
+
+  let low = CARD_MEDIA_MIN_SCALE;
+  let high = 1;
+  let bestBlock: string | null = null;
+
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    const scale = (low + high) / 2;
+    const scaledBlock = buildScaledMediaCardBlock(block, scale, blockHeight * scale);
+    const candidateHeight = await measureContentHeight(
+      currentHtml + scaledBlock,
+      runId,
+    );
+    if (runId !== paginationRunId) return null;
+
+    if (candidateHeight <= targetHeight) {
+      bestBlock = scaledBlock;
+      low = scale;
+    } else {
+      high = scale;
+    }
+  }
+
+  return bestBlock;
 }
 
 async function paginateXiaohongshuCards(
@@ -626,7 +719,7 @@ async function paginateXiaohongshuCards(
   if (runId !== paginationRunId) return null;
 
   const availableHeight = contentEl.clientHeight;
-  const targetHeight = Math.max(1, Math.floor(availableHeight - 10));
+  const targetHeight = Math.max(1, Math.floor(availableHeight - CARD_PAGE_HEIGHT_BUFFER));
   const hardHeight = targetHeight;
 
   let currentBlocks: string[] = [];
@@ -651,6 +744,24 @@ async function paginateXiaohongshuCards(
     }
 
     if (currentBlocks.length) {
+      const scaledBlock = await buildScaledMediaBlockToFit(
+        currentRenderedHtml || currentBlocks.join(""),
+        block,
+        targetHeight,
+        runId,
+      );
+      if (runId !== paginationRunId) return null;
+      if (scaledBlock) {
+        const scaledHtml = currentRenderedHtml + scaledBlock;
+        const scaledHeight = await measureContentHeight(scaledHtml, runId);
+        if (runId !== paginationRunId) return null;
+        if (scaledHeight <= targetHeight) {
+          currentBlocks = [...currentBlocks, scaledBlock];
+          currentRenderedHtml = scaledHtml;
+          continue;
+        }
+      }
+
       const splitBlocks = await splitCardBlockToFitPage(
         currentRenderedHtml || currentBlocks.join(""),
         block,
@@ -668,6 +779,13 @@ async function paginateXiaohongshuCards(
       currentBlocks = [];
       currentRenderedHtml = "";
       blockIndex -= 1;
+      continue;
+    }
+
+    const scaledBlock = await buildScaledMediaBlockToFit("", block, hardHeight, runId);
+    if (runId !== paginationRunId) return null;
+    if (scaledBlock) {
+      pages.push(scaledBlock);
       continue;
     }
 
@@ -692,6 +810,7 @@ async function paginateXiaohongshuCards(
 
 async function rebuildCardPagination() {
   const runId = ++paginationRunId;
+  measureHeightCache = new Map<string, number>();
 
   if (!isXiaohongshuCard.value) {
     cardPaginationPending.value = false;
@@ -712,27 +831,15 @@ async function rebuildCardPagination() {
     return;
   }
 
-  const maxFontSize = Math.min(Math.max(Math.round(config.value.fontSize), 12), 24);
-  const minFontSize = 11;
+  const fontSize = Math.min(Math.max(Math.round(config.value.fontSize), 11), 24);
 
   try {
-    for (let size = maxFontSize; size >= minFontSize; size--) {
-      if (runId !== paginationRunId) return;
+    const result = await paginateXiaohongshuCards(renderedHtml.value, fontSize, runId);
+    if (!result || runId !== paginationRunId) return;
 
-      const result = await paginateXiaohongshuCards(renderedHtml.value, size, runId);
-      if (!result) continue;
-
-      if (runId !== paginationRunId) return;
-
-      cardPages.value = result.pages.length ? result.pages : [renderedHtml.value];
-      currentCardIndex.value = 0;
-      paginatedCardFontSize.value = result.fontSize;
-      return;
-    }
-
-    cardPages.value = [renderedHtml.value];
+    cardPages.value = result.pages.length ? result.pages : [renderedHtml.value];
     currentCardIndex.value = 0;
-    paginatedCardFontSize.value = minFontSize;
+    paginatedCardFontSize.value = result.fontSize;
   } finally {
     if (runId === paginationRunId) {
       cardPaginationPending.value = false;
@@ -779,6 +886,15 @@ onMounted(() => {
   void syncPreviewLayout();
   void refreshLongImageQrCode();
   void updateLongImageClipState();
+});
+
+onBeforeUnmount(() => {
+  if (measureHostEl?.parentElement) {
+    measureHostEl.parentElement.removeChild(measureHostEl);
+  }
+  measureHostEl = null;
+  measureSurfaceEl = null;
+  measureHeightCache.clear();
 });
 
 watch(
@@ -2049,6 +2165,8 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 /* 1. 经典米白主题 */
 .theme-classic {
   --card-fade-color: #fbf9f4;
+  --card-link-color: #3d5a4c;
+  --card-link-underline: rgba(61, 90, 76, 0.28);
   background: #fbf9f4;
   color: #2e2a24;
   border: 1px solid #eae5db;
@@ -2082,6 +2200,8 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 /* 2. 现代冷灰主题 */
 .theme-modern {
   --card-fade-color: #eff0f1;
+  --card-link-color: #3f5f70;
+  --card-link-underline: rgba(63, 95, 112, 0.26);
   background: linear-gradient(135deg, #f4f5f6 0%, #e9ebed 100%);
   color: #1a1a1b;
   border: 1px solid rgba(0, 0, 0, 0.05);
@@ -2107,6 +2227,8 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 /* 3. 暗黑极简 */
 .theme-dark {
   --card-fade-color: #17191a;
+  --card-link-color: #b8c8bd;
+  --card-link-underline: rgba(184, 200, 189, 0.34);
   background: linear-gradient(135deg, #1e2022 0%, #101112 100%);
   color: #e3e4e6;
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -2209,6 +2331,14 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 
 .card-main-content :deep(p) {
   margin: 0 0 0.72em;
+}
+
+.card-main-content :deep(a) {
+  color: var(--card-link-color, currentColor);
+  text-decoration-color: var(--card-link-underline, currentColor);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+  word-break: break-word;
 }
 
 .card-main-content :deep(hr) {
@@ -2333,6 +2463,17 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   border-radius: 6px;
   margin: 10px auto;
   display: block;
+}
+
+.card-main-content :deep(.card-scaled-media) {
+  width: 100%;
+  overflow: hidden;
+}
+
+.card-main-content :deep(.card-scaled-media-body) {
+  width: 100%;
+  transform: scale(var(--card-media-scale, 1));
+  transform-origin: top center;
 }
 
 .card-footer {
