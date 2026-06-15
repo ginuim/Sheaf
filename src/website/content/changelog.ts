@@ -9,6 +9,15 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.12",
+    date: "2026-06",
+    title: "微信导出修复与官网 Demo",
+    items: [
+      "修复文档开头空行导致微信公众号导出标题识别失败",
+      "官网 Demo 场景按钮增加选中状态",
+    ],
+  },
+  {
     version: "0.2.11",
     date: "2026-06",
     title: "AI 变更快照与超时配置",
@@ -143,6 +152,15 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.12",
+    date: "2026-06",
+    title: "WeChat export fix and landing demo UX",
+    items: [
+      "Fix WeChat HTML export title detection when the document starts with blank lines",
+      "Show active state on landing page demo scenario buttons",
+    ],
+  },
   {
     version: "0.2.11",
     date: "2026-06",
