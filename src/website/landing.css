@@ -797,6 +797,7 @@ html:lang(en) .landing-hero h1 {
 
 .landing-footer-grid {
   display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 2rem;
 }
 
@@ -901,6 +902,14 @@ html:lang(en) .landing-hero h1 {
 
   html:lang(en) .landing-hero h1 {
     max-width: 14ch;
+  }
+
+  .landing-footer-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .landing-footer-contact {
+    display: none;
   }
 
   .landing-hero-lead {
@@ -1045,10 +1054,6 @@ html:lang(en) .landing-hero h1 {
 
   .landing-feature-grid {
     grid-template-columns: repeat(3, 1fr);
-  }
-
-  .landing-footer-grid {
-    grid-template-columns: repeat(4, 1fr);
   }
 
   .docs-layout {

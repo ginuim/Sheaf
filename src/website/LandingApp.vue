@@ -320,7 +320,7 @@ const features = computed(() => [
             </li>
           </ul>
         </div>
-        <div>
+        <div class="landing-footer-contact">
           <h4>{{ t("landing.footer.contact") }}</h4>
           <ul>
             <li><a href="mailto:webmaster@reaidea.com">webmaster@reaidea.com</a></li>
