@@ -9,6 +9,16 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.11",
+    date: "2026-06",
+    title: "AI 变更快照与超时配置",
+    items: [
+      "应用 AI 建议或校对修复时记录变更前后快照，保留版本历史",
+      "AI 代理请求支持自定义超时（最长 120 秒）",
+      "改进 AI 错误报告，展示完整错误链",
+    ],
+  },
+  {
     version: "0.2.10",
     date: "2026-06",
     title: "发布流程修复",
@@ -133,6 +143,16 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.11",
+    date: "2026-06",
+    title: "AI change snapshots and timeout",
+    items: [
+      "Record before/after snapshots when applying AI suggestions or proofread fixes",
+      "Configurable timeout for AI proxy requests (up to 120 seconds)",
+      "Improved AI error reporting with full error chain",
+    ],
+  },
   {
     version: "0.2.10",
     date: "2026-06",
