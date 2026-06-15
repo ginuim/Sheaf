@@ -9,6 +9,16 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.16",
+    date: "2026-06",
+    title: "小红书卡片媒体自适应",
+    items: [
+      "引入可缩放媒体块，大尺寸图片与图表可等比例收缩以完美适应卡片空间",
+      "优化卡片分页算法，改用固定字号并移除耗时的字号迭代循环",
+      "卸载组件时自动清理测量元素，避免内存泄漏",
+    ],
+  },
+  {
     version: "0.2.15",
     date: "2026-06",
     title: "本地存储配额管理",
@@ -179,6 +189,16 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.16",
+    date: "2026-06",
+    title: "Xiaohongshu card media auto-scaling",
+    items: [
+      "Introduce scalable media blocks to proportionally shrink large images and charts to fit within card space",
+      "Optimize card pagination algorithm by using a fixed font size and removing the iterative font-size search loop",
+      "Clean up measure surface elements on unmount to prevent memory leaks",
+    ],
+  },
   {
     version: "0.2.15",
     date: "2026-06",
