@@ -9,6 +9,15 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.14",
+    date: "2026-06",
+    title: "富文本粘贴转 Markdown",
+    items: [
+      "从网页或富文本应用粘贴时，自动转换为 Markdown 格式",
+      "支持标题、列表、链接、图片、表格等常见 HTML 元素",
+    ],
+  },
+  {
     version: "0.2.13",
     date: "2026-06",
     title: "官网小屏适配",
@@ -161,6 +170,15 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.14",
+    date: "2026-06",
+    title: "Rich HTML paste to Markdown",
+    items: [
+      "Convert rich HTML clipboard content to Markdown on paste",
+      "Support headings, lists, links, images, tables, and common HTML elements",
+    ],
+  },
   {
     version: "0.2.13",
     date: "2026-06",
