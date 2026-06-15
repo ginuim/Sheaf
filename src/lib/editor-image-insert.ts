@@ -1,3 +1,4 @@
+import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { EditorView as EditorViewCtor } from "@codemirror/view";
 import {
@@ -5,6 +6,7 @@ import {
   saveEditorImageFromPath,
   type SavedEditorImage,
 } from "./save-editor-image";
+import { htmlToMarkdown } from "./html-to-markdown";
 
 export type EditorImageInsertOptions = {
   getDocumentPath: () => string | null;
@@ -44,6 +46,26 @@ function insertSavedImages(view: EditorView, insertPos: number, savedImages: Sav
     userEvent: "input.drop",
   });
   view.focus();
+}
+
+function insertMarkdownFromClipboard(view: EditorView, markdown: string) {
+  const transaction = view.state.changeByRange((range) => ({
+    changes: { from: range.from, to: range.to, insert: markdown },
+    range: EditorSelection.cursor(range.from + markdown.length),
+  }));
+
+  view.dispatch({
+    ...transaction,
+    scrollIntoView: true,
+    userEvent: "input.paste",
+  });
+  view.focus();
+}
+
+function markdownFromClipboardHtml(dataTransfer: DataTransfer | null | undefined): string {
+  const html = dataTransfer?.getData("text/html") ?? "";
+  if (!html.trim()) return "";
+  return htmlToMarkdown(html);
 }
 
 async function resolveDocumentPath(options: EditorImageInsertOptions): Promise<string | null> {
@@ -126,9 +148,31 @@ export function editorImageInsertExtension(options: EditorImageInsertOptions) {
     },
     paste(event, view) {
       const files = imageFilesFromDataTransfer(event.clipboardData);
-      if (!files.length) return false;
+      if (files.length) {
+        event.preventDefault();
+        insertImagesAtCursor(view, files, options);
+        return true;
+      }
+
+      const markdown = markdownFromClipboardHtml(event.clipboardData);
+      if (!markdown) return false;
+
       event.preventDefault();
-      insertImagesAtCursor(view, files, options);
+      insertMarkdownFromClipboard(view, markdown);
+      return true;
+    },
+    beforeinput(event, view) {
+      if (event.inputType !== "insertFromPaste" || !(event instanceof InputEvent)) {
+        return false;
+      }
+      if (!event.dataTransfer) return false;
+      if (imageFilesFromDataTransfer(event.dataTransfer).length) return false;
+
+      const markdown = markdownFromClipboardHtml(event.dataTransfer);
+      if (!markdown) return false;
+
+      event.preventDefault();
+      insertMarkdownFromClipboard(view, markdown);
       return true;
     },
   });
