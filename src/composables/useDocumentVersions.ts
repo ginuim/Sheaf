@@ -1,4 +1,5 @@
 import { computed, ref, watch, type Ref } from "vue";
+import { safeSetLocalStorageJson } from "../lib/storageBudget";
 import { isBlankDocument } from "./useAI";
 
 export type DocumentVersionKind = "snapshot";
@@ -14,7 +15,8 @@ export interface DocumentVersion {
 }
 
 const VERSIONS_KEY_PREFIX = "blank.doc-versions:";
-const MAX_VERSIONS = 48;
+const MAX_VERSIONS = 24;
+const VERSION_STORAGE_BUDGET_CHARS = 2_000_000;
 
 function versionsStorageKey(documentKey: string) {
   return `${VERSIONS_KEY_PREFIX}${documentKey}`;
@@ -58,7 +60,29 @@ function loadSnapshots(documentKey: string): DocumentVersion[] {
 }
 
 function saveSnapshots(documentKey: string, versions: DocumentVersion[]) {
-  localStorage.setItem(versionsStorageKey(documentKey), JSON.stringify(versions.slice(0, MAX_VERSIONS)));
+  const trimSnapshots = (maxItems: number, budgetChars: number) => {
+    let payload = versions
+      .slice(0, maxItems)
+      .map((version) => ({ ...version, previousContent: undefined }));
+
+    while (payload.length > 1 && JSON.stringify(payload).length > budgetChars) {
+      payload = payload.slice(0, -1);
+    }
+
+    return payload;
+  };
+
+  safeSetLocalStorageJson(
+    versionsStorageKey(documentKey),
+    trimSnapshots(MAX_VERSIONS, VERSION_STORAGE_BUDGET_CHARS),
+    {
+      onQuotaExceeded: (attempt) =>
+        trimSnapshots(
+          Math.max(6, MAX_VERSIONS - (attempt + 1) * 4),
+          Math.max(500_000, VERSION_STORAGE_BUDGET_CHARS - (attempt + 1) * 350_000),
+        ),
+    },
+  );
 }
 
 export function migrateDocumentVersionsKey(fromKey: string, toKey: string) {

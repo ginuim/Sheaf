@@ -1,3 +1,5 @@
+import { safeSetLocalStorageJson } from "../lib/storageBudget";
+
 const STORAGE_KEY = "blank.unsaved-draft";
 
 export type UnsavedDraft = {
@@ -35,7 +37,7 @@ export function loadUnsavedDraft(): UnsavedDraft | null {
 }
 
 export function saveUnsavedDraft(draft: UnsavedDraft) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+  safeSetLocalStorageJson(STORAGE_KEY, draft);
 }
 
 export function clearUnsavedDraft() {
