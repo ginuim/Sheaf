@@ -9,6 +9,15 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.15",
+    date: "2026-06",
+    title: "本地存储配额管理",
+    items: [
+      "本地存储超出配额时自动清理旧数据并重试写入",
+      "AI 历史、文档版本与草稿写入增加容量预算与内容截断",
+    ],
+  },
+  {
     version: "0.2.14",
     date: "2026-06",
     title: "富文本粘贴转 Markdown",
@@ -170,6 +179,15 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.15",
+    date: "2026-06",
+    title: "Local storage quota management",
+    items: [
+      "Auto-evict stale localStorage entries and retry when quota is exceeded",
+      "Add storage budgets and payload trimming for AI history, versions, and drafts",
+    ],
+  },
   {
     version: "0.2.14",
     date: "2026-06",
