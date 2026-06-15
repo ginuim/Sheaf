@@ -21,7 +21,7 @@ function versionsStorageKey(documentKey: string) {
 }
 
 function normalizeLabel(label: string) {
-  return label.replace(/^(修改前|修改后|应用前|应用后)\s*·\s*/, "").trim() || "历史版本";
+  return label.trim() || "历史版本";
 }
 
 function normalizeVersion(value: unknown): DocumentVersion | null {
@@ -30,7 +30,6 @@ function normalizeVersion(value: unknown): DocumentVersion | null {
   if (typeof item.id !== "string" || typeof item.timestamp !== "number") return null;
   if (typeof item.label !== "string" || typeof item.content !== "string") return null;
   if (item.kind !== "snapshot" && item.kind !== "ai-before" && item.kind !== "ai-after") return null;
-  if (/^(修改前|应用前)\s*·\s*/.test(item.label)) return null;
 
   return {
     id: item.id,
@@ -148,6 +147,23 @@ export function useDocumentVersions(getDocumentKey: () => string = () => "__unti
     currentSnapshots.value = [version, ...currentSnapshots.value].slice(0, MAX_VERSIONS);
   }
 
+  function addChangeSnapshots(
+    beforeLabel: string,
+    afterLabel: string,
+    previousContent: string,
+    nextContent: string,
+    timestamp = Date.now(),
+  ) {
+    if (previousContent === nextContent) return;
+
+    const currentSnapshots = snapshotsForKey(documentKey.value);
+    const latest = currentSnapshots.value[0];
+    if (latest?.content !== previousContent) {
+      addSnapshot(beforeLabel, previousContent, undefined, timestamp - 1);
+    }
+    addSnapshot(afterLabel, nextContent, previousContent, timestamp);
+  }
+
   function listVersions() {
     return [...snapshots.value].sort((left, right) => right.timestamp - left.timestamp);
   }
@@ -164,6 +180,7 @@ export function useDocumentVersions(getDocumentKey: () => string = () => "__unti
   return {
     snapshots,
     addSnapshot,
+    addChangeSnapshots,
     listVersions,
     removeVersionsForHistoryItem,
     clearSnapshots

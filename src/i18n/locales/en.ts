@@ -332,6 +332,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     noDiff: "No content differences from the previous version.",
     earliest: "This is the earliest version. Nothing to compare.",
     restore: "Restore this version",
+    beforeChange: "Before change · {label}",
+    afterChange: "After change · {label}",
   },
   export: {
     title: "Export",

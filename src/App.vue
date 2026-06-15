@@ -613,6 +613,15 @@ function handleProofreadApply(issueId: string) {
   }
 
   const delta = issue.suggestion.length - (range.to - range.from);
+  const previousContent = content.value;
+  const nextContent = `${previousContent.slice(0, range.from)}${issue.suggestion}${previousContent.slice(range.to)}`;
+  documentVersions.addChangeSnapshots(
+    t("version.beforeChange", { label: t("proofread.fixLabel") }),
+    t("version.afterChange", { label: t("proofread.fixLabel") }),
+    previousContent,
+    nextContent,
+  );
+
   preserveProofreadIssuesOnNextContentChange = true;
   editorRef.value?.applyChanges([
     { from: range.from, to: range.to, insert: issue.suggestion },

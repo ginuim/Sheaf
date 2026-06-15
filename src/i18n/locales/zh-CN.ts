@@ -332,6 +332,8 @@ console.log(greeting);
     noDiff: "与上一版没有内容差异。",
     earliest: "这是最早的版本，暂无上一版可对比。",
     restore: "恢复此版本",
+    beforeChange: "修改前 · {label}",
+    afterChange: "修改后 · {label}",
   },
   export: {
     title: "导出",

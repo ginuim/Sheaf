@@ -749,7 +749,12 @@ function applyItemChanges(item: AIHistoryItem) {
   emit("apply", item.changes);
   item.status = "applied";
   item.resultDoc = nextDoc;
-  documentVersions.addSnapshot(labelBase, nextDoc, props.doc);
+  documentVersions.addChangeSnapshots(
+    t("version.beforeChange", { label: labelBase }),
+    t("version.afterChange", { label: labelBase }),
+    props.doc,
+    nextDoc,
+  );
 }
 
 function discardItem(item: AIHistoryItem) {
