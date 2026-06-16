@@ -9,6 +9,17 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.20",
+    date: "2026-06",
+    title: "Mac 芯片识别与官网 SEO",
+    items: [
+      "官网下载页改进 Mac 芯片识别，支持 Client Hints 与 WebGL 检测",
+      "无法识别芯片时默认推荐 Apple 芯片版并提示 Intel 用户手动选择",
+      "官网增加 Open Graph、Twitter Card、结构化数据与可抓取静态内容",
+      "修复分屏宽度 localStorage 读取逻辑",
+    ],
+  },
+  {
     version: "0.2.19",
     date: "2026-06",
     title: "AI 修改编辑区预览",
@@ -220,6 +231,17 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.20",
+    date: "2026-06",
+    title: "Mac chip detection and landing SEO",
+    items: [
+      "Improve Mac chip detection on the download page with Client Hints and WebGL parsing",
+      "Default to Apple Silicon when detection is uncertain and guide Intel users to switch manually",
+      "Add Open Graph, Twitter Card, structured data, and crawlable static content to the landing page",
+      "Harden split pane width localStorage reads",
+    ],
+  },
   {
     version: "0.2.19",
     date: "2026-06",
