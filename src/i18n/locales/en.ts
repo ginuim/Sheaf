@@ -154,6 +154,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     imageRequiresSavedDocument: "Save the document before inserting images.",
     imageInsertFailed: "Could not save the image. Please try again.",
     addSelectionToAiContext: "Add to conversation context",
+    resizeSplit: "Resize editor and preview panes",
+    resizeSplitTitle: "Drag to resize editor and preview panes",
   },
   search: {
     ariaLabel: "Search in document",

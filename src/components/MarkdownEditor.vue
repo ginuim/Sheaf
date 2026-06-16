@@ -87,6 +87,12 @@ let syncing = false;
 let proofreadPopoverFrame = 0;
 
 type MatchRange = { from: number; to: number };
+type ScrollAnchor = {
+  line: number;
+  lineEnd: number;
+  offsetRatio: number;
+  absoluteRatio: number;
+};
 type ProofreadDecorationPayload = {
   issues: ProofreadIssue[];
   activeId: string | null;
@@ -706,12 +712,51 @@ function insertDroppedImagePaths(paths: string[]) {
   void insertEditorImagesFromPaths(view, insertPos, paths, imageInsertOptions);
 }
 
+function getScrollAnchor(): ScrollAnchor | null {
+  if (!view) return null;
+
+  const scroller = view.scrollDOM;
+  const max = scroller.scrollHeight - scroller.clientHeight;
+  const viewportTop = scroller.getBoundingClientRect().top;
+  const documentHeightAtTop = Math.max(0, viewportTop - view.documentTop + 1);
+  const block = view.lineBlockAtHeight(documentHeightAtTop);
+  const line = view.state.doc.lineAt(block.from);
+
+  return {
+    line: line.number - 1,
+    lineEnd: line.number - 1,
+    offsetRatio: 0,
+    absoluteRatio: max <= 0 ? 0 : scroller.scrollTop / max,
+  };
+}
+
+function scrollToSourceAnchor(anchor: ScrollAnchor) {
+  if (!view) return false;
+
+  const lineNumber = Math.min(
+    Math.max(Math.floor(anchor.line) + 1, 1),
+    view.state.doc.lines,
+  );
+  const line = view.state.doc.line(lineNumber);
+  const block = view.lineBlockAt(line.from);
+  const scroller = view.scrollDOM;
+  const offsetRatio = anchor.line === anchor.lineEnd ? 0 : anchor.offsetRatio;
+  const targetHeight =
+    block.top + block.height * Math.min(Math.max(offsetRatio, 0), 1);
+  const targetScreenTop = view.documentTop + targetHeight;
+  const scrollerTop = scroller.getBoundingClientRect().top;
+  scroller.scrollTop = Math.max(0, scroller.scrollTop + targetScreenTop - scrollerTop);
+  return true;
+}
+
 defineExpose({
   openSearch,
   openReplace,
   closeSearch,
   isSearchOpen: () => searchOpen.value,
   insertDroppedImagePaths,
+  getScrollAnchor,
+  scrollToSourceAnchor,
   scrollRatio(ratio: number) {
     if (!view) return;
     const scroller = view.scrollDOM;

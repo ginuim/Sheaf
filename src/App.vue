@@ -4,7 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import AppToast from "./components/AppToast.vue";
 import AIPanel from "./components/AIPanel.vue";
 import AIVersionViewer from "./components/AIVersionViewer.vue";
@@ -52,6 +52,10 @@ import {
 } from "./composables/useDraftRecovery";
 
 const DEFAULT_CONTENT = translate("app.defaultContent");
+const SPLIT_WIDTH_STORAGE_KEY = "sheaf:split-editor-width-percent";
+const DEFAULT_SPLIT_EDITOR_PERCENT = 50;
+const MIN_SPLIT_PANE_PERCENT = 25;
+const SPLIT_KEYBOARD_STEP = 2;
 
 const { t, locale } = useLocale();
 const content = ref(DEFAULT_CONTENT);
@@ -66,6 +70,7 @@ const showExport = ref(false);
 const editorRef = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 const previewRef = ref<InstanceType<typeof MarkdownPreview> | null>(null);
 const previewPaneRef = ref<HTMLElement | null>(null);
+const workspaceRef = ref<HTMLElement | null>(null);
 const exporting = ref(false);
 const exportingPdf = ref(false);
 const exportPdfStage = ref<ExportPdfStage>("rendering");
@@ -99,6 +104,10 @@ const recoverableDraft = computed(() =>
 );
 let draftPersistTimer: ReturnType<typeof setTimeout> | null = null;
 let scrollSyncing = false;
+let lastScrollSource: "editor" | "preview" = "editor";
+let splitResizeStartX = 0;
+let splitResizeStartPercent = DEFAULT_SPLIT_EDITOR_PERCENT;
+let splitResizeTotalWidth = 0;
 let preserveProofreadIssuesOnNextContentChange = false;
 
 type DocHistoryEntry = {
@@ -109,9 +118,36 @@ type DocHistoryEntry = {
 const MAX_DOC_HISTORY = 20;
 const docHistory = ref<DocHistoryEntry[]>([]);
 const canGoBack = computed(() => docHistory.value.length > 0);
+const splitEditorPercent = shallowRef(loadSplitEditorPercent());
+const isSplitResizing = shallowRef(false);
+const splitLayoutStyle = computed(() => ({
+  "--editor-pane-grow": String(splitEditorPercent.value),
+  "--preview-pane-grow": String(100 - splitEditorPercent.value),
+}));
 
 function createDraftSessionId() {
   return `draft:${crypto.randomUUID()}`;
+}
+
+function clampSplitEditorPercent(value: number) {
+  return Math.min(
+    Math.max(value, MIN_SPLIT_PANE_PERCENT),
+    100 - MIN_SPLIT_PANE_PERCENT,
+  );
+}
+
+function loadSplitEditorPercent() {
+  const saved = Number(localStorage.getItem(SPLIT_WIDTH_STORAGE_KEY));
+  return Number.isFinite(saved)
+    ? clampSplitEditorPercent(saved)
+    : DEFAULT_SPLIT_EDITOR_PERCENT;
+}
+
+function setSplitEditorPercent(value: number, persist = true) {
+  splitEditorPercent.value = clampSplitEditorPercent(value);
+  if (persist) {
+    localStorage.setItem(SPLIT_WIDTH_STORAGE_KEY, String(splitEditorPercent.value));
+  }
 }
 
 const draftSessionId = ref(createDraftSessionId());
@@ -433,17 +469,8 @@ let unlistenDragDrop: UnlistenFn | null = null;
 const showEditor = computed(() => viewMode.value !== "preview");
 const showPreview = computed(() => viewMode.value !== "edit");
 
-function onEditorScroll() {
-  if (scrollSyncing || viewMode.value !== "split") return;
-  const ratio = editorRef.value?.getScrollRatio() ?? 0;
-  scrollSyncing = true;
-  const el = previewPaneRef.value;
-  if (el) {
-    const max = el.scrollHeight - el.clientHeight;
-    el.scrollTop = max * ratio;
-  }
-  // 预览区 scrollTop 被设置后，其 scroll 事件在下一帧 flush 阶段才派发，
-  // 单层 rAF 释放锁时该事件可能还未到，需要双层 rAF 确保它先被拦截。
+function releaseScrollSyncLock() {
+  // CodeMirror and the preview both emit follow-up scroll events after layout settles.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       scrollSyncing = false;
@@ -451,20 +478,96 @@ function onEditorScroll() {
   });
 }
 
+function onEditorScroll() {
+  if (scrollSyncing || viewMode.value !== "split") return;
+  lastScrollSource = "editor";
+  const anchor = editorRef.value?.getScrollAnchor();
+  const ratio = editorRef.value?.getScrollRatio() ?? 0;
+  scrollSyncing = true;
+  const el = previewPaneRef.value;
+  if (el) {
+    const synced = anchor
+      ? previewRef.value?.scrollToSourceAnchor(anchor, el)
+      : false;
+    if (!synced) {
+      const max = el.scrollHeight - el.clientHeight;
+      el.scrollTop = max * ratio;
+    }
+  }
+  releaseScrollSyncLock();
+}
+
 function onPreviewScroll(e: Event) {
   if (scrollSyncing || viewMode.value !== "split") return;
+  lastScrollSource = "preview";
   const el = e.target as HTMLElement;
+  const anchor = previewRef.value?.getScrollAnchor(el);
   const max = el.scrollHeight - el.clientHeight;
   const ratio = max <= 0 ? 0 : el.scrollTop / max;
   scrollSyncing = true;
-  editorRef.value?.scrollRatio(ratio);
-  // 用双重 rAF：CodeMirror 设置 scrollTop 后会在下一帧做行对齐微调，
-  // 再触发一次 scroll 事件，必须等那次也结束后才能释放 flag，否则会抖动。
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      scrollSyncing = false;
-    });
-  });
+  const synced = anchor ? editorRef.value?.scrollToSourceAnchor(anchor) : false;
+  if (!synced) editorRef.value?.scrollRatio(ratio);
+  releaseScrollSyncLock();
+}
+
+function handlePreviewLayoutChange() {
+  if (scrollSyncing || viewMode.value !== "split" || lastScrollSource === "preview") return;
+  const pane = previewPaneRef.value;
+  const anchor = editorRef.value?.getScrollAnchor();
+  if (!pane || !anchor) return;
+
+  scrollSyncing = true;
+  previewRef.value?.scrollToSourceAnchor(anchor, pane);
+  releaseScrollSyncLock();
+}
+
+function beginSplitResize(event: PointerEvent) {
+  if (viewMode.value !== "split") return;
+
+  const workspace = workspaceRef.value;
+  const editorPane = workspace?.querySelector<HTMLElement>(".pane-editor");
+  const previewPane = workspace?.querySelector<HTMLElement>(".pane-preview");
+  if (!editorPane || !previewPane) return;
+
+  event.preventDefault();
+  splitResizeStartX = event.clientX;
+  splitResizeStartPercent = splitEditorPercent.value;
+  splitResizeTotalWidth =
+    editorPane.getBoundingClientRect().width +
+    previewPane.getBoundingClientRect().width;
+  isSplitResizing.value = true;
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+  window.addEventListener("pointermove", handleSplitResize);
+  window.addEventListener("pointerup", stopSplitResize, { once: true });
+}
+
+function handleSplitResize(event: PointerEvent) {
+  if (!isSplitResizing.value || splitResizeTotalWidth <= 0) return;
+
+  const deltaPercent = ((event.clientX - splitResizeStartX) / splitResizeTotalWidth) * 100;
+  setSplitEditorPercent(splitResizeStartPercent + deltaPercent, false);
+}
+
+function stopSplitResize() {
+  if (!isSplitResizing.value) return;
+
+  isSplitResizing.value = false;
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
+  window.removeEventListener("pointermove", handleSplitResize);
+  setSplitEditorPercent(splitEditorPercent.value);
+}
+
+function handleSplitResizeKeydown(event: KeyboardEvent) {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+
+  event.preventDefault();
+  const direction = event.key === "ArrowRight" ? 1 : -1;
+  const multiplier = event.shiftKey ? 5 : 1;
+  setSplitEditorPercent(
+    splitEditorPercent.value + direction * SPLIT_KEYBOARD_STEP * multiplier,
+  );
 }
 
 async function handleExportPdf() {
@@ -828,6 +931,12 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown, true);
+  window.removeEventListener("pointermove", handleSplitResize);
+  window.removeEventListener("pointerup", stopSplitResize);
+  if (isSplitResizing.value) {
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  }
   unlistenOpened?.();
   unlistenDragDrop?.();
 });
@@ -893,7 +1002,13 @@ onUnmounted(() => {
       @discard-draft="discardUnsavedDraft"
     />
 
-    <div v-else class="workspace editor-enter" :class="`mode-${viewMode}`">
+    <div
+      v-else
+      ref="workspaceRef"
+      class="workspace editor-enter"
+      :class="[`mode-${viewMode}`, { 'is-split-resizing': isSplitResizing }]"
+      :style="splitLayoutStyle"
+    >
       <button
         v-if="canGoBack"
         class="doc-back"
@@ -920,7 +1035,20 @@ onUnmounted(() => {
         />
       </section>
 
-      <div v-if="viewMode === 'split'" class="divider" aria-hidden="true" />
+      <div
+        v-if="viewMode === 'split'"
+        class="divider split-resize-handle"
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        :aria-label="t('editor.resizeSplit')"
+        :aria-valuemin="MIN_SPLIT_PANE_PERCENT"
+        :aria-valuemax="100 - MIN_SPLIT_PANE_PERCENT"
+        :aria-valuenow="Math.round(splitEditorPercent)"
+        :title="t('editor.resizeSplitTitle')"
+        @pointerdown="beginSplitResize"
+        @keydown="handleSplitResizeKeydown"
+      />
 
       <section
         v-show="showPreview"
@@ -933,6 +1061,7 @@ onUnmounted(() => {
           :source="content"
           :doc-file-path="filePath"
           @open-link="handleOpenLink"
+          @layout-change="handlePreviewLayoutChange"
         />
       </section>
 
@@ -1074,15 +1203,57 @@ onUnmounted(() => {
   flex: 1;
 }
 
+.mode-split .pane-editor {
+  flex: var(--editor-pane-grow, 50) 1 0;
+}
+
+.mode-split .pane-preview {
+  flex: var(--preview-pane-grow, 50) 1 0;
+}
+
 .mode-preview .pane-preview {
   flex: 1;
   overflow: auto;
 }
 
 .divider {
+  position: relative;
+  width: 11px;
+  margin: 0 -5px;
+  background: transparent;
+  cursor: col-resize;
+  flex-shrink: 0;
+  z-index: 15;
+  touch-action: none;
+}
+
+.divider::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
   width: 1px;
   background: var(--ink-border-strong);
-  flex-shrink: 0;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
+}
+
+.split-resize-handle:hover::before,
+.split-resize-handle:focus-visible::before,
+.workspace.is-split-resizing .split-resize-handle::before {
+  background: var(--ink-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink-accent) 24%, transparent);
+}
+
+.split-resize-handle:focus-visible {
+  outline: none;
+}
+
+.workspace.is-split-resizing .pane {
+  user-select: none;
+  pointer-events: none;
 }
 
 .pane-preview {

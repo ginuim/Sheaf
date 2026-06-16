@@ -154,6 +154,8 @@ console.log(greeting);
     imageRequiresSavedDocument: "请先保存文档，再插入图片。",
     imageInsertFailed: "无法保存图片，请重试。",
     addSelectionToAiContext: "添加到对话上下文",
+    resizeSplit: "调整编辑区和预览区宽度",
+    resizeSplitTitle: "拖拽调整编辑区和预览区宽度",
   },
   search: {
     ariaLabel: "在文档中搜索",
