@@ -30,6 +30,8 @@ import {
   type EditorImageInsertOptions,
 } from "../lib/editor-image-insert";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { GitCompare, CheckCircle2, X } from "@lucide/vue";
+import { applyChangesToDoc, lineDiff } from "../composables/useAI";
 import { useAppToast } from "../composables/useAppToast";
 import { useLocale } from "../composables/useLocale";
 import type { ProofreadIssue } from "../types/proofreading";
@@ -40,6 +42,7 @@ const props = defineProps<{
   ensureDocumentSaved?: () => Promise<string | null>;
   proofreadIssues?: ProofreadIssue[];
   activeProofreadIssueId?: string | null;
+  previewDiffItem?: any;
 }>();
 
 const emit = defineEmits<{
@@ -49,6 +52,8 @@ const emit = defineEmits<{
   "proofread-select": [issueId: string];
   "proofread-apply": [issueId: string];
   "proofread-dismiss": [issueId: string];
+  "accept-preview": [item: any];
+  "discard-preview": [];
 }>();
 
 const root = ref<HTMLElement | null>(null);
@@ -705,6 +710,102 @@ watch(
   },
 );
 
+watch(
+  () => props.previewDiffItem,
+  async (newVal: any) => {
+    if (!newVal) {
+      await nextTick();
+      if (view) {
+        view.focus();
+        view.requestMeasure();
+      }
+    }
+  },
+);
+
+const previewDiffLines = computed(() => {
+  if (!props.previewDiffItem) return [];
+  const oldStr = props.previewDiffItem.originalDoc;
+  const newStr = applyChangesToDoc(oldStr, props.previewDiffItem.changes);
+  const diffs = lineDiff(oldStr, newStr);
+
+  let oldLineNum = 1;
+  let newLineNum = 1;
+
+  const fullLines = diffs.map((line) => {
+    let currentOld: number | null = null;
+    let currentNew: number | null = null;
+    let sign = " ";
+
+    if (line.type === "normal") {
+      currentOld = oldLineNum++;
+      currentNew = newLineNum++;
+    } else if (line.type === "removed") {
+      currentOld = oldLineNum++;
+      sign = "-";
+    } else if (line.type === "added") {
+      currentNew = newLineNum++;
+      sign = "+";
+    }
+
+    return {
+      type: line.type,
+      text: line.text,
+      oldLineNum: currentOld,
+      newLineNum: currentNew,
+      sign,
+    };
+  });
+
+  const contextLines = 3;
+  const n = fullLines.length;
+  const shouldShow = new Array<boolean>(n).fill(false);
+
+  for (let i = 0; i < n; i++) {
+    if (fullLines[i].type === "added" || fullLines[i].type === "removed") {
+      shouldShow[i] = true;
+      for (let j = 1; j <= contextLines; j++) {
+        if (i - j >= 0) shouldShow[i - j] = true;
+        if (i + j < n) shouldShow[i + j] = true;
+      }
+    }
+  }
+
+  const result: Array<{
+    type: "normal" | "added" | "removed" | "ellipsis";
+    text: string;
+    oldLineNum: number | null;
+    newLineNum: number | null;
+    sign: string;
+  }> = [];
+
+  let inEllipsis = false;
+  for (let i = 0; i < n; i++) {
+    if (shouldShow[i]) {
+      inEllipsis = false;
+      result.push(fullLines[i]);
+    } else {
+      if (!inEllipsis) {
+        let count = 0;
+        for (let k = i; k < n; k++) {
+          if (!shouldShow[k]) count++;
+          else break;
+        }
+        result.push({
+          type: "ellipsis",
+          text: `... 省略 ${count} 行相同内容 ...`,
+          oldLineNum: null,
+          newLineNum: null,
+          sign: " ",
+        });
+        inEllipsis = true;
+      }
+    }
+  }
+
+  return result;
+});
+
 function insertDroppedImagePaths(paths: string[]) {
   if (!view || paths.length === 0) return;
 
@@ -712,11 +813,49 @@ function insertDroppedImagePaths(paths: string[]) {
   void insertEditorImagesFromPaths(view, insertPos, paths, imageInsertOptions);
 }
 
+function getEditorScrollRatio(): number {
+  if (!view) return 0;
+
+  const scroller = view.scrollDOM;
+  const max = scroller.scrollHeight - scroller.clientHeight;
+  if (max <= 0) return 0;
+
+  const padding = view.documentPadding;
+  if (scroller.scrollTop <= padding.top + 1) return 0;
+  if (scroller.scrollTop >= max - padding.bottom - 1) return 1;
+
+  const scrollable = Math.max(max - padding.top - padding.bottom, 1);
+  return Math.min(Math.max((scroller.scrollTop - padding.top) / scrollable, 0), 1);
+}
+
+function setEditorScrollRatio(ratio: number) {
+  if (!view) return;
+
+  const scroller = view.scrollDOM;
+  const max = scroller.scrollHeight - scroller.clientHeight;
+  if (max <= 0) {
+    scroller.scrollTop = 0;
+    return;
+  }
+
+  if (ratio <= 0) {
+    scroller.scrollTop = 0;
+    return;
+  }
+  if (ratio >= 1) {
+    scroller.scrollTop = max;
+    return;
+  }
+
+  const padding = view.documentPadding;
+  const scrollable = Math.max(max - padding.top - padding.bottom, 1);
+  scroller.scrollTop = padding.top + scrollable * ratio;
+}
+
 function getScrollAnchor(): ScrollAnchor | null {
   if (!view) return null;
 
   const scroller = view.scrollDOM;
-  const max = scroller.scrollHeight - scroller.clientHeight;
   const viewportTop = scroller.getBoundingClientRect().top;
   const documentHeightAtTop = Math.max(0, viewportTop - view.documentTop + 1);
   const block = view.lineBlockAtHeight(documentHeightAtTop);
@@ -726,7 +865,7 @@ function getScrollAnchor(): ScrollAnchor | null {
     line: line.number - 1,
     lineEnd: line.number - 1,
     offsetRatio: 0,
-    absoluteRatio: max <= 0 ? 0 : scroller.scrollTop / max,
+    absoluteRatio: getEditorScrollRatio(),
   };
 }
 
@@ -758,17 +897,10 @@ defineExpose({
   getScrollAnchor,
   scrollToSourceAnchor,
   scrollRatio(ratio: number) {
-    if (!view) return;
-    const scroller = view.scrollDOM;
-    const max = scroller.scrollHeight - scroller.clientHeight;
-    scroller.scrollTop = max * ratio;
+    setEditorScrollRatio(ratio);
   },
   getScrollRatio(): number {
-    if (!view) return 0;
-    const scroller = view.scrollDOM;
-    const max = scroller.scrollHeight - scroller.clientHeight;
-    if (max <= 0) return 0;
-    return scroller.scrollTop / max;
+    return getEditorScrollRatio();
   },
   scrollToLine(line: number) {
     if (!view) return;
@@ -804,7 +936,40 @@ defineExpose({
       @replace-all="runReplaceAll"
       @close="closeSearch"
     />
-    <div ref="container" class="editor-container" />
+    <div v-show="!props.previewDiffItem" ref="container" class="editor-container" />
+
+    <div v-if="props.previewDiffItem" class="diff-preview-container">
+      <div class="diff-preview-header">
+        <div class="diff-preview-title-group">
+          <GitCompare :size="16" class="diff-preview-icon" />
+          <span class="diff-preview-title">{{ t("ai.previewingDiff") }}</span>
+        </div>
+        <div class="diff-preview-actions">
+          <button class="diff-preview-btn accept" @click="emit('accept-preview', props.previewDiffItem)">
+            <CheckCircle2 :size="14" />
+            {{ t("ai.acceptPreview") }}
+          </button>
+          <button class="diff-preview-btn discard" @click="emit('discard-preview')">
+            <X :size="14" />
+            {{ t("ai.discardPreview") }}
+          </button>
+        </div>
+      </div>
+      <div class="diff-preview-body">
+        <div class="diff-preview-lines">
+          <div
+            v-for="(line, idx) in previewDiffLines"
+            :key="idx"
+            :class="['diff-preview-line', `diff-type-${line.type}`]"
+          >
+            <span class="diff-line-num old-num">{{ line.oldLineNum || '' }}</span>
+            <span class="diff-line-num new-num">{{ line.newLineNum || '' }}</span>
+            <span class="diff-line-sign">{{ line.sign }}</span>
+            <span class="diff-line-content">{{ line.text }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
     <div
       v-if="selectionContextMenu"
       class="selection-context-menu"
@@ -973,5 +1138,161 @@ defineExpose({
 
 .proofread-ignore:hover {
   color: var(--ink-text);
+}
+
+.diff-preview-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--ink-bg-editor);
+  color: var(--ink-text);
+}
+
+.diff-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--ink-surface);
+  border-bottom: 1px solid var(--ink-border);
+  flex-shrink: 0;
+}
+
+.diff-preview-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--ink-text);
+}
+
+.diff-preview-icon {
+  color: var(--ink-text-muted);
+}
+
+.diff-preview-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.diff-preview-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.diff-preview-btn.accept {
+  background: var(--ink-accent);
+  color: var(--ink-bg);
+}
+
+.diff-preview-btn.accept:hover {
+  opacity: 0.9;
+}
+
+.diff-preview-btn.discard {
+  background: transparent;
+  border-color: var(--ink-border);
+  color: var(--ink-text-muted);
+}
+
+.diff-preview-btn.discard:hover {
+  background: var(--ink-surface-hover);
+  color: var(--ink-text);
+}
+
+.diff-preview-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 0;
+}
+
+.diff-preview-lines {
+  display: flex;
+  flex-direction: column;
+}
+
+.diff-preview-line {
+  display: flex;
+  padding: 2px 0;
+  font-family: var(--font-editor);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-line-num {
+  flex-shrink: 0;
+  width: 40px;
+  text-align: right;
+  padding-right: 8px;
+  user-select: none;
+  color: var(--ink-text-muted);
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.diff-line-num.old-num {
+  border-right: none;
+}
+
+.diff-line-num.new-num {
+  border-right: 1px solid var(--ink-border);
+  margin-right: 8px;
+}
+
+.diff-line-sign {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  user-select: none;
+  font-weight: bold;
+  opacity: 0.75;
+}
+
+.diff-line-content {
+  flex: 1;
+  padding-right: 16px;
+}
+
+.diff-preview-line.diff-type-removed {
+  color: #c53030;
+  background: color-mix(in srgb, #e53e3e 9%, transparent);
+}
+
+.diff-preview-line.diff-type-removed .diff-line-num {
+  color: #c53030;
+}
+
+.diff-preview-line.diff-type-added {
+  color: #2f855a;
+  background: color-mix(in srgb, #38a169 10%, transparent);
+}
+
+.diff-preview-line.diff-type-added .diff-line-num {
+  color: #2f855a;
+}
+
+.diff-preview-line.diff-type-normal {
+  color: var(--ink-text);
+}
+
+.diff-preview-line.diff-type-ellipsis {
+  justify-content: center;
+  padding: 6px 0;
+  color: var(--ink-text-muted);
+  font-size: 11px;
+  font-style: italic;
+  background: color-mix(in srgb, var(--ink-bg) 82%, var(--ink-surface));
+  opacity: 0.75;
 }
 </style>

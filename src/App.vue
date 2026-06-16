@@ -18,8 +18,8 @@ import UpdateDialog from "./components/UpdateDialog.vue";
 import StartPage from "./components/StartPage.vue";
 import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
-import type { AgentContextSnippet, EditChange } from "./composables/useAI";
-import { migrateAiHistoryKey } from "./composables/useAI";
+import type { AgentContextSnippet, EditChange, AIHistoryItem } from "./composables/useAI";
+import { migrateAiHistoryKey, applyChangesToDoc } from "./composables/useAI";
 import type { ProofreadIssue } from "./types/proofreading";
 import { migrateDocumentVersionsKey, useDocumentVersions } from "./composables/useDocumentVersions";
 import { refreshRecentMenu, setupAppMenu, type AppMenuHandlers } from "./composables/useAppMenu";
@@ -96,6 +96,7 @@ const proofreadIssues = ref<ProofreadIssue[]>([]);
 const currentProofreadItemId = ref<string | null>(null);
 const activeProofreadIssueId = ref<string | null>(null);
 const pendingAiContext = ref<AgentContextSnippet | null>(null);
+const previewingDiffItem = ref<AIHistoryItem | null>(null);
 const showStartPage = ref(true);
 const recentFiles = ref<string[]>(loadRecent());
 const pendingDraft = ref<UnsavedDraft | null>(loadUnsavedDraft());
@@ -662,6 +663,33 @@ function applyAIChanges(changes: EditChange[]) {
   editorRef.value?.applyChanges(changes);
 }
 
+function handlePreviewDiff(item: AIHistoryItem | null) {
+  previewingDiffItem.value = item;
+}
+
+function handleAcceptPreview(item: AIHistoryItem) {
+  const labelBase = item.instruction.trim().slice(0, 24) || t("ai.editLabel");
+  const nextDoc = applyChangesToDoc(content.value, item.changes);
+  
+  editorRef.value?.applyChanges(item.changes);
+  
+  item.status = "applied";
+  item.resultDoc = nextDoc;
+  
+  documentVersions.addChangeSnapshots(
+    t("version.beforeChange", { label: labelBase }),
+    t("version.afterChange", { label: labelBase }),
+    content.value,
+    nextDoc,
+  );
+  
+  previewingDiffItem.value = null;
+}
+
+function handleDiscardPreview() {
+  previewingDiffItem.value = null;
+}
+
 function handleAddSelectionContext(context: { text: string; from: number; to: number }) {
   pendingAiContext.value = {
     ...context,
@@ -1049,11 +1077,14 @@ onUnmounted(() => {
           :ensure-document-saved="ensureDocumentSavedForImage"
           :proofread-issues="proofreadIssues"
           :active-proofread-issue-id="activeProofreadIssueId"
+          :preview-diff-item="previewingDiffItem"
           @scroll="onEditorScroll"
           @add-selection-context="handleAddSelectionContext"
           @proofread-select="handleProofreadSelect"
           @proofread-apply="handleProofreadApply"
           @proofread-dismiss="handleProofreadDismiss"
+          @accept-preview="handleAcceptPreview"
+          @discard-preview="handleDiscardPreview"
         />
       </section>
 
@@ -1098,6 +1129,7 @@ onUnmounted(() => {
         :proofread-issues="proofreadIssues"
         :current-proofread-item-id="currentProofreadItemId"
         :active-proofread-issue-id="activeProofreadIssueId"
+        :previewing-diff-item-id="previewingDiffItem?.id"
         @apply="applyAIChanges"
         @clear-context="clearPendingAiContext"
         @proofread="handleProofreadIssues"
@@ -1105,6 +1137,7 @@ onUnmounted(() => {
         @proofread-apply="handleProofreadApply"
         @proofread-dismiss="handleProofreadDismiss"
         @restore="restoreDocumentVersion"
+        @preview="handlePreviewDiff"
       />
 
       <OutlinePanel

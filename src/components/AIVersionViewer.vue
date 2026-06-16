@@ -53,13 +53,15 @@ const diffLines = computed<CompressedDiffLine[]>(() => {
 });
 
 const charCount = computed(() => activeVersion.value?.content.length ?? 0);
+const canComparePrevious = computed(() => previousVersion.value !== null);
 const diffBaseLabel = computed(() => previousVersion.value?.label ?? t("version.noPrevious"));
 
 watch(
   () => props.activeId,
   () => {
-    viewMode.value = "diff";
-  }
+    viewMode.value = canComparePrevious.value ? "diff" : "preview";
+  },
+  { immediate: true }
 );
 
 function formatTime(timestamp: number) {
@@ -181,7 +183,7 @@ onUnmounted(() => {
           <button class="version-close-btn" type="button" :title="t('version.close')" @click="emit('close')">×</button>
         </header>
 
-        <div class="version-tabs">
+        <div v-if="canComparePrevious" class="version-tabs">
           <button
             class="version-tab"
             :class="{ active: viewMode === 'diff' }"
@@ -205,7 +207,7 @@ onUnmounted(() => {
           <div v-else class="version-diff">
             <div class="diff-base">{{ t("version.basedOn", { label: diffBaseLabel }) }}</div>
             <div v-if="diffLines.length === 0" class="diff-empty">
-              {{ previousVersion ? t("version.noDiff") : t("version.earliest") }}
+              {{ t("version.noDiff") }}
             </div>
             <div
               v-for="(line, idx) in diffLines"
@@ -250,6 +252,8 @@ onUnmounted(() => {
 
 .version-dialog {
   width: min(920px, 100%);
+  height: min(82vh, 760px);
+  min-height: min(640px, calc(100vh - 48px));
   max-height: min(82vh, 760px);
   display: flex;
   flex-direction: row;
@@ -464,7 +468,7 @@ onUnmounted(() => {
 
 .version-body {
   flex: 1;
-  min-height: 0;
+  min-height: 360px;
   margin: 10px 16px 0;
   border: 1px solid var(--ink-border);
   border-radius: 8px;
@@ -578,6 +582,8 @@ onUnmounted(() => {
 @media (max-width: 640px) {
   .version-dialog {
     flex-direction: column;
+    height: min(90vh, 860px);
+    min-height: min(560px, calc(100vh - 32px));
     max-height: min(90vh, 860px);
   }
 
@@ -597,6 +603,10 @@ onUnmounted(() => {
 
   .version-sidebar-item {
     min-width: 160px;
+  }
+
+  .version-body {
+    min-height: 260px;
   }
 }
 </style>
