@@ -9,6 +9,16 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.19",
+    date: "2026-06",
+    title: "AI 修改编辑区预览",
+    items: [
+      "AI 建议可在编辑区预览 diff，支持接受或放弃修改",
+      "版本历史弹窗无上一版本时默认显示预览，并优化最小高度",
+      "修复编辑器滚动比例计算，考虑文档内边距",
+    ],
+  },
+  {
     version: "0.2.18",
     date: "2026-06",
     title: "同步滚动与导出体验",
@@ -210,6 +220,16 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.19",
+    date: "2026-06",
+    title: "In-editor AI diff preview",
+    items: [
+      "Preview AI edit diffs in the editor before accepting or discarding",
+      "Version history dialog defaults to preview without a previous snapshot and improves min height",
+      "Fix editor scroll ratio calculation to account for document padding",
+    ],
+  },
   {
     version: "0.2.18",
     date: "2026-06",
