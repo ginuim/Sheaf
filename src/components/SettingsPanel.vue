@@ -1,19 +1,25 @@
 <script setup lang="ts">
-import { computed, ref, withDefaults } from "vue";
+import { computed, ref, watch, withDefaults } from "vue";
 import {
   useTheme,
 } from "../composables/useTheme";
 import { useLocale } from "../composables/useLocale";
 import type { AppLocale } from "../i18n";
 import { useAI } from "../composables/useAI";
-import { useExportTypography } from "../composables/useExportTypography";
-import { loadAppPreferences, saveAppPreferences } from "../lib/appPreferences";
+import { useAppPreferences } from "../composables/useAppPreferences";
+import {
+  markdownFormatToolIds,
+  type MarkdownFormatToolId,
+} from "../types/markdown-format";
 import AiProviderSettingsPanel from "./AiProviderSettingsPanel.vue";
 import AiToolsSettingsPanel from "./AiToolsSettingsPanel.vue";
+
+type SettingsTab = "appearance" | "formatBar" | "aiModels" | "aiTools";
 
 const props = withDefaults(
   defineProps<{
     open: boolean;
+    initialTab?: SettingsTab;
     appVersion?: string;
     updatesEnabled?: boolean;
     onCheckForUpdates?: () => void | Promise<void>;
@@ -31,20 +37,59 @@ const emit = defineEmits<{
 const { preference, setPreference } = useTheme();
 const { locale, setLocale, t } = useLocale();
 const { settings: aiSettings } = useAI();
-const { settings: exportTypographySettings } = useExportTypography();
-const appPreferences = ref(loadAppPreferences());
+const { preferences: appPreferences, updateAppPreferences } = useAppPreferences();
 
 function setAutoUpdateEnabled(enabled: boolean) {
-  appPreferences.value = { ...appPreferences.value, autoUpdateEnabled: enabled };
-  saveAppPreferences(appPreferences.value);
+  updateAppPreferences({ autoUpdateEnabled: enabled });
 }
 
-type SettingsTab = "appearance" | "aiModels" | "aiTools";
+function setMarkdownFormatBarEnabled(enabled: boolean) {
+  updateAppPreferences({ markdownFormatBarEnabled: enabled });
+}
+
+function setMarkdownFormatToolEnabled(id: MarkdownFormatToolId, enabled: boolean) {
+  updateAppPreferences({
+    markdownFormatBarTools: {
+      ...appPreferences.markdownFormatBarTools,
+      [id]: enabled,
+    },
+  });
+}
 
 const activeTab = ref<SettingsTab>("appearance");
 
+const draggedId = ref<MarkdownFormatToolId | null>(null);
+
+function onDragStart(id: MarkdownFormatToolId, event: DragEvent) {
+  draggedId.value = id;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", id);
+  }
+}
+
+function onDragOver(targetId: MarkdownFormatToolId, event: DragEvent) {
+  event.preventDefault();
+  if (!draggedId.value || draggedId.value === targetId) return;
+
+  const order = [...appPreferences.markdownFormatBarToolOrder];
+  const dragIndex = order.indexOf(draggedId.value);
+  const targetIndex = order.indexOf(targetId);
+
+  if (dragIndex !== -1 && targetIndex !== -1) {
+    order.splice(dragIndex, 1);
+    order.splice(targetIndex, 0, draggedId.value);
+    updateAppPreferences({ markdownFormatBarToolOrder: order });
+  }
+}
+
+function onDragEnd() {
+  draggedId.value = null;
+}
+
 const tabs = computed(() => [
   { id: "appearance" as const, label: t("settings.tabs.appearance"), icon: "◐" },
+  { id: "formatBar" as const, label: t("settings.tabs.formatBar"), icon: "Aa" },
   { id: "aiModels" as const, label: t("settings.tabs.aiModels"), icon: "✦" },
   { id: "aiTools" as const, label: t("settings.tabs.aiTools"), icon: "⚙" },
 ]);
@@ -66,9 +111,26 @@ const activeHint = computed(
 
 const tabTitles = computed<Record<SettingsTab, string>>(() => ({
   appearance: t("settings.tabs.appearance"),
+  formatBar: t("settings.tabs.formatBar"),
   aiModels: t("settings.tabs.aiModels"),
   aiTools: t("settings.tabs.aiTools"),
 }));
+
+const formatToolOptions = computed(() => {
+  const order = appPreferences.markdownFormatBarToolOrder || [...markdownFormatToolIds];
+  return order.map((id) => ({
+    id,
+    label: t(`editor.formatBar.${id}`),
+  }));
+});
+
+watch(
+  () => [props.open, props.initialTab] as const,
+  ([open, initialTab]) => {
+    if (open && initialTab) activeTab.value = initialTab;
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -139,23 +201,6 @@ const tabTitles = computed<Record<SettingsTab, string>>(() => ({
               </div>
             </div>
 
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">{{ t("settings.appearance.chineseEnglishSpacing") }}</span>
-                <span class="setting-desc">
-                  {{ t("settings.appearance.chineseEnglishSpacingDesc") }}
-                </span>
-              </div>
-              <label class="toggle">
-                <input v-model="exportTypographySettings.chineseEnglishSpacing" type="checkbox" />
-                <span>{{
-                  exportTypographySettings.chineseEnglishSpacing
-                    ? t("settings.appearance.on")
-                    : t("settings.appearance.off")
-                }}</span>
-              </label>
-            </div>
-
             <template v-if="props.updatesEnabled">
               <div class="setting-row">
                 <div class="setting-label">
@@ -193,6 +238,56 @@ const tabTitles = computed<Record<SettingsTab, string>>(() => ({
                 </button>
               </div>
             </template>
+          </section>
+
+          <section v-else-if="activeTab === 'formatBar'" class="settings-section">
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">{{ t("settings.formatBar.enabled") }}</span>
+                <span class="setting-desc">{{ t("settings.formatBar.enabledDesc") }}</span>
+              </div>
+              <label class="toggle">
+                <input
+                  :checked="appPreferences.markdownFormatBarEnabled"
+                  type="checkbox"
+                  @change="setMarkdownFormatBarEnabled(!appPreferences.markdownFormatBarEnabled)"
+                />
+                <span>{{
+                  appPreferences.markdownFormatBarEnabled
+                    ? t("settings.appearance.on")
+                    : t("settings.appearance.off")
+                }}</span>
+              </label>
+            </div>
+
+            <div class="setting-row setting-row-col">
+              <div class="setting-label">
+                <span class="setting-name">{{ t("settings.formatBar.tools") }}</span>
+                <span class="setting-desc">{{ t("settings.formatBar.toolsDesc") }}</span>
+              </div>
+              <div class="format-tool-grid">
+                <div
+                  v-for="tool in formatToolOptions"
+                  :key="tool.id"
+                  class="format-tool-item"
+                  :class="{ dragging: draggedId === tool.id }"
+                  draggable="true"
+                  @dragstart="onDragStart(tool.id, $event)"
+                  @dragover="onDragOver(tool.id, $event)"
+                  @dragend="onDragEnd"
+                >
+                  <span class="drag-handle" aria-hidden="true">⋮⋮</span>
+                  <label class="format-tool-toggle">
+                    <input
+                      :checked="appPreferences.markdownFormatBarTools[tool.id]"
+                      type="checkbox"
+                      @change="setMarkdownFormatToolEnabled(tool.id, !appPreferences.markdownFormatBarTools[tool.id])"
+                    />
+                    <span>{{ tool.label }}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
           </section>
 
           <section v-else-if="activeTab === 'aiModels'" class="settings-section ai-settings-section">
@@ -390,6 +485,69 @@ const tabTitles = computed<Record<SettingsTab, string>>(() => ({
 
 .setting-input:focus {
   border-color: var(--ink-accent);
+}
+
+.format-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.format-tool-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--ink-border);
+  border-radius: 8px;
+  background: var(--ink-bg);
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.format-tool-item:hover {
+  border-color: var(--ink-border-strong);
+  background: var(--ink-accent-soft);
+}
+
+.format-tool-item.dragging {
+  opacity: 0.4;
+  border-style: dashed;
+  border-color: var(--ink-accent);
+}
+
+.drag-handle {
+  color: var(--ink-text-muted);
+  cursor: grab;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+  opacity: 0.6;
+}
+
+.drag-handle:hover {
+  opacity: 1;
+}
+
+.format-tool-item:active .drag-handle {
+  cursor: grabbing;
+}
+
+.format-tool-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-height: 24px;
+  color: var(--ink-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.format-tool-toggle input {
+  accent-color: var(--ink-accent);
+  cursor: pointer;
 }
 
 .setting-input-narrow {

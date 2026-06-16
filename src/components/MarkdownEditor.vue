@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { syntaxHighlighting } from "@codemirror/language";
@@ -23,6 +25,7 @@ import {
   type DecorationSet,
 } from "@codemirror/view";
 import EditorSearchReplace from "./EditorSearchReplace.vue";
+import MarkdownFormatBar from "./MarkdownFormatBar.vue";
 import { editorHighlightStyle } from "../lib/editorHighlightStyle";
 import {
   editorImageInsertExtension,
@@ -35,15 +38,30 @@ import { applyChangesToDoc, lineDiff } from "../composables/useAI";
 import { useAppToast } from "../composables/useAppToast";
 import { useLocale } from "../composables/useLocale";
 import type { ProofreadIssue } from "../types/proofreading";
+import {
+  markdownFormatToolIds,
+  type MarkdownFormatCommand,
+  type MarkdownFormatToolId,
+} from "../types/markdown-format";
 
-const props = defineProps<{
-  modelValue: string;
-  documentPath?: string | null;
-  ensureDocumentSaved?: () => Promise<string | null>;
-  proofreadIssues?: ProofreadIssue[];
-  activeProofreadIssueId?: string | null;
-  previewDiffItem?: any;
-}>();
+const props = withDefaults(
+  defineProps<{
+    modelValue: string;
+    documentPath?: string | null;
+    ensureDocumentSaved?: () => Promise<string | null>;
+    proofreadIssues?: ProofreadIssue[];
+    activeProofreadIssueId?: string | null;
+    previewDiffItem?: any;
+    formatBarEnabled?: boolean;
+    needsFormatSpacing?: boolean;
+    formatBarTools?: Partial<Record<MarkdownFormatToolId, boolean>>;
+    formatBarToolOrder?: MarkdownFormatToolId[];
+  }>(),
+  {
+    formatBarEnabled: true,
+    needsFormatSpacing: false,
+  },
+);
 
 const emit = defineEmits<{
   "update:modelValue": [value: string];
@@ -54,6 +72,8 @@ const emit = defineEmits<{
   "proofread-dismiss": [issueId: string];
   "accept-preview": [item: any];
   "discard-preview": [];
+  "format-spacing": [];
+  "open-format-settings": [];
 }>();
 
 const root = ref<HTMLElement | null>(null);
@@ -203,6 +223,12 @@ const searchCountText = computed(() => {
   const current = matchCurrent.value > 0 ? matchCurrent.value : 0;
   return t("search.matchCount", { current, total: matchTotal.value });
 });
+
+const enabledFormatBarTools = computed(() =>
+  Object.fromEntries(
+    markdownFormatToolIds.map((id) => [id, props.formatBarTools?.[id] !== false]),
+  ) as Record<MarkdownFormatToolId, boolean>,
+);
 
 const activeProofreadIssue = computed(() => {
   const activeId = props.activeProofreadIssueId;
@@ -551,6 +577,250 @@ function handleDocumentPointerDown(event: PointerEvent) {
 
 function handleDocumentKeydown(event: KeyboardEvent) {
   if (event.key === "Escape") closeSelectionContextMenu();
+}
+
+function editorPlaceholder(key: string) {
+  return t(`editor.placeholders.${key}`);
+}
+
+function dispatchEditorChange(
+  from: number,
+  to: number,
+  insert: string,
+  selectionFrom: number,
+  selectionTo = selectionFrom,
+  userEvent = "input.markdown-format",
+) {
+  if (!view) return;
+
+  view.dispatch({
+    changes: { from, to, insert },
+    selection: EditorSelection.single(selectionFrom, selectionTo),
+    scrollIntoView: true,
+    userEvent,
+  });
+  view.focus();
+}
+
+function selectedText() {
+  if (!view) return "";
+  const { from, to } = view.state.selection.main;
+  return view.state.sliceDoc(from, to);
+}
+
+function applyInlineWrap(prefix: string, suffix: string, placeholderKey = "text") {
+  if (!view) return;
+
+  const { from, to } = view.state.selection.main;
+  const selected = selectedText();
+  const text = selected || editorPlaceholder(placeholderKey);
+  const insert = `${prefix}${text}${suffix}`;
+  const selectionFrom = from + prefix.length;
+  const selectionTo = selectionFrom + text.length;
+
+  dispatchEditorChange(from, to, insert, selectionFrom, selectionTo);
+}
+
+function applyLinkFormat() {
+  if (!view) return;
+
+  const { from, to } = view.state.selection.main;
+  const selected = selectedText();
+  const text = selected && !/[\r\n]/.test(selected)
+    ? selected
+    : editorPlaceholder("linkText");
+  const url = editorPlaceholder("linkUrl");
+  const insert = `[${text}](${url})`;
+  const textStart = from + 1;
+  const urlStart = from + text.length + 3;
+
+  if (selected && !/[\r\n]/.test(selected)) {
+    dispatchEditorChange(from, to, insert, urlStart, urlStart + url.length);
+    return;
+  }
+
+  dispatchEditorChange(from, to, insert, textStart, textStart + text.length);
+}
+
+function applyImagePlaceholder() {
+  if (!view) return;
+
+  const { from, to } = view.state.selection.main;
+  const selected = selectedText();
+  const alt = selected && !/[\r\n]/.test(selected)
+    ? selected
+    : editorPlaceholder("imageAlt");
+  const path = editorPlaceholder("imagePath");
+  const insert = `![${alt}](${path})`;
+  const pathStart = from + alt.length + 4;
+
+  dispatchEditorChange(from, to, insert, pathStart, pathStart + path.length);
+}
+
+function stripBlockPrefix(text: string) {
+  return text.replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s*)/, "");
+}
+
+function applyHeadingFormat(level: number) {
+  if (!view) return;
+
+  const selection = view.state.selection.main;
+  const line = view.state.doc.lineAt(selection.from);
+  const content = stripBlockPrefix(line.text).trimEnd() ||
+    editorPlaceholder("heading");
+  const prefix = `${"#".repeat(level)} `;
+  const insert = `${prefix}${content}`;
+  const selectionFrom = line.from + prefix.length;
+
+  dispatchEditorChange(
+    line.from,
+    line.to,
+    insert,
+    selectionFrom,
+    selectionFrom + content.length,
+  );
+}
+
+function selectionLineRange() {
+  if (!view) return null;
+
+  const selection = view.state.selection.main;
+  const startLine = view.state.doc.lineAt(selection.from);
+  const endPos = selection.empty
+    ? selection.to
+    : Math.max(selection.from, selection.to - 1);
+  const endLine = view.state.doc.lineAt(endPos);
+
+  return { selection, startLine, endLine };
+}
+
+function applyLinePrefixFormat(command: "unorderedList" | "orderedList" | "quote" | "task") {
+  if (!view) return;
+
+  const range = selectionLineRange();
+  if (!range) return;
+
+  const { selection, startLine, endLine } = range;
+  const lines = [];
+  for (let lineNumber = startLine.number; lineNumber <= endLine.number; lineNumber += 1) {
+    lines.push(view.state.doc.line(lineNumber));
+  }
+
+  const noSelection = selection.empty;
+  const replacementLines = lines.map((line, index) => {
+    const fallback = command === "quote"
+      ? editorPlaceholder("quote")
+      : editorPlaceholder("listItem");
+    const content = stripBlockPrefix(line.text) ||
+      (noSelection && index === 0 ? fallback : "");
+    if (command === "orderedList") return `${index + 1}. ${content}`;
+    if (command === "quote") return `> ${content}`;
+    if (command === "task") return `- [ ] ${content}`;
+    return `- ${content}`;
+  });
+  const insert = replacementLines.join("\n");
+  const firstPrefixLength = command === "orderedList" ? 3 : (command === "task" ? 6 : 2);
+  const selectionFrom = startLine.from + firstPrefixLength;
+  const selectionTo = noSelection
+    ? selectionFrom + replacementLines[0]!.slice(firstPrefixLength).length
+    : startLine.from + insert.length;
+
+  dispatchEditorChange(startLine.from, endLine.to, insert, selectionFrom, selectionTo);
+}
+
+function applyCodeBlockFormat() {
+  if (!view) return;
+
+  const { from, to } = view.state.selection.main;
+  const selected = selectedText();
+  const code = selected || editorPlaceholder("code");
+  const insert = `\`\`\`\n${code}\n\`\`\``;
+  const selectionFrom = from + 4;
+
+  dispatchEditorChange(from, to, insert, selectionFrom, selectionFrom + code.length);
+}
+
+function selectedDialogPaths(value: string | string[] | null): string[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function isSupportedImagePath(path: string) {
+  return /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(path);
+}
+
+async function applyImageFormat() {
+  if (!view) return;
+
+  if (!isTauri()) {
+    applyImagePlaceholder();
+    return;
+  }
+
+  try {
+    const selected = await openDialog({
+      multiple: true,
+      filters: [
+        {
+          name: "Images",
+          extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "heic", "heif"],
+        },
+      ],
+    });
+    const paths = selectedDialogPaths(selected).filter(isSupportedImagePath);
+    if (paths.length === 0) {
+      if (selected) showToast("info", t("editor.imageSelectInvalid"));
+      return;
+    }
+
+    await invoke("allow_dropped_paths", { paths });
+    await insertEditorImagesFromPaths(
+      view,
+      view.state.selection.main.head,
+      paths,
+      imageInsertOptions,
+    );
+  } catch {
+    showToast("error", t("editor.imageSelectFailed"));
+  }
+}
+
+function applyHorizontalRuleFormat() {
+  if (!view) return;
+  const { from, to } = view.state.selection.main;
+  const insert = "\n---\n";
+  dispatchEditorChange(from, to, insert, from + insert.length);
+}
+
+function applyTableFormat() {
+  if (!view) return;
+  const { from, to } = view.state.selection.main;
+  const insert = "\n| Header 1 | Header 2 |\n| -------- | -------- |\n| Cell 1   | Cell 2   |\n";
+  dispatchEditorChange(from, to, insert, from + insert.length);
+}
+
+function handleFormatCommand(command: MarkdownFormatCommand) {
+  if (!view) return;
+
+  closeSelectionContextMenu();
+
+  if (command === "heading1") applyHeadingFormat(1);
+  else if (command === "heading2") applyHeadingFormat(2);
+  else if (command === "heading3") applyHeadingFormat(3);
+  else if (command === "heading4") applyHeadingFormat(4);
+  else if (command === "bold") applyInlineWrap("**", "**");
+  else if (command === "italic") applyInlineWrap("*", "*");
+  else if (command === "strikethrough") applyInlineWrap("~~", "~~");
+  else if (command === "link") applyLinkFormat();
+  else if (command === "unorderedList") applyLinePrefixFormat(command);
+  else if (command === "orderedList") applyLinePrefixFormat(command);
+  else if (command === "task") applyLinePrefixFormat(command);
+  else if (command === "quote") applyLinePrefixFormat(command);
+  else if (command === "inlineCode") applyInlineWrap("`", "`", "code");
+  else if (command === "codeBlock") applyCodeBlockFormat();
+  else if (command === "table") applyTableFormat();
+  else if (command === "image") void applyImageFormat();
+  else if (command === "horizontalRule") applyHorizontalRuleFormat();
 }
 
 watch([searchText, replaceText, caseSensitive], applySearchQuery);
@@ -920,7 +1190,20 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="root" class="editor-root">
+  <div
+    ref="root"
+    class="editor-root"
+    :class="{ 'has-format-bar': props.formatBarEnabled && !props.previewDiffItem }"
+  >
+    <MarkdownFormatBar
+      v-if="props.formatBarEnabled && !props.previewDiffItem"
+      :needs-format-spacing="props.needsFormatSpacing"
+      :enabled-tools="enabledFormatBarTools"
+      :tool-order="props.formatBarToolOrder || []"
+      @command="handleFormatCommand"
+      @format-spacing="emit('format-spacing')"
+      @open-settings="emit('open-format-settings')"
+    />
     <EditorSearchReplace
       v-if="searchOpen"
       ref="searchReplaceRef"
@@ -1015,13 +1298,21 @@ defineExpose({
 <style scoped>
 .editor-root {
   position: relative;
+  display: flex;
+  flex-direction: column;
   height: 100%;
   background: var(--ink-bg-editor);
   overflow: hidden;
 }
 
 .editor-container {
+  flex: 1;
+  min-height: 0;
   height: 100%;
+}
+
+.editor-root.has-format-bar :deep(.search-bar) {
+  top: 54px;
 }
 
 .editor-root :deep(.cm-editor) {

@@ -38,6 +38,7 @@ import {
 } from "./composables/useRecentFiles";
 import { useTheme } from "./composables/useTheme";
 import { translate, useLocale } from "./composables/useLocale";
+import { useAppPreferences } from "./composables/useAppPreferences";
 import {
   applyChineseEnglishSpacingToMarkdownSource,
   needsChineseEnglishSpacingFormatting,
@@ -58,6 +59,7 @@ const MIN_SPLIT_PANE_PERCENT = 25;
 const SPLIT_KEYBOARD_STEP = 2;
 
 const { t, locale } = useLocale();
+const { preferences: appPreferences } = useAppPreferences();
 const content = ref(DEFAULT_CONTENT);
 const baselineContent = ref(DEFAULT_CONTENT);
 const isDirty = computed(() => content.value !== baselineContent.value);
@@ -88,6 +90,7 @@ const exportPdfLoadingText = computed(() =>
   exportPdfStage.value === "rendering" ? t("app.renderingDoc") : t("app.generatingPdf"),
 );
 const showSettings = ref(false);
+const settingsInitialTab = ref<"appearance" | "formatBar" | "aiModels" | "aiTools">("appearance");
 const showAbout = ref(false);
 const showAI = ref(false);
 const showVersionHistory = ref(false);
@@ -477,6 +480,12 @@ let unlistenDragDrop: UnlistenFn | null = null;
 
 const showEditor = computed(() => viewMode.value !== "preview");
 const showPreview = computed(() => viewMode.value !== "edit");
+const showEditorFormatBar = computed(
+  () =>
+    showEditor.value &&
+    appPreferences.markdownFormatBarEnabled &&
+    !previewingDiffItem.value,
+);
 
 function isScrollAtStart(ratio: number) {
   return ratio <= 0.001;
@@ -665,6 +674,11 @@ function formatChineseEnglishSpacing() {
     content.value = formatted;
   }
   showToast("success", t("app.spacingFormatted"));
+}
+
+function openFormatBarSettings() {
+  settingsInitialTab.value = "formatBar";
+  showSettings.value = true;
 }
 
 function applyAIChanges(changes: EditChange[]) {
@@ -911,6 +925,7 @@ function handleKeydown(e: KeyboardEvent) {
     void goBackDocument();
   } else if (e.key === ",") {
     e.preventDefault();
+    settingsInitialTab.value = "appearance";
     showSettings.value = true;
   } else if (e.key === "a" && e.shiftKey) {
     e.preventDefault();
@@ -928,6 +943,7 @@ const appMenuHandlers: AppMenuHandlers = {
   onExportPdf: () => void handleExportPdf(),
   onCopyWechatHtml: () => void handleCopyWechatHtml(),
   onOpenSettings: () => {
+    settingsInitialTab.value = "appearance";
     showSettings.value = true;
   },
   onOpenAbout: () => {
@@ -1016,12 +1032,10 @@ onUnmounted(() => {
       :show-a-i="showAI"
       :show-versions="showVersionHistory"
       :has-versions="documentVersionList.length > 0"
-      :needs-format-spacing="needsFormatSpacing"
       @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @save="saveFile(content)"
       @reveal-in-folder="revealCurrentFileInFolder"
-      @format-spacing="formatChineseEnglishSpacing"
       @export-pdf="handleExportPdf"
       @toggle-theme="toggleTheme"
       @toggle-outline="showOutline = !showOutline"
@@ -1033,6 +1047,7 @@ onUnmounted(() => {
 
     <SettingsPanel
       :open="showSettings"
+      :initial-tab="settingsInitialTab"
       :app-version="appVersion"
       :updates-enabled="updatesEnabled"
       :on-check-for-updates="() => checkForUpdates({ manual: true })"
@@ -1064,7 +1079,13 @@ onUnmounted(() => {
       v-else
       ref="workspaceRef"
       class="workspace editor-enter"
-      :class="[`mode-${viewMode}`, { 'is-split-resizing': isSplitResizing }]"
+      :class="[
+        `mode-${viewMode}`,
+        {
+          'is-split-resizing': isSplitResizing,
+          'has-editor-format-bar': showEditorFormatBar,
+        },
+      ]"
       :style="splitLayoutStyle"
     >
       <button
@@ -1086,8 +1107,14 @@ onUnmounted(() => {
           :proofread-issues="proofreadIssues"
           :active-proofread-issue-id="activeProofreadIssueId"
           :preview-diff-item="previewingDiffItem"
+          :format-bar-enabled="appPreferences.markdownFormatBarEnabled"
+          :format-bar-tools="appPreferences.markdownFormatBarTools"
+          :format-bar-tool-order="appPreferences.markdownFormatBarToolOrder"
+          :needs-format-spacing="needsFormatSpacing"
           @scroll="onEditorScroll"
           @add-selection-context="handleAddSelectionContext"
+          @format-spacing="formatChineseEnglishSpacing"
+          @open-format-settings="openFormatBarSettings"
           @proofread-select="handleProofreadSelect"
           @proofread-apply="handleProofreadApply"
           @proofread-dismiss="handleProofreadDismiss"
@@ -1250,6 +1277,10 @@ onUnmounted(() => {
   background: var(--ink-surface);
   border-color: var(--ink-border-strong);
   transform: translateX(-50%) translateY(-1px);
+}
+
+.workspace.has-editor-format-bar .doc-back {
+  top: 56px;
 }
 
 .doc-back-arrow {
