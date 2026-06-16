@@ -525,7 +525,7 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
       downloadBtn: "Download",
       detectedArm: "Detected Apple Silicon on this Mac",
       detectedIntel: "Detected Intel Mac on this device",
-      defaultArm: "Could not confirm the chip, so Apple Silicon is recommended by default. Choose Intel manually for Intel Macs.",
+      defaultArm: "Choose the download for your Mac chip. Apple Silicon is suggested when detection is uncertain.",
       allReleases: "View all releases on GitHub →",
       variant: {
         "macos-arm64": {

@@ -525,7 +525,7 @@ console.log(greeting);
       downloadBtn: "下载",
       detectedArm: "检测到当前 Mac 为 Apple 芯片",
       detectedIntel: "检测到当前 Mac 为 Intel 芯片",
-      defaultArm: "无法准确识别芯片，默认推荐 Apple 芯片版；Intel Mac 请手动选择 Intel 芯片。",
+      defaultArm: "请根据您的 Mac 芯片选择下载（推测当前为 Apple 芯片）。",
       allReleases: "在 GitHub 查看全部版本 →",
       variant: {
         "macos-arm64": {

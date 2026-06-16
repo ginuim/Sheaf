@@ -130,7 +130,7 @@ function parseMacArchFromRenderer(renderer: string): MacArch | null {
     return "x64";
   }
 
-  if (/\bApple\s+(?:M\d|GPU|Silicon|A\d)/i.test(renderer)) {
+  if (/\bApple\b/i.test(renderer)) {
     return "arm64";
   }
 
@@ -182,6 +182,11 @@ export function detectMacArch(): MacArch {
 }
 
 export async function detectMacArchDetailedAsync(): Promise<MacArchDetection> {
+  const localDetection = detectMacArchDetailed();
+  if (localDetection.confidence === "detected") {
+    return localDetection;
+  }
+
   const uaData = getNavigatorUAData();
   if (uaData?.getHighEntropyValues) {
     try {
@@ -195,7 +200,7 @@ export async function detectMacArchDetailedAsync(): Promise<MacArchDetection> {
     }
   }
 
-  return detectMacArchDetailed();
+  return localDetection;
 }
 
 export function detectPlatform(): Platform {
