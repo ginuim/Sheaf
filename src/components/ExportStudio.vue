@@ -15,7 +15,9 @@ import { isTauri } from "@tauri-apps/api/core";
 import { toPng } from "html-to-image";
 import { save, message } from "@tauri-apps/plugin-dialog";
 import { readFile, writeFile } from "@tauri-apps/plugin-fs";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useExportTypography } from "../composables/useExportTypography";
+import { useAppToast } from "../composables/useAppToast";
 import {
   loadExportCardSettings,
   saveExportCardSettings,
@@ -25,6 +27,7 @@ import { useLocale } from "../composables/useLocale";
 import QRCode from "qrcode";
 
 const { t } = useLocale();
+const { showToast, dismissToast } = useAppToast();
 
 const LONG_IMAGE_MAX_HEIGHT_PRESETS = [0, 800, 1200, 1600, 2000, 2400] as const;
 
@@ -42,6 +45,16 @@ async function studioMessage(
 ) {
   if (!isTauri()) return;
   await message(text, { title: t("export.dialogTitle"), kind });
+}
+
+async function revealSavedImageInFolder(path: string) {
+  try {
+    await revealItemInDir(path);
+    dismissToast();
+  } catch (error) {
+    console.error("Reveal saved image error:", error);
+    showToast("error", t("export.openSavedImageFolderFailed"));
+  }
 }
 
 function downloadDataUrl(dataUrl: string, fileName: string) {
@@ -1356,17 +1369,27 @@ async function handleDownloadImage() {
         imageJobs.length > 1
           ? selectedParts.base.replace(/-card-\d+$/i, "")
           : selectedParts.base;
+      const savedPaths: string[] = [];
       for (let index = 0; index < imageJobs.length; index++) {
         const targetPath =
           imageJobs.length === 1
             ? selectedPath
             : `${selectedBase}-card-${String(index + 1).padStart(2, "0")}${selectedParts.extension || ".png"}`;
         await writeFile(targetPath, dataUrlToBytes(imageJobs[index].dataUrl));
+        savedPaths.push(targetPath);
       }
-      await studioMessage(
+      showToast(
+        "success",
         imageJobs.length > 1
           ? t("export.imageSavedMultiple", { count: imageJobs.length })
           : t("export.imageSaved"),
+        0,
+        savedPaths[0]
+          ? {
+              label: t("export.openSavedImageFolder"),
+              onClick: () => revealSavedImageInFolder(savedPaths[0]),
+            }
+          : undefined,
       );
     } else {
       for (const image of imageJobs) {

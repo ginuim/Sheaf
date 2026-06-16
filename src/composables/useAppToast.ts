@@ -4,7 +4,7 @@ export type AppToastKind = "success" | "error" | "info" | "loading";
 
 export type AppToastAction = {
   label: string;
-  onClick: () => void;
+  onClick: () => void | Promise<void>;
 };
 
 export type AppToastState = {

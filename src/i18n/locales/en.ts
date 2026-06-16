@@ -348,6 +348,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     saveImageTitle: "Save image",
     imageSavedMultiple: "Saved {count} images successfully.",
     imageSaved: "Image saved successfully!",
+    openSavedImageFolder: "Open folder",
+    openSavedImageFolderFailed: "Could not open the image folder.",
     imageExportFailed: "Image export failed. Please try again.",
     wechatPreviewTitle: "WeChat article preview",
     paginationCalculating: "Calculating",

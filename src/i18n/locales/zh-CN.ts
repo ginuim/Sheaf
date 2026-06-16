@@ -348,6 +348,8 @@ console.log(greeting);
     saveImageTitle: "保存图片至本地",
     imageSavedMultiple: "图片保存成功，共 {count} 张。",
     imageSaved: "图片保存成功！",
+    openSavedImageFolder: "打开目录",
+    openSavedImageFolderFailed: "无法打开图片所在目录。",
     imageExportFailed: "图片导出失败，请重试。",
     wechatPreviewTitle: "公众号文章预览",
     paginationCalculating: "计算中",
