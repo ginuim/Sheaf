@@ -469,6 +469,19 @@ let unlistenDragDrop: UnlistenFn | null = null;
 const showEditor = computed(() => viewMode.value !== "preview");
 const showPreview = computed(() => viewMode.value !== "edit");
 
+function isScrollAtStart(ratio: number) {
+  return ratio <= 0.001;
+}
+
+function isScrollAtEnd(ratio: number) {
+  return ratio >= 0.999;
+}
+
+function scrollElementToRatio(el: HTMLElement, ratio: number) {
+  const max = el.scrollHeight - el.clientHeight;
+  el.scrollTop = max <= 0 ? 0 : max * ratio;
+}
+
 function releaseScrollSyncLock() {
   // CodeMirror and the preview both emit follow-up scroll events after layout settles.
   requestAnimationFrame(() => {
@@ -486,12 +499,13 @@ function onEditorScroll() {
   scrollSyncing = true;
   const el = previewPaneRef.value;
   if (el) {
-    const synced = anchor
-      ? previewRef.value?.scrollToSourceAnchor(anchor, el)
-      : false;
-    if (!synced) {
-      const max = el.scrollHeight - el.clientHeight;
-      el.scrollTop = max * ratio;
+    if (isScrollAtStart(ratio) || isScrollAtEnd(ratio)) {
+      scrollElementToRatio(el, isScrollAtStart(ratio) ? 0 : 1);
+    } else {
+      const synced = anchor
+        ? previewRef.value?.scrollToSourceAnchor(anchor, el)
+        : false;
+      if (!synced) scrollElementToRatio(el, ratio);
     }
   }
   releaseScrollSyncLock();
@@ -505,8 +519,12 @@ function onPreviewScroll(e: Event) {
   const max = el.scrollHeight - el.clientHeight;
   const ratio = max <= 0 ? 0 : el.scrollTop / max;
   scrollSyncing = true;
-  const synced = anchor ? editorRef.value?.scrollToSourceAnchor(anchor) : false;
-  if (!synced) editorRef.value?.scrollRatio(ratio);
+  if (isScrollAtStart(ratio) || isScrollAtEnd(ratio)) {
+    editorRef.value?.scrollRatio(isScrollAtStart(ratio) ? 0 : 1);
+  } else {
+    const synced = anchor ? editorRef.value?.scrollToSourceAnchor(anchor) : false;
+    if (!synced) editorRef.value?.scrollRatio(ratio);
+  }
   releaseScrollSyncLock();
 }
 
@@ -517,7 +535,11 @@ function handlePreviewLayoutChange() {
   if (!pane || !anchor) return;
 
   scrollSyncing = true;
-  previewRef.value?.scrollToSourceAnchor(anchor, pane);
+  if (isScrollAtStart(anchor.absoluteRatio) || isScrollAtEnd(anchor.absoluteRatio)) {
+    scrollElementToRatio(pane, isScrollAtStart(anchor.absoluteRatio) ? 0 : 1);
+  } else {
+    previewRef.value?.scrollToSourceAnchor(anchor, pane);
+  }
   releaseScrollSyncLock();
 }
 
