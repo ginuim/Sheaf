@@ -81,6 +81,56 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   return defaultImageRender(tokens, idx, options, env, self);
 };
 
+md.core.ruler.after("inline", "loose_strong_after_punctuation", (state) => {
+  for (const blockToken of state.tokens) {
+    if (blockToken.type !== "inline" || !blockToken.children) continue;
+
+    const nextChildren = [];
+    for (const token of blockToken.children) {
+      if (token.type !== "text" || !token.content.includes("**")) {
+        nextChildren.push(token);
+        continue;
+      }
+
+      const pattern = /\*\*(\S(?:[^*\n]|\*(?!\*))*?\S)\*\*/gu;
+      let cursor = 0;
+      let match: RegExpExecArray | null;
+
+      while ((match = pattern.exec(token.content)) !== null) {
+        const [raw, content] = match;
+        if (match.index > cursor) {
+          const textToken = new state.Token("text", "", 0);
+          textToken.content = token.content.slice(cursor, match.index);
+          nextChildren.push(textToken);
+        }
+
+        const openToken = new state.Token("strong_open", "strong", 1);
+        openToken.markup = "**";
+        const contentToken = new state.Token("text", "", 0);
+        contentToken.content = content;
+        const closeToken = new state.Token("strong_close", "strong", -1);
+        closeToken.markup = "**";
+        nextChildren.push(openToken, contentToken, closeToken);
+
+        cursor = match.index + raw.length;
+      }
+
+      if (cursor === 0) {
+        nextChildren.push(token);
+        continue;
+      }
+
+      if (cursor < token.content.length) {
+        const textToken = new state.Token("text", "", 0);
+        textToken.content = token.content.slice(cursor);
+        nextChildren.push(textToken);
+      }
+    }
+
+    blockToken.children = nextChildren;
+  }
+});
+
 md.core.ruler.after("inline", "cjk_spacing", (state) => {
   if (!state.env?.chineseEnglishSpacing) return;
 
