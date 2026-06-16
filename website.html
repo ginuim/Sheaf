@@ -15,35 +15,254 @@
           var n = (navigator.language || "").toLowerCase();
           lang = n.indexOf("zh") === 0 ? "zh" : "en";
         }
-        document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+        var isZh = lang === "zh";
+        document.documentElement.lang = isZh ? "zh-CN" : "en";
+
+        var meta = {
+          title: isZh
+            ? "Sheaf — 本地 AI Markdown 编辑器 | 分屏预览 · 导出公众号"
+            : "Sheaf — Local AI Markdown Editor | Split Preview & Social Export",
+          description: isZh
+            ? "Sheaf 是面向 macOS 的本地优先 Markdown 编辑器：分屏实时预览、AI 段落改写（diff 审阅后应用）、大纲导航，支持 KaTeX 公式、Mermaid 图表与中英文排版间距，可导出 PDF、微信公众号 HTML、小红书卡片与长图。开源 AGPL-3.0，无需账号。"
+            : "Sheaf is a local-first macOS Markdown editor with split live preview, AI paragraph rewriting with diff review, outline navigation, KaTeX math, Mermaid diagrams, and CJK typography spacing. Export to PDF, WeChat HTML, social cards, and long images. Open source (AGPL-3.0), no account required.",
+        };
+
+        document.title = meta.title;
+        var desc = document.querySelector('meta[name="description"]');
+        if (desc) desc.setAttribute("content", meta.description);
+        var ogTitle = document.querySelector('meta[property="og:title"]');
+        if (ogTitle) ogTitle.setAttribute("content", meta.title);
+        var ogDesc = document.querySelector('meta[property="og:description"]');
+        if (ogDesc) ogDesc.setAttribute("content", meta.description);
+        var twTitle = document.querySelector('meta[name="twitter:title"]');
+        if (twTitle) twTitle.setAttribute("content", meta.title);
+        var twDesc = document.querySelector('meta[name="twitter:description"]');
+        if (twDesc) twDesc.setAttribute("content", meta.description);
       })();
     </script>
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Sheaf — A local-first macOS Markdown editor for focused writing. Split preview, AI rewrite, and export to PDF & social."
+      content="Sheaf 是面向 macOS 的本地优先 Markdown 编辑器：分屏实时预览、AI 段落改写（diff 审阅后应用）、大纲导航，支持 KaTeX 公式、Mermaid 图表与中英文排版间距，可导出 PDF、微信公众号 HTML、小红书卡片与长图。开源 AGPL-3.0，无需账号。"
     />
-    <title>Sheaf — 专注写作的 Markdown 编辑器</title>
+    <meta
+      name="keywords"
+      content="Sheaf,Markdown 编辑器,AI 写作,macOS Markdown editor,local-first,分屏预览,AI 改写,微信公众号导出,PDF 导出,KaTeX,Mermaid,本地编辑器,开源 Markdown"
+    />
+    <meta name="author" content="reaidea" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="application-name" content="Sheaf" />
+    <meta name="apple-mobile-web-app-title" content="Sheaf" />
+    <meta name="theme-color" content="#f7f5f0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141412" media="(prefers-color-scheme: dark)" />
+    <title>Sheaf — 本地 AI Markdown 编辑器 | 分屏预览 · 导出公众号</title>
     <link rel="canonical" href="https://sheaf.reaidea.com/" />
-    <link rel="alternate" href="https://github.com/ginuim/Sheaf" title="GitHub Repository" />
-    <meta property="og:title" content="Sheaf — A Markdown Editor for Focused Writing" />
+    <link rel="alternate" hreflang="zh-CN" href="https://sheaf.reaidea.com/" />
+    <link rel="alternate" hreflang="en" href="https://sheaf.reaidea.com/" />
+    <link rel="alternate" hreflang="x-default" href="https://sheaf.reaidea.com/" />
+    <link rel="alternate" type="text/html" href="https://github.com/ginuim/Sheaf" title="GitHub Repository" />
+    <meta property="og:title" content="Sheaf — 本地 AI Markdown 编辑器 | 分屏预览 · 导出公众号" />
     <meta
       property="og:description"
-      content="Local-first macOS Markdown editor — split preview, AI rewrite, beautiful typography and export to social."
+      content="Sheaf 是面向 macOS 的本地优先 Markdown 编辑器：分屏实时预览、AI 段落改写（diff 审阅后应用）、大纲导航，支持 KaTeX 公式、Mermaid 图表与中英文排版间距，可导出 PDF、微信公众号 HTML、小红书卡片与长图。开源 AGPL-3.0，无需账号。"
     />
     <meta property="og:url" content="https://sheaf.reaidea.com/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Sheaf" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta
+      property="og:image"
+      content="https://raw.githubusercontent.com/ginuim/Sheaf/main/assets/screenshots/editor-split.png"
+    />
+    <meta property="og:image:alt" content="Sheaf split Markdown editor with live serif preview" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Sheaf — 本地 AI Markdown 编辑器 | 分屏预览 · 导出公众号" />
+    <meta
+      name="twitter:description"
+      content="Sheaf 是面向 macOS 的本地优先 Markdown 编辑器：分屏实时预览、AI 段落改写（diff 审阅后应用）、大纲导航，支持 KaTeX 公式、Mermaid 图表与中英文排版间距，可导出 PDF、微信公众号 HTML、小红书卡片与长图。开源 AGPL-3.0，无需账号。"
+    />
+    <meta
+      name="twitter:image"
+      content="https://raw.githubusercontent.com/ginuim/Sheaf/main/assets/screenshots/editor-split.png"
+    />
+    <meta name="twitter:image:alt" content="Sheaf split Markdown editor with live serif preview" />
     <meta name="github-repo" content="ginuim/Sheaf" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://sheaf.reaidea.com/#website",
+            "url": "https://sheaf.reaidea.com/",
+            "name": "Sheaf",
+            "description": "Local-first macOS Markdown editor with split preview, AI rewriting, and social export.",
+            "inLanguage": ["zh-CN", "en"],
+            "publisher": { "@id": "https://reaidea.com/#organization" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://reaidea.com/#organization",
+            "name": "reaidea",
+            "url": "https://reaidea.com/",
+            "email": "webmaster@reaidea.com"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://sheaf.reaidea.com/#software",
+            "name": "Sheaf",
+            "url": "https://sheaf.reaidea.com/",
+            "applicationCategory": "BusinessApplication",
+            "applicationSubCategory": "Markdown Editor",
+            "operatingSystem": "macOS 12+",
+            "isAccessibleForFree": true,
+            "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+            "downloadUrl": "https://github.com/ginuim/Sheaf/releases",
+            "codeRepository": "https://github.com/ginuim/Sheaf",
+            "author": { "@id": "https://reaidea.com/#organization" },
+            "description": "Sheaf is a local-first macOS Markdown editor for focused writing. It combines a monospace editor with a serif live preview in split view, AI-assisted paragraph rewriting with diff review before apply, outline navigation, and rich typography including KaTeX math, Mermaid diagrams, syntax highlighting, and automatic CJK spacing.",
+            "featureList": [
+              "Split live preview with synchronized scrolling",
+              "Edit-only, preview-only, and split view modes",
+              "Outline panel with click-to-jump heading navigation",
+              "AI paragraph rewrite with natural-language instructions",
+              "Diff preview before applying AI edits",
+              "Version snapshots before each AI apply",
+              "Export to PDF via system print dialog",
+              "Export WeChat article HTML with inlined styles",
+              "Export Xiaohongshu share cards and long images",
+              "KaTeX math and Mermaid diagram rendering",
+              "Syntax-highlighted code blocks",
+              "Automatic Chinese–English typography spacing",
+              "Local-first storage with no account or cloud sync",
+              "MiniMax, Qwen, and custom OpenAI-compatible AI providers",
+              "Light, dark, and system appearance themes",
+              "Open source under AGPL-3.0"
+            ],
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "availability": "https://schema.org/InStock"
+            },
+            "screenshot": "https://raw.githubusercontent.com/ginuim/Sheaf/main/assets/screenshots/editor-split.png"
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://sheaf.reaidea.com/#faq",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "What is Sheaf?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Sheaf is a local-first macOS Markdown editor built for focused long-form writing. It pairs a CodeMirror editor with a serif live preview, AI paragraph rewriting, outline navigation, and export to PDF and Chinese social platforms."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Sheaf 是什么？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Sheaf 是一款面向 macOS 的本地优先 Markdown 编辑器，专为长文专注写作设计。左侧等宽编辑、右侧衬线实时预览，并提供 AI 段落改写、大纲导航，以及 PDF 与微信公众号/小红书等导出能力。"
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does Sheaf require an account or cloud sync?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. Documents and settings stay on your disk. Sheaf does not require an account and does not sync your files to the cloud by default."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How does AI rewriting work in Sheaf?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Press ⌘⇧A or click AI in the toolbar, describe your edit in plain language, review the diff, then apply in one click. A version snapshot is saved before each apply. Configure MiniMax, Qwen, or any OpenAI-compatible provider in Settings → AI."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "What can I export from Sheaf?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Sheaf can export PDF (via the system print dialog), WeChat article HTML with inlined styles, Xiaohongshu share cards, and long images — all based on the current preview typography."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Which platforms does Sheaf support?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Sheaf currently ships macOS builds for Apple Silicon (M1/M2/M3+) and Intel Macs as .dmg installers. Windows and Linux builds are planned."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap"
       rel="stylesheet"
     />
+    <style>
+      .seo-snapshot {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+    </style>
   </head>
   <body>
+    <main class="seo-snapshot" id="seo-snapshot">
+      <article lang="zh-CN">
+        <h1>Sheaf — 本地 AI Markdown 编辑器</h1>
+        <p>
+          Sheaf 是 reaidea 出品的 macOS 原生 Markdown 编辑器，采用本地优先设计：文稿与设置保存在你的磁盘，无需注册账号，也不依赖云端同步。
+        </p>
+        <h2>核心功能</h2>
+        <ul>
+          <li>分屏实时预览：等宽编辑区与衬线预览区同步滚动，支持纯编辑、纯预览与分屏三种视图</li>
+          <li>大纲导航：自动提取标题层级，点击即可跳转</li>
+          <li>AI 段落改写：用自然语言描述修改意图，审阅 diff 后一键应用；每次应用前自动保存版本快照</li>
+          <li>富文本排版：KaTeX 数学公式、Mermaid 流程图、代码语法高亮、中英文自动间距</li>
+          <li>导出：PDF、微信公众号 HTML、小红书分享卡片与长图</li>
+          <li>AI 服务商：支持 MiniMax、通义千问及自定义 OpenAI 兼容接口</li>
+        </ul>
+        <p>技术栈：Tauri v2、Vue 3、CodeMirror 6、markdown-it。开源协议：AGPL-3.0。</p>
+        <p>下载：<a href="https://github.com/ginuim/Sheaf/releases">GitHub Releases</a></p>
+      </article>
+      <article lang="en">
+        <h1>Sheaf — Local AI Markdown Editor for macOS</h1>
+        <p>
+          Sheaf is a native macOS Markdown editor by reaidea. It is local-first: your documents and settings stay on disk with no account or cloud sync required.
+        </p>
+        <h2>Key features</h2>
+        <ul>
+          <li>Split live preview with synchronized monospace editor and serif preview</li>
+          <li>Outline panel with click-to-jump heading navigation</li>
+          <li>AI paragraph rewrite with diff review, version snapshots, and one-click apply</li>
+          <li>Rich typography: KaTeX math, Mermaid diagrams, syntax highlighting, CJK spacing</li>
+          <li>Export to PDF, WeChat HTML, Xiaohongshu cards, and long images</li>
+          <li>AI providers: MiniMax, Qwen, and custom OpenAI-compatible endpoints</li>
+        </ul>
+        <p>Built with Tauri v2, Vue 3, and CodeMirror 6. Licensed under AGPL-3.0.</p>
+        <p>Download: <a href="https://github.com/ginuim/Sheaf/releases">GitHub Releases</a></p>
+      </article>
+    </main>
     <div id="app"></div>
     <script type="module" src="/src/website/main.ts"></script>
     <!-- Google tag (gtag.js) -->

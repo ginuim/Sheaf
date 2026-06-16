@@ -1,5 +1,10 @@
-import { computed } from "vue";
-import { detectMacArch, getMacDownloadUrl } from "../content/downloads";
+import { computed, onMounted, ref } from "vue";
+import {
+  detectMacArch,
+  detectMacArchDetailedAsync,
+  getMacDownloadUrl,
+  type MacArch,
+} from "../content/downloads";
 
 // TODO: CDN 上线后启用地区分流
 // 逻辑：loc=CN → CDN（国内无翻墙用户）；loc≠CN → GitHub（海外用户 + 翻墙用户 VPN 出口在海外，自然走 GitHub）
@@ -35,7 +40,15 @@ import { detectMacArch, getMacDownloadUrl } from "../content/downloads";
 // }
 
 export function useDownloadLink() {
-  const downloadHref = computed(() => getMacDownloadUrl("global", detectMacArch()));
+  const macArch = ref<MacArch>(detectMacArch());
+
+  onMounted(() => {
+    void detectMacArchDetailedAsync().then((detection) => {
+      macArch.value = detection.arch;
+    });
+  });
+
+  const downloadHref = computed(() => getMacDownloadUrl("global", macArch.value));
 
   // TODO: CDN 上线后替换为下方逻辑
   //

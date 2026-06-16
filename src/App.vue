@@ -137,11 +137,19 @@ function clampSplitEditorPercent(value: number) {
   );
 }
 
+function readStoredSplitEditorPercent(key: string) {
+  const raw = localStorage.getItem(key);
+  if (raw === null) return null;
+
+  const saved = Number(raw);
+  return Number.isFinite(saved) ? saved : null;
+}
+
 function loadSplitEditorPercent() {
-  const saved = Number(localStorage.getItem(SPLIT_WIDTH_STORAGE_KEY));
-  return Number.isFinite(saved)
-    ? clampSplitEditorPercent(saved)
-    : DEFAULT_SPLIT_EDITOR_PERCENT;
+  const saved = readStoredSplitEditorPercent(SPLIT_WIDTH_STORAGE_KEY);
+  if (saved !== null) return clampSplitEditorPercent(saved);
+
+  return DEFAULT_SPLIT_EDITOR_PERCENT;
 }
 
 function setSplitEditorPercent(value: number, persist = true) {
