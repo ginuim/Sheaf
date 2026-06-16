@@ -9,6 +9,17 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.18",
+    date: "2026-06",
+    title: "同步滚动与导出体验",
+    items: [
+      "图片保存成功后 Toast 提供「打开目录」快捷操作",
+      "修复标点符号后 loose strong marker 解析问题",
+      "编辑器与预览区支持同步滚动，分栏宽度可拖拽调整",
+      "修复同步滚动在内容边界处的异常",
+    ],
+  },
+  {
     version: "0.2.17",
     date: "2026-06",
     title: "导出图片内联修复",
@@ -199,6 +210,17 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.18",
+    date: "2026-06",
+    title: "Sync scroll and export polish",
+    items: [
+      "Show persistent toast with open-folder action after saving export images",
+      "Fix loose strong marker parsing after punctuation",
+      "Add synchronized scrolling and resizable split pane between editor and preview",
+      "Fix scroll sync edge cases at content boundaries",
+    ],
+  },
   {
     version: "0.2.17",
     date: "2026-06",

@@ -1,6 +1,6 @@
 [package]
 name = "blank"
-version = "0.2.17"
+version = "0.2.18"
 description = "Sheaf Markdown Editor"
 authors = ["you"]
 license = "AGPL-3.0-only"
