@@ -9,6 +9,16 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.17",
+    date: "2026-06",
+    title: "导出图片内联修复",
+    items: [
+      "导出卡片与长图时内联本地图片，修复图片显示空白",
+      "Markdown 图片标记本地路径，支持 Tauri 文件系统读取",
+      "导出截图增加重试机制与主题背景色",
+    ],
+  },
+  {
     version: "0.2.16",
     date: "2026-06",
     title: "小红书卡片媒体自适应",
@@ -189,6 +199,16 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.17",
+    date: "2026-06",
+    title: "Export image inlining fix",
+    items: [
+      "Inline local images before card and long-image export to fix blank image output",
+      "Tag Markdown images with local paths for Tauri filesystem fallback",
+      "Add capture retry and theme-aware background colors",
+    ],
+  },
   {
     version: "0.2.16",
     date: "2026-06",
