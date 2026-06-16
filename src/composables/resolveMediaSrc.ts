@@ -128,6 +128,24 @@ export function resolveMediaSrcForExport(
   return fileUrlFromPath(absolute);
 }
 
+export function resolveMediaPath(
+  docFilePath: string | null,
+  src: string,
+): string | null {
+  if (!src.trim()) return null;
+
+  if (src.startsWith("file://")) {
+    return fileUrlToPath(src);
+  }
+
+  if (isExternalSrc(src)) return null;
+
+  if (isAbsoluteFsPath(src)) return src;
+  if (!docFilePath) return null;
+
+  return resolveRelativePath(documentDir(docFilePath), src);
+}
+
 /** 将 Markdown 中的本地图片路径转为 WebView 可加载的 URL */
 export function resolveMediaSrc(
   docFilePath: string | null,

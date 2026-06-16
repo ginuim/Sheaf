@@ -3,7 +3,7 @@ import markdownItKatex from "markdown-it-katex";
 import katex from "katex";
 import { applyChineseEnglishSpacingToMarkdownTokens } from "../lib/cjkSpacing";
 import { loadExportTypographySettings } from "../lib/exportTypographySettings";
-import { resolveMediaSrc } from "./resolveMediaSrc";
+import { resolveMediaPath, resolveMediaSrc } from "./resolveMediaSrc";
 import { buildHeadingIds } from "./useOutline";
 
 const KATEX_OPTIONS = {
@@ -69,6 +69,10 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
   const src = token.attrGet("src");
   if (src && env.docFilePath) {
+    const localPath = resolveMediaPath(env.docFilePath, src);
+    if (localPath) {
+      token.attrSet("data-sheaf-local-src", localPath);
+    }
     const resolveMedia = typeof env.resolveMedia === "function"
       ? env.resolveMedia
       : resolveMediaSrc;

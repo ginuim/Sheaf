@@ -14,7 +14,7 @@ import MarkdownEditor from "./MarkdownEditor.vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { toPng } from "html-to-image";
 import { save, message } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { readFile, writeFile } from "@tauri-apps/plugin-fs";
 import { useExportTypography } from "../composables/useExportTypography";
 import {
   loadExportCardSettings,
@@ -640,6 +640,141 @@ async function waitForMeasureImages(root: HTMLElement) {
   ]);
 }
 
+async function waitForImageDecode(image: HTMLImageElement, timeoutMs: number) {
+  if (image.complete && image.naturalWidth > 0) {
+    await image.decode().catch(() => undefined);
+    return;
+  }
+
+  await Promise.race([
+    new Promise<void>((resolve) => {
+      const settle = async () => {
+        image.removeEventListener("load", settle);
+        image.removeEventListener("error", settle);
+        if (image.complete && image.naturalWidth > 0) {
+          await image.decode().catch(() => undefined);
+        }
+        resolve();
+      };
+      image.addEventListener("load", settle, { once: true });
+      image.addEventListener("error", settle, { once: true });
+    }),
+    new Promise<void>((resolve) => window.setTimeout(resolve, timeoutMs)),
+  ]);
+}
+
+async function waitForCaptureImages(root: HTMLElement) {
+  const images = Array.from(root.querySelectorAll("img"));
+  if (!images.length) {
+    await waitForAnimationFrame();
+    return;
+  }
+
+  await Promise.all(images.map((image) => waitForImageDecode(image, 2500)));
+  await waitForAnimationFrame();
+  await waitForAnimationFrame();
+}
+
+async function inlineImagesForCapture(root: HTMLElement) {
+  const restoreItems: { image: HTMLImageElement; src: string }[] = [];
+
+  const images = Array.from(root.querySelectorAll("img"));
+  console.log(`[ExportStudio] 开始内联图片，共找到 ${images.length} 张图片`);
+
+  await Promise.all(
+    images.map(async (image, index) => {
+      const originalSrc = image.getAttribute("src") ?? "";
+      const sheafLocalSrc = image.dataset.sheafLocalSrc;
+      console.log(`[ExportStudio] 处理第 ${index + 1} 张图片:
+        - 原始 src: "${originalSrc}"
+        - 当前 src: "${image.src}"
+        - 本地路径 (sheafLocalSrc): "${sheafLocalSrc || '无'}"`);
+
+      if (image.src.startsWith("data:")) {
+        console.log(`[ExportStudio] 第 ${index + 1} 张图片已经是 base64 格式，跳过内联`);
+        return;
+      }
+
+      let base64: string | null = null;
+
+      // 1. 尝试直接 fetch (支持本地 asset:// 协议和支持 CORS 的网络图片)
+      try {
+        console.log(`[ExportStudio] 第 ${index + 1} 张图片：尝试使用 fetch 获取数据...`);
+        const response = await fetch(image.src);
+        const blob = await response.blob();
+        base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        console.log(`[ExportStudio] 第 ${index + 1} 张图片：fetch 转换 base64 成功！长度: ${base64.length}`);
+      } catch (e: any) {
+        console.warn(`[ExportStudio] 第 ${index + 1} 张图片：fetch 失败，原因:`, e);
+      }
+
+      // 2. 如果 fetch 失败，且是 Tauri 环境，且有本地路径，尝试用 Tauri fs.readFile 读取
+      if (!base64 && isTauri()) {
+        if (sheafLocalSrc) {
+          try {
+            console.log(`[ExportStudio] 第 ${index + 1} 张图片：尝试使用 Tauri fs.readFile 读取本地路径 "${sheafLocalSrc}"...`);
+            const bytes = await readFile(sheafLocalSrc);
+            const mimeType = imageMimeTypeFromPath(sheafLocalSrc);
+            base64 = `data:${mimeType};base64,${bytesToBase64(bytes)}`;
+            console.log(`[ExportStudio] 第 ${index + 1} 张图片：Tauri fs.readFile 读取成功！长度: ${base64.length}`);
+          } catch (e: any) {
+            console.error(`[ExportStudio] 第 ${index + 1} 张图片：Tauri fs.readFile 读取失败，原因:`, e);
+          }
+        } else {
+          console.log(`[ExportStudio] 第 ${index + 1} 张图片：fetch 失败且没有本地路径 (sheafLocalSrc)，无法使用 fs.readFile`);
+        }
+      }
+
+      // 3. 如果还是没有获取到 base64，且图片已经加载完成，尝试用 Canvas 转换
+      if (!base64) {
+        if (image.complete && image.naturalWidth > 0) {
+          try {
+            console.log(`[ExportStudio] 第 ${index + 1} 张图片：尝试使用 Canvas 转换...`);
+            const canvas = document.createElement("canvas");
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(image, 0, 0);
+              base64 = canvas.toDataURL("image/png");
+              console.log(`[ExportStudio] 第 ${index + 1} 张图片：Canvas 转换成功！长度: ${base64.length}`);
+            }
+          } catch (e: any) {
+            console.warn(`[ExportStudio] 第 ${index + 1} 张图片：Canvas 转换失败，原因:`, e);
+          }
+        } else {
+          console.log(`[ExportStudio] 第 ${index + 1} 张图片：图片未加载完或尺寸为 0，无法使用 Canvas 转换`);
+        }
+      }
+
+      // 4. 如果成功获取到了 base64，替换 image.src 并等待解码
+      if (base64) {
+        image.src = base64;
+        restoreItems.push({ image, src: originalSrc });
+        console.log(`[ExportStudio] 第 ${index + 1} 张图片：成功替换为 base64，开始等待解码...`);
+        await waitForImageDecode(image, 2500);
+        console.log(`[ExportStudio] 第 ${index + 1} 张图片：解码完成！`);
+      } else {
+        console.error(`[ExportStudio] 第 ${index + 1} 张图片：所有内联转换手段均告失败！图片在导出中可能会显示为空白。`);
+      }
+    }),
+  );
+
+  console.log(`[ExportStudio] 图片内联处理完毕，已替换 ${restoreItems.length} 张图片`);
+
+  return () => {
+    console.log(`[ExportStudio] 恢复 ${restoreItems.length} 张图片的原始 src 路径`);
+    for (const item of restoreItems) {
+      item.image.setAttribute("src", item.src);
+    }
+  };
+}
+
 async function measureContentHeight(html: string, runId: number) {
   const cachedHeight = measureHeightCache.get(html);
   if (cachedHeight !== undefined) return cachedHeight;
@@ -980,6 +1115,37 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
   return bytes;
 }
 
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.slice(offset, offset + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+function imageMimeTypeFromPath(path: string) {
+  const extension = path.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase();
+  switch (extension) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    case "svg":
+      return "image/svg+xml";
+    case "bmp":
+      return "image/bmp";
+    case "avif":
+      return "image/avif";
+    default:
+      return "image/png";
+  }
+}
+
 function splitPathExtension(path: string) {
   const separatorIndex = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   const dotIndex = path.lastIndexOf(".");
@@ -996,56 +1162,91 @@ function cardImageFileName(pageIndex: number, pageCount: number) {
   return `${props.fileName || "untitled"}_${config.value.type}${cardSuffix}.png`;
 }
 
+async function toPngWithRetry(el: HTMLElement, options: any, maxAttempts = 3): Promise<string> {
+  let previousLength = 0;
+  let dataUrl = "";
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    dataUrl = await toPng(el, options);
+    console.log(`[ExportStudio] toPng 尝试第 ${attempt} 次, dataUrl 长度: ${dataUrl.length}`);
+    
+    // 如果长度没有变化，或者已经达到最大尝试次数，就直接返回
+    if (dataUrl.length === previousLength) {
+      console.log(`[ExportStudio] dataUrl 长度稳定在 ${dataUrl.length}，停止尝试`);
+      break;
+    }
+    
+    previousLength = dataUrl.length;
+    
+    // 稍微等待一个 animation frame，给 WebKit 渲染的时间
+    await waitForAnimationFrame();
+  }
+  
+  return dataUrl;
+}
+
 async function captureExportImage(el: HTMLElement) {
-  await waitForAnimationFrame();
-  const isXiaohongshu = config.value.type === "xiaohongshu";
-  const isLongImageExport = config.value.type === "long-image";
-  const captureWidth = isXiaohongshu
-    ? XIAOHONGSHU_CAPTURE_SIZE.width
-    : el.offsetWidth;
-  const captureHeight = isXiaohongshu
-    ? XIAOHONGSHU_CAPTURE_SIZE.height
-    : el.offsetHeight;
+  const restoreLocalImages = await inlineImagesForCapture(el);
+  try {
+    await waitForCaptureImages(el);
+    await waitForAnimationFrame();
+    const isXiaohongshu = config.value.type === "xiaohongshu";
+    const isLongImageExport = config.value.type === "long-image";
+    const captureWidth = isXiaohongshu
+      ? XIAOHONGSHU_CAPTURE_SIZE.width
+      : el.offsetWidth;
+    const captureHeight = isXiaohongshu
+      ? XIAOHONGSHU_CAPTURE_SIZE.height
+      : el.offsetHeight;
 
-  const baseOptions = {
-    cacheBust: true,
-    pixelRatio: isXiaohongshu ? XIAOHONGSHU_EXPORT_PIXEL_RATIO : 2,
-    backgroundColor: "transparent",
-    skipFonts: true,
-  } as const;
+    const themeBackgroundColors: Record<string, string> = {
+      classic: "#fbf9f4",
+      modern: "#eff0f1",
+      dark: "#17191a",
+    };
 
-  if (isLongImageExport) {
-    const capped = config.value.longImageMaxHeight > 0;
-    const exportHeight = capped ? el.offsetHeight : undefined;
-    return toPng(el, {
+    const baseOptions = {
+      cacheBust: false,
+      pixelRatio: isXiaohongshu ? XIAOHONGSHU_EXPORT_PIXEL_RATIO : 2,
+      backgroundColor: themeBackgroundColors[config.value.cardTheme] || "#ffffff",
+      skipFonts: true,
+    } as const;
+
+    if (isLongImageExport) {
+      const capped = config.value.longImageMaxHeight > 0;
+      const exportHeight = capped ? el.offsetHeight : undefined;
+      return await toPngWithRetry(el, {
+        ...baseOptions,
+        width: captureWidth,
+        height: exportHeight,
+        canvasWidth: exportHeight ? captureWidth : undefined,
+        canvasHeight: exportHeight,
+        style: {
+          transform: "scale(1)",
+          transformOrigin: "top left",
+          width: `${captureWidth}px`,
+          height: capped ? `${exportHeight}px` : "auto",
+          overflow: "hidden",
+        },
+      });
+    }
+
+    return await toPngWithRetry(el, {
       ...baseOptions,
       width: captureWidth,
-      height: exportHeight,
-      canvasWidth: exportHeight ? captureWidth : undefined,
-      canvasHeight: exportHeight,
+      height: captureHeight,
+      canvasWidth: captureWidth,
+      canvasHeight: captureHeight,
       style: {
         transform: "scale(1)",
         transformOrigin: "top left",
         width: `${captureWidth}px`,
-        height: capped ? `${exportHeight}px` : "auto",
-        overflow: "hidden",
+        height: `${captureHeight}px`,
       },
     });
+  } finally {
+    restoreLocalImages();
   }
-
-  return toPng(el, {
-    ...baseOptions,
-    width: captureWidth,
-    height: captureHeight,
-    canvasWidth: captureWidth,
-    canvasHeight: captureHeight,
-    style: {
-      transform: "scale(1)",
-      transformOrigin: "top left",
-      width: `${captureWidth}px`,
-      height: `${captureHeight}px`,
-    },
-  });
 }
 
 // 导出微信 HTML
