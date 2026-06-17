@@ -1728,22 +1728,6 @@ onUnmounted(() => {
   scrollbar-gutter: stable;
 }
 
-.ai-history-list::-webkit-scrollbar,
-.diff-lines::-webkit-scrollbar,
-.agent-stream-preview::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.ai-history-list::-webkit-scrollbar-thumb,
-.diff-lines::-webkit-scrollbar-thumb,
-.agent-stream-preview::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ink-text-muted) 26%, transparent);
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background-clip: padding-box;
-}
-
 .ai-empty {
   position: relative;
   display: flex;

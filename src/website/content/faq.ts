@@ -50,6 +50,12 @@ const FAQ_ZH: FaqItem[] = [
       "目前已提供 macOS（Apple 芯片 / Intel）和 Windows 安装包，可在本页下载区选择。Linux 版本在计划中。应用内支持自动检查更新，有新版本会提示你确认后再安装。",
   },
   {
+    id: "webview2",
+    question: "Windows 上提示缺少 WebView2 怎么办？",
+    answer:
+      "Sheaf 的 Windows 版界面依赖 Microsoft Edge WebView2 运行时。官方 .msi 安装包已内嵌 WebView2 引导程序，正常安装时会自动补齐，一般无需单独下载。若仍提示缺失或打开后是空白窗口，请先重新运行最新版安装包完成安装；若公司网络拦截了在线安装，可到 Microsoft 官网手动安装「WebView2 Runtime」（Evergreen Bootstrapper 或 Evergreen Standalone Installer）。需要 Windows 10 及以上系统。",
+  },
+  {
     id: "providers",
     question: "AI 用什么模型？要额外付费吗？",
     answer:
@@ -99,6 +105,12 @@ const FAQ_EN: FaqItem[] = [
     question: "Which platforms are supported?",
     answer:
       "macOS (Apple Silicon and Intel) and Windows installers are available on this page. Linux builds are planned. In-app update checks notify you when a new version is ready — you confirm before downloading.",
+  },
+  {
+    id: "webview2",
+    question: "What if Windows reports a missing WebView2 runtime?",
+    answer:
+      "The Windows build needs the Microsoft Edge WebView2 runtime to render the UI. Our official .msi embeds the WebView2 bootstrapper, which normally installs it during setup — you usually do not need a separate download. If you still see a missing-runtime error or a blank window, re-run the latest installer to completion. On locked-down networks that block the online bootstrapper, install WebView2 Runtime manually from Microsoft (Evergreen Bootstrapper or Evergreen Standalone Installer). Windows 10 or later is required.",
   },
   {
     id: "providers",

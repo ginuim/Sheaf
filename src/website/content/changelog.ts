@@ -9,6 +9,14 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.27",
+    date: "2026-06",
+    title: "全局滚动条样式优化",
+    items: [
+      "新增全局自定义滚动条，Windows 下更窄，并适配浅色/深色主题",
+    ],
+  },
+  {
     version: "0.2.26",
     date: "2026-06",
     title: "Windows 标题栏主题同步修复",
@@ -270,6 +278,14 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.27",
+    date: "2026-06",
+    title: "Global scrollbar styling",
+    items: [
+      "Add app-wide custom scrollbars that are slimmer on Windows and follow light/dark theme",
+    ],
+  },
   {
     version: "0.2.26",
     date: "2026-06",
