@@ -9,6 +9,14 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.25",
+    date: "2026-06",
+    title: "Windows 标题栏主题同步",
+    items: [
+      "修复 Windows 下切换浅色/深色主题时，系统标题栏和菜单栏不同步的问题",
+    ],
+  },
+  {
     version: "0.2.24",
     date: "2026-06",
     title: "修复应用内自动更新",
@@ -254,6 +262,14 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.25",
+    date: "2026-06",
+    title: "Windows title bar theme sync",
+    items: [
+      "Fix native title bar and menu bar not updating when switching light or dark theme on Windows",
+    ],
+  },
   {
     version: "0.2.24",
     date: "2026-06",
