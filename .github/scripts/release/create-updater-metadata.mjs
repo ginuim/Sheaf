@@ -41,8 +41,9 @@ const metadata = {
   version: releaseTag.replace(/^v/, ""),
 };
 
+const metadataFilename = `release-metadata-${updaterPlatform}.json`;
 fs.writeFileSync(
-  path.join(releaseDir, "release-metadata.json"),
+  path.join(releaseDir, metadataFilename),
   `${JSON.stringify(metadata, null, 2)}\n`,
 );
 

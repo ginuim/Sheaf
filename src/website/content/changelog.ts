@@ -9,6 +9,15 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.24",
+    date: "2026-06",
+    title: "修复应用内自动更新",
+    items: [
+      "修复 macOS 多架构发布时 updater 元数据互相覆盖，导致 Apple Silicon 无法检测更新",
+      "发布流程增加 updater 平台清单校验，避免 latest.json 缺少平台条目",
+    ],
+  },
+  {
     version: "0.2.23",
     date: "2026-06",
     title: "图床上传支持",
@@ -262,6 +271,15 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.24",
+    date: "2026-06",
+    title: "Fix in-app auto-update",
+    items: [
+      "Fix updater metadata overwrite during multi-arch macOS release, which broke Apple Silicon update detection",
+      "Validate required updater platforms when generating latest.json",
+    ],
+  },
   {
     version: "0.2.23",
     date: "2026-06",

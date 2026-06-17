@@ -242,7 +242,7 @@ jobs:
           path: |
             release/${{ matrix.artifact }}.app.tar.gz
             release/${{ matrix.artifact }}.app.tar.gz.sig
-            release/release-metadata.json
+            release/release-metadata-${{ matrix.updater_platform }}.json
           if-no-files-found: error
 
   build-windows:
@@ -378,7 +378,7 @@ jobs:
           path: |
             release/${{ env.ARTIFACT }}-setup.exe
             release/${{ env.ARTIFACT }}-setup.exe.sig
-            release/release-metadata.json
+            release/release-metadata-${{ env.UPDATER_PLATFORM }}.json
           if-no-files-found: error
 
   publish:
@@ -431,6 +431,7 @@ jobs:
           RELEASE_ASSETS_ROOT: release-updater
           RELEASE_NOTES_PATH: release-notes.md
           OUTPUT_PATH: release/latest.json
+          REQUIRED_PLATFORMS: darwin-aarch64,darwin-x86_64,windows-x86_64
         run: node .github/scripts/release/generate-updater-manifest.mjs
 
       - name: Prepare release assets
