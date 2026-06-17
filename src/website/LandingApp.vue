@@ -61,14 +61,10 @@ function toggleDemoTheme() {
   demoRef.value?.runThemeToggle();
 }
 
-function toggleLocale() {
-  const next: AppLocale = locale.value === "zh-CN" ? "en" : "zh-CN";
+function switchLocale(next: AppLocale) {
+  if (locale.value === next) return;
   setLocale(next);
 }
-
-const localeToggleLabel = computed(() =>
-  locale.value === "zh-CN" ? "English" : "中文",
-);
 
 const themeToggleLabel = computed(() =>
   isDark.value ? t("landing.nav.themeLight") : t("landing.nav.themeDark"),
@@ -139,14 +135,22 @@ const features = computed(() => [
         <a href="#download">{{ t("landing.nav.download") }}</a>
       </nav>
       <div class="landing-nav-actions">
-        <button
-          type="button"
-          class="landing-nav-icon-btn landing-nav-locale-btn"
-          :aria-label="t('landing.nav.switchLocale')"
-          @click="toggleLocale"
-        >
-          {{ localeToggleLabel }}
-        </button>
+        <span class="landing-lang-switch" :aria-label="t('landing.nav.switchLocale')">
+          <button
+            type="button"
+            :aria-pressed="locale === 'zh-CN'"
+            @click="switchLocale('zh-CN')"
+          >
+            中
+          </button>
+          <button
+            type="button"
+            :aria-pressed="locale === 'en'"
+            @click="switchLocale('en')"
+          >
+            EN
+          </button>
+        </span>
         <button
           type="button"
           class="landing-nav-icon-btn"
@@ -313,6 +317,8 @@ const features = computed(() => [
                 {{ t("landing.footer.docs") }}
               </button>
             </li>
+            <li><a href="/download.html">{{ t("landing.footer.downloadPage") }}</a></li>
+            <li><a href="/articles.html">{{ t("landing.footer.articles") }}</a></li>
             <li>
               <a :href="GITHUB_REPO_URL" target="_blank" rel="noopener noreferrer">
                 {{ t("landing.footer.github") }}

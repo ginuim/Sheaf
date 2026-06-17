@@ -654,6 +654,8 @@ console.log(greeting);
       contact: "联系",
       changelog: "更新日志",
       docs: "使用文档",
+      articles: "文章",
+      downloadPage: "下载页面",
       github: "GitHub",
       privacy: "隐私政策",
       terms: "服务条款",

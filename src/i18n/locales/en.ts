@@ -654,6 +654,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
       contact: "Contact",
       changelog: "Changelog",
       docs: "Documentation",
+      articles: "Articles",
+      downloadPage: "Download page",
       github: "GitHub",
       privacy: "Privacy Policy",
       terms: "Terms of Service",

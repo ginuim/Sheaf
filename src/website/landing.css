@@ -129,9 +129,34 @@ html.landing-scroll-locked body {
   border-color: var(--ink-border);
 }
 
-.landing-nav-locale-btn {
-  min-width: 44px;
-  letter-spacing: 0.01em;
+.landing-lang-switch {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border: 1px solid var(--ink-border);
+  border-radius: 8px;
+  background: var(--ink-surface);
+}
+
+.landing-lang-switch button {
+  min-width: 34px;
+  height: 28px;
+  padding: 0 0.45rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.landing-lang-switch button:hover,
+.landing-lang-switch button[aria-pressed="true"] {
+  color: var(--ink-text);
+  background: var(--ink-bg);
 }
 
 .landing-btn {

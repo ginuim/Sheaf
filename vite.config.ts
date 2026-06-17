@@ -14,6 +14,12 @@ export default defineConfig(async () => ({
       input: {
         app: resolve(__dirname, "index.html"),
         website: resolve(__dirname, "website.html"),
+        websiteArticles: resolve(__dirname, "articles.html"),
+        websiteDownload: resolve(__dirname, "download.html"),
+        websiteDocs: resolve(__dirname, "docs.html"),
+        websiteWechat: resolve(__dirname, "markdown-to-wechat.html"),
+        websiteLocalFirst: resolve(__dirname, "local-first-ai-markdown-editor.html"),
+        websiteCompare: resolve(__dirname, "sheaf-vs-typora-obsidian.html"),
       },
     },
   },
