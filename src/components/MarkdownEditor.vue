@@ -60,6 +60,7 @@ const props = withDefaults(
   {
     formatBarEnabled: true,
     needsFormatSpacing: false,
+    formatBarToolOrder: () => [...markdownFormatToolIds],
   },
 );
 
@@ -1199,7 +1200,7 @@ defineExpose({
       v-if="props.formatBarEnabled && !props.previewDiffItem"
       :needs-format-spacing="props.needsFormatSpacing"
       :enabled-tools="enabledFormatBarTools"
-      :tool-order="props.formatBarToolOrder || []"
+      :tool-order="props.formatBarToolOrder"
       @command="handleFormatCommand"
       @format-spacing="emit('format-spacing')"
       @open-settings="emit('open-format-settings')"

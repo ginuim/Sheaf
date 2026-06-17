@@ -2001,6 +2001,12 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   width: 40%;
 }
 
+@media (max-width: 960px) {
+  .pane-editor-source {
+    display: none;
+  }
+}
+
 .pane-title-group {
   display: flex;
   flex-direction: column;
@@ -2024,6 +2030,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 /* 中面板：高保真预览画布 */
 .pane-preview-canvas {
   flex: 1;
+  min-width: 0; /* 允许在空间不足时收缩，防止挤压右侧控制栏 */
   background: var(--ink-bg-preview);
 }
 
@@ -2049,7 +2056,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 .canvas-scroller {
   width: 100%;
   height: 100%;
-  overflow-y: auto;
+  overflow: auto; /* 允许水平和垂直滚动 */
   display: flex;
   justify-content: center;
   align-items: center;
@@ -2863,6 +2870,11 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   border: none;
   cursor: pointer;
   transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 28px;
 }
 
 .type-btn:hover {
