@@ -389,6 +389,8 @@ console.log(greeting);
     title: "导出",
     backToEdit: "返回编辑",
     backToEditTitle: "返回编辑",
+    showEditor: "显示编辑区",
+    hideEditor: "隐藏编辑区",
     dialogTitle: "Sheaf 导出",
     paginationPending: "分页计算中...",
     wechatCopied: "已复制微信公众号格式 HTML！请在微信公众号编辑器直接粘贴。",

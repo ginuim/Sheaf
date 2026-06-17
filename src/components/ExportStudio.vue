@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { Undo2 } from "@lucide/vue";
+import { Undo2, Eye, EyeOff } from "@lucide/vue";
 import { WECHAT_THEMES } from "../lib/wechatThemes";
 import {
   buildWechatHtml,
@@ -72,6 +72,8 @@ const modelValue = defineModel<string>({ required: true });
 const emit = defineEmits<{
   close: [];
 }>();
+
+const showEditor = ref(false);
 
 const { settings: exportTypographySettings } = useExportTypography();
 const savedCardSettings = loadExportCardSettings();
@@ -1438,6 +1440,16 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
         <span class="studio-title">{{ t("export.title") }}</span>
       </div>
       <div class="header-right">
+        <button
+          class="toggle-editor-btn"
+          :class="{ active: showEditor }"
+          :title="showEditor ? t('export.hideEditor') : t('export.showEditor')"
+          @click="showEditor = !showEditor"
+        >
+          <EyeOff v-if="showEditor" :size="14" aria-hidden="true" />
+          <Eye v-else :size="14" aria-hidden="true" />
+          <span>{{ showEditor ? t("export.hideEditor") : t("export.showEditor") }}</span>
+        </button>
         <button class="exit-btn" :title="t('export.backToEditTitle')" @click="emit('close')">
           <Undo2 :size="14" aria-hidden="true" />
           <span>{{ t("export.backToEdit") }}</span>
@@ -1448,7 +1460,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
     <!-- 工作台主体 -->
     <div class="studio-body">
       <!-- 左栏：Markdown 事实源 -->
-      <section class="studio-pane pane-editor-source">
+      <section v-show="showEditor" class="studio-pane pane-editor-source">
         <!-- <header class="pane-header">
           <div class="pane-title-group">
             <h2 class="pane-title">Markdown 事实源</h2>
@@ -1938,6 +1950,39 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   font-size: 13px;
   font-weight: 600;
   color: var(--ink-text-muted);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggle-editor-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--ink-border);
+  color: var(--ink-text-muted);
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toggle-editor-btn:hover {
+  color: var(--ink-text);
+  background: var(--ink-inset-hover);
+  border-color: var(--ink-border-strong);
+}
+
+.toggle-editor-btn.active {
+  background: var(--ink-accent-soft);
+  color: var(--ink-accent);
+  border-color: var(--ink-accent);
 }
 
 .exit-btn {

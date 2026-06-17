@@ -389,6 +389,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     title: "Export",
     backToEdit: "Back to editor",
     backToEditTitle: "Back to editor",
+    showEditor: "Show Editor",
+    hideEditor: "Hide Editor",
     dialogTitle: "Sheaf Export",
     paginationPending: "Calculating pagination...",
     wechatCopied: "WeChat HTML copied! Paste directly into the WeChat editor.",
