@@ -1,6 +1,6 @@
 # Sheaf
 
-A local-first macOS Markdown editor for focused writing — split live preview, AI paragraph rewrite, and export to PDF & social.
+A local-first Markdown editor for focused writing — split live preview, AI paragraph rewrite, image hosting, and export to PDF & social. Available for macOS and Windows.
 
 Website: [sheaf.reaidea.com](https://sheaf.reaidea.com/) · Download: [Releases](https://github.com/ginuim/Sheaf/releases)
 
@@ -19,11 +19,11 @@ Website: [sheaf.reaidea.com](https://sheaf.reaidea.com/) · Download: [Releases]
 | ![Sheaf outline panel](assets/screenshots/editor-outline.png) | ![Sheaf AI edit preview](assets/screenshots/ai-edit-preview.png) |
 
 <p align="center">
-  <img src="assets/screenshots/export-studio.png" alt="Sheaf export studio for WeChat, social cards, and long images" />
+  <img src="assets/screenshots/export-studio.png" alt="Sheaf export studio for article HTML, social cards, and long images" />
 </p>
 
 <p align="center">
-  <strong>Export studio — WeChat article HTML, social share cards, and long images.</strong>
+  <strong>Export studio — rich HTML for blogs and newsletters, social share cards, and long images.</strong>
 </p>
 
 ## Features
@@ -31,7 +31,8 @@ Website: [sheaf.reaidea.com](https://sheaf.reaidea.com/) · Download: [Releases]
 - **Split live preview** — Monospace editor and serif preview scroll together; split, edit-only, or preview-only views
 - **Outline panel** — Auto-generated heading hierarchy with click-to-jump navigation
 - **AI paragraph rewrite** — Describe edits in plain language, review the diff, apply in one click; version snapshots before each apply
-- **Export** — PDF, WeChat article HTML, social share cards, and long images
+- **Export** — PDF, rich HTML for blogs and newsletters (Medium, Substack, WordPress, Ghost), social share cards, and long images
+- **Image hosting** — Optionally auto-upload inserted images to Qiniu, Aliyun OSS, Tencent COS, or AWS S3
 - **Typography** — KaTeX math, Mermaid diagrams, syntax highlighting; automatic CJK spacing
 - **Local first** — Documents and settings stay on your disk; no account, no cloud sync
 
@@ -78,6 +79,9 @@ pnpm build
 pnpm build:mac          # current architecture
 pnpm build:mac:arm64    # Apple Silicon
 pnpm build:mac:x64      # Intel
+
+# Windows installer
+pnpm build:windows
 ```
 
 ## Scripts
@@ -116,7 +120,7 @@ git push origin v0.1.0
 
 Or run **Release** manually from GitHub Actions with `tag_name=v0.1.0`.
 
-The workflow builds and notarizes both `Sheaf-macos-arm64.dmg` and `Sheaf-macos-x64.dmg`, then publishes them to [GitHub Releases](https://github.com/ginuim/Sheaf/releases).
+The workflow builds macOS DMGs (`Sheaf-macos-arm64.dmg`, `Sheaf-macos-x64.dmg`) and Windows installers, then publishes them to [GitHub Releases](https://github.com/ginuim/Sheaf/releases).
 
 Required repository secrets: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `KEYCHAIN_PASSWORD`, `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PRIVATE_KEY`.
 

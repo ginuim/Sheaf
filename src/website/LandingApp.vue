@@ -6,6 +6,7 @@ import type { AppLocale } from "../i18n";
 import LandingChangelog from "./components/LandingChangelog.vue";
 import LandingDownload from "./components/LandingDownload.vue";
 import LandingDocs from "./components/LandingDocs.vue";
+import LandingFaq from "./components/LandingFaq.vue";
 import LandingLegal from "./components/LandingLegal.vue";
 import LandingOverlay from "./components/LandingOverlay.vue";
 import SheafProductDemo from "./components/SheafProductDemo.vue";
@@ -21,7 +22,7 @@ const landingRoot = ref<HTMLElement | null>(null);
 useLandingMotion(landingRoot);
 
 const { locale, setLocale, t, tm } = useLocale();
-const { docSections, changelog, privacyPolicy, termsOfService } = useLandingContent();
+const { docSections, changelog, faqItems, privacyPolicy, termsOfService } = useLandingContent();
 
 const { downloadHref } = useDownloadLink();
 const demoRef = ref<InstanceType<typeof SheafProductDemo> | null>(null);
@@ -110,6 +111,13 @@ const features = computed(() => [
     link: "#download",
     linkLabel: t("landing.features.local.linkLabel"),
   },
+  {
+    key: "export",
+    title: t("landing.features.export.title"),
+    body: t("landing.features.export.body"),
+    link: "#demo",
+    linkLabel: t("landing.features.export.linkLabel"),
+  },
 ]);
 </script>
 
@@ -127,6 +135,7 @@ const features = computed(() => [
       <nav class="landing-nav-links" :aria-label="t('landing.nav.main')">
         <a href="#features">{{ t("landing.nav.features") }}</a>
         <a href="#demo">{{ t("landing.nav.demo") }}</a>
+        <a href="#faq">{{ t("landing.nav.faq") }}</a>
         <a href="#download">{{ t("landing.nav.download") }}</a>
       </nav>
       <div class="landing-nav-actions">
@@ -148,7 +157,6 @@ const features = computed(() => [
           <Sun v-if="isDark" :size="18" aria-hidden="true" />
           <Moon v-else :size="18" aria-hidden="true" />
         </button>
-        <a class="landing-btn landing-btn-ghost" href="#features">{{ t("landing.nav.learnMore") }}</a>
         <a
           class="landing-btn landing-btn-primary"
           :href="downloadHref"
@@ -233,6 +241,12 @@ const features = computed(() => [
       <cite>{{ t("landing.quote.cite") }}</cite>
     </section>
 
+    <LandingFaq
+      :items="faqItems"
+      :title="t('landing.faq.title')"
+      :lead="t('landing.faq.lead')"
+    />
+
     <LandingOverlay
       :open="activeOverlay === 'docs'"
       :title="t('landing.overlay.docs.title')"
@@ -282,6 +296,7 @@ const features = computed(() => [
           <ul>
             <li><a href="#features">{{ t("landing.nav.features") }}</a></li>
             <li><a href="#demo">{{ t("landing.nav.demo") }}</a></li>
+            <li><a href="#faq">{{ t("landing.nav.faq") }}</a></li>
             <li><a href="#download">{{ t("landing.nav.download") }}</a></li>
           </ul>
         </div>

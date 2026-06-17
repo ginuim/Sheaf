@@ -45,17 +45,13 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
       "编辑区顶部新增 Markdown 格式栏，支持标题、粗体、列表、链接等常用格式",
       "格式栏工具可在设置中开关、排序和自定义",
       "中英文间距格式化按钮移至格式栏",
-      "改进 Mac 芯片识别 fallback 逻辑",
     ],
   },
   {
     version: "0.2.20",
     date: "2026-06",
-    title: "Mac 芯片识别与官网 SEO",
+    title: "分屏宽度修复",
     items: [
-      "官网下载页改进 Mac 芯片识别，支持 Client Hints 与 WebGL 检测",
-      "无法识别芯片时默认推荐 Apple 芯片版并提示 Intel 用户手动选择",
-      "官网增加 Open Graph、Twitter Card、结构化数据与可抓取静态内容",
       "修复分屏宽度 localStorage 读取逻辑",
     ],
   },
@@ -119,21 +115,11 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
     ],
   },
   {
-    version: "0.2.13",
-    date: "2026-06",
-    title: "官网小屏适配",
-    items: [
-      "小屏设备上 Demo 自适应缩放，交互坐标同步修正",
-      "页脚响应式布局优化，窄屏隐藏联系栏目",
-    ],
-  },
-  {
     version: "0.2.12",
     date: "2026-06",
-    title: "微信导出修复与官网 Demo",
+    title: "微信导出修复",
     items: [
       "修复文档开头空行导致微信公众号导出标题识别失败",
-      "官网 Demo 场景按钮增加选中状态",
     ],
   },
   {
@@ -160,7 +146,6 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
     title: "Windows 打包支持",
     items: [
       "支持 Windows x64 安装包构建与 GitHub Release 发布",
-      "官网下载页开放 Windows 下载",
       "应用内更新支持 Windows 平台",
       "安装包内嵌 WebView2 引导程序，无需单独安装运行时",
     ],
@@ -229,7 +214,6 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
     items: [
       "支持后台检查、下载并安装新版本，完成后一键重启",
       "设置页可开关自动检查，菜单与设置页支持手动检查更新",
-      "官网 favicon 与动态版本号展示",
     ],
   },
   {
@@ -249,7 +233,6 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
       "Agent 结构化文档编辑工具，支持段落级改写与 diff 审阅",
       "编辑器支持拖拽与粘贴插入图片",
       "当前文件可在 Finder 中快速定位",
-      "官网新增平台下载选择器，README 补充产品截图",
     ],
   },
   {
@@ -308,17 +291,13 @@ const CHANGELOG_EN: ChangelogEntry[] = [
       "Add a Markdown format bar above the editor with heading, bold, list, link, and other common tools",
       "Format bar tools can be toggled, reordered, and customized in settings",
       "Move CJK spacing formatting from the toolbar into the format bar",
-      "Refine Mac chip detection fallback logic",
     ],
   },
   {
     version: "0.2.20",
     date: "2026-06",
-    title: "Mac chip detection and landing SEO",
+    title: "Split pane width fix",
     items: [
-      "Improve Mac chip detection on the download page with Client Hints and WebGL parsing",
-      "Default to Apple Silicon when detection is uncertain and guide Intel users to switch manually",
-      "Add Open Graph, Twitter Card, structured data, and crawlable static content to the landing page",
       "Harden split pane width localStorage reads",
     ],
   },
@@ -382,21 +361,11 @@ const CHANGELOG_EN: ChangelogEntry[] = [
     ],
   },
   {
-    version: "0.2.13",
-    date: "2026-06",
-    title: "Landing page small-screen layout",
-    items: [
-      "Responsive scaling for the landing demo on narrow viewports with corrected interaction coordinates",
-      "Responsive footer layout; hide the contact column on smaller screens",
-    ],
-  },
-  {
     version: "0.2.12",
     date: "2026-06",
-    title: "WeChat export fix and landing demo UX",
+    title: "Article HTML export fix",
     items: [
-      "Fix WeChat HTML export title detection when the document starts with blank lines",
-      "Show active state on landing page demo scenario buttons",
+      "Fix rich HTML export title detection when the document starts with blank lines",
     ],
   },
   {
@@ -423,7 +392,6 @@ const CHANGELOG_EN: ChangelogEntry[] = [
     title: "Windows packaging support",
     items: [
       "Build and publish Windows x64 NSIS installers via GitHub Actions",
-      "Enable Windows downloads on the landing page",
       "In-app updates now support the Windows platform",
       "Embed the WebView2 bootstrapper so users do not need a separate runtime install",
     ],
@@ -492,7 +460,6 @@ const CHANGELOG_EN: ChangelogEntry[] = [
     items: [
       "Background update checks, downloads, and install with one-click restart",
       "Auto-check toggle in Settings; manual check from menu and Settings",
-      "Website favicon and dynamic version display",
     ],
   },
   {
@@ -512,7 +479,6 @@ const CHANGELOG_EN: ChangelogEntry[] = [
       "Agent structured document editing with paragraph-level rewrite and diff review",
       "Editor image insertion via drag-and-drop and paste",
       "Reveal current file in Finder",
-      "Website platform download picker and README product screenshots",
     ],
   },
   {
@@ -525,7 +491,7 @@ const CHANGELOG_EN: ChangelogEntry[] = [
       "Outline panel with click-to-jump headings",
       "Three view modes: split, edit-only, preview-only",
       "AI rewriting: natural-language instructions, diff review, one-click apply",
-      "Export PDF, WeChat HTML, social share cards, and long images",
+      "Export PDF, rich HTML for blogs and newsletters, social share cards, and long images",
       "Automatic CJK spacing with one-click full-document formatting",
       "Version snapshots with diff compare and restore",
       "Light / dark themes; interface in Chinese and English",

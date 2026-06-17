@@ -114,6 +114,23 @@ export function useLandingMotion(root: Ref<HTMLElement | null>) {
         delay: 0.15,
       }, reduceMotion);
 
+      const faqTl = gsap.timeline({
+        scrollTrigger: {
+          trigger: ".landing-faq",
+          start: "top 82%",
+          once: true,
+        },
+        defaults: { ease: "power2.out", duration: 0.65 },
+      });
+      faqTl
+        .from(".landing-faq .landing-section-title", { autoAlpha: 0, y: 22 })
+        .from(".landing-faq-lead", { autoAlpha: 0, y: 16 }, "-=0.4")
+        .from(
+          ".landing-faq-item",
+          { autoAlpha: 0, y: 20, stagger: 0.08 },
+          "-=0.35",
+        );
+
       const ctaTl = gsap.timeline({
         scrollTrigger: {
           trigger: ".landing-cta",

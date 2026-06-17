@@ -507,8 +507,8 @@ console.log(greeting);
       main: "主导航",
       features: "功能",
       demo: "演示",
+      faq: "常见问题",
       download: "下载",
-      learnMore: "了解更多",
       switchLocale: "切换语言",
       themeLight: "切换浅色模式",
       themeDark: "切换暗色模式",
@@ -517,7 +517,7 @@ console.log(greeting);
       eyebrow: "Markdown · 本地 · 排版",
       title: "为专注写作而生的 Markdown 编辑器",
       lead: "Sheaf 把编辑、预览与 AI 改写放在同一界面。留白、衬线与分屏，让长文写作像阅读纸书一样舒服。",
-      download: "下载 macOS 版",
+      download: "免费下载",
       watchDemo: "查看产品演示",
     },
     demo: {
@@ -584,9 +584,18 @@ console.log(greeting);
       },
       local: {
         title: "本地优先",
-        body: "文件保存在你的磁盘。大纲导航、PDF 导出、暗色模式，专为专注写作设计。",
-        linkLabel: "下载 macOS 版 →",
+        body: "文件保存在你的磁盘，无需账号。版本快照、大纲导航与暗色模式，专为专注写作设计。",
+        linkLabel: "了解更多 →",
       },
+      export: {
+        title: "导出到社交平台",
+        body: "公众号 HTML、小红书卡片与长图，预览即所得。PDF 打印、中英文间距与公式图表一并搞定。",
+        linkLabel: "查看导出演示 →",
+      },
+    },
+    faq: {
+      title: "常见问题",
+      lead: "关于 Sheaf 的定位、隐私、AI 与导出——你可能想先了解这些。",
     },
     quote: {
       text: "「好的排版让文字呼吸。留白不是浪费，是给思考的空间。」",
@@ -594,8 +603,8 @@ console.log(greeting);
     },
     cta: {
       title: "现在开始写作",
-      body: "macOS 原生应用，打开即写。你的文稿留在本地。",
-      download: "下载 macOS 版",
+      body: "macOS 与 Windows 原生应用，打开即写。你的文稿留在本地。",
+      download: "免费下载",
     },
     download: {
       ariaLabel: "下载 Sheaf",

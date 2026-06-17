@@ -24,7 +24,7 @@
             : "Sheaf — Local AI Markdown Editor | Split Preview & Social Export",
           description: isZh
             ? "Sheaf 是面向 macOS 的本地优先 Markdown 编辑器：分屏实时预览、AI 段落改写（diff 审阅后应用）、大纲导航，支持 KaTeX 公式、Mermaid 图表与中英文排版间距，可导出 PDF、微信公众号 HTML、小红书卡片与长图。开源 AGPL-3.0，无需账号。"
-            : "Sheaf is a local-first macOS Markdown editor with split live preview, AI paragraph rewriting with diff review, outline navigation, KaTeX math, Mermaid diagrams, and CJK typography spacing. Export to PDF, WeChat HTML, social cards, and long images. Open source (AGPL-3.0), no account required.",
+            : "Sheaf is a local-first Markdown editor with split live preview, AI paragraph rewriting with diff review, outline navigation, KaTeX math, Mermaid diagrams, and CJK typography spacing. Export to PDF, rich HTML for blogs and newsletters, social cards, and long images. Open source (AGPL-3.0), no account required.",
         };
 
         document.title = meta.title;
@@ -116,7 +116,7 @@
             "url": "https://sheaf.reaidea.com/",
             "applicationCategory": "BusinessApplication",
             "applicationSubCategory": "Markdown Editor",
-            "operatingSystem": "macOS 12+",
+            "operatingSystem": "macOS 12+, Windows 10+",
             "isAccessibleForFree": true,
             "license": "https://www.gnu.org/licenses/agpl-3.0.html",
             "downloadUrl": "https://github.com/ginuim/Sheaf/releases",
@@ -131,8 +131,8 @@
               "Diff preview before applying AI edits",
               "Version snapshots before each AI apply",
               "Export to PDF via system print dialog",
-              "Export WeChat article HTML with inlined styles",
-              "Export Xiaohongshu share cards and long images",
+              "Export rich article HTML with inlined styles for blogs and newsletters",
+              "Export social share cards and long images",
               "KaTeX math and Mermaid diagram rendering",
               "Syntax-highlighted code blocks",
               "Automatic Chinese–English typography spacing",
@@ -155,18 +155,42 @@
             "mainEntity": [
               {
                 "@type": "Question",
-                "name": "What is Sheaf?",
+                "name": "Sheaf 适合写什么样的内容？",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Sheaf is a local-first macOS Markdown editor built for focused long-form writing. It pairs a CodeMirror editor with a serif live preview, AI paragraph rewriting, outline navigation, and export to PDF and Chinese social platforms."
+                  "text": "长文写作：技术文档、论文草稿、产品说明、读书笔记、博客文章。分屏实时预览与大纲导航让万字稿写作更高效。"
                 }
               },
               {
                 "@type": "Question",
-                "name": "Sheaf 是什么？",
+                "name": "What is Sheaf best for?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Sheaf 是一款面向 macOS 的本地优先 Markdown 编辑器，专为长文专注写作设计。左侧等宽编辑、右侧衬线实时预览，并提供 AI 段落改写、大纲导航，以及 PDF 与微信公众号/小红书等导出能力。"
+                  "text": "Long-form writing: technical docs, paper drafts, product specs, reading notes, and blog posts — with split live preview and outline navigation."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "和 Typora、Obsidian 有什么不同？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Sheaf 专注写好一篇稿子：衬线分屏预览、AI 改写前审 diff、一键导出公众号 HTML 与小红书卡片。文件保持普通 .md 格式，无锁定。"
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How is Sheaf different from Typora or Obsidian?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Sheaf focuses on finishing one piece of writing: serif split preview, diff review before AI edits, and one-click rich HTML export for blogs and newsletters. Files stay plain .md with no lock-in."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "需要注册账号吗？文稿存在哪里？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "不需要账号，也没有云端同步。文稿与设置保存在本地磁盘，AI 使用你自己配置的 API Key。"
                 }
               },
               {
@@ -174,15 +198,31 @@
                 "name": "Does Sheaf require an account or cloud sync?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "No. Documents and settings stay on your disk. Sheaf does not require an account and does not sync your files to the cloud by default."
+                  "text": "No. Documents and settings stay on your disk. AI uses your own API keys — Sheaf does not host your content."
                 }
               },
               {
                 "@type": "Question",
-                "name": "How does AI rewriting work in Sheaf?",
+                "name": "AI 会直接改我的文稿吗？",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Press ⌘⇧A or click AI in the toolbar, describe your edit in plain language, review the diff, then apply in one click. A version snapshot is saved before each apply. Configure MiniMax, Qwen, or any OpenAI-compatible provider in Settings → AI."
+                  "text": "不会。AI 返回修改建议，你在 diff 视图审阅后一键应用。每次应用前自动保存版本快照，可随时回滚。"
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Will AI change my document without asking?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. AI suggestions are shown in a diff view; you apply only what you accept. Version snapshots are saved before each apply."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "写完能导出到哪里？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "PDF、微信公众号 HTML（样式内联）、小红书分享卡片与长图。预览即所得，支持 KaTeX 公式与 Mermaid 图表。"
                 }
               },
               {
@@ -190,7 +230,31 @@
                 "name": "What can I export from Sheaf?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Sheaf can export PDF (via the system print dialog), WeChat article HTML with inlined styles, Xiaohongshu share cards, and long images — all based on the current preview typography."
+                  "text": "PDF; rich HTML with inlined styles for Medium, Substack, WordPress, Ghost, and similar platforms; social share cards; and long images — WYSIWYG from preview, including math and diagrams."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "插入图片会保存在哪里？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "默认保存到 Markdown 文件所在目录。也可在设置中启用图床，自动上传到七牛、阿里云 OSS、腾讯云 COS 或 AWS S3，并插入公网 URL。"
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Where do inserted images go?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "By default, images save relative to your Markdown file. Optional image hosting uploads to Qiniu, Aliyun OSS, Tencent COS, or AWS S3 and inserts the public URL."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "支持哪些平台？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "目前已提供 macOS（Apple 芯片 / Intel）和 Windows 安装包。Linux 版本在计划中。"
                 }
               },
               {
@@ -198,7 +262,23 @@
                 "name": "Which platforms does Sheaf support?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Sheaf currently ships macOS builds for Apple Silicon (M1/M2/M3+) and Intel Macs as .dmg installers. Windows and Linux builds are planned."
+                  "text": "macOS (Apple Silicon and Intel) and Windows installers are available. Linux builds are planned."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "AI 用什么模型？要额外付费吗？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Sheaf 免费开源（AGPL-3.0）。AI 需自备 API Key，支持 MiniMax、通义千问及 OpenAI 兼容接口，费用按服务商结算。"
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Which AI models does Sheaf use?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Sheaf is free (AGPL-3.0). Bring your own API key — MiniMax, Qwen, or any OpenAI-compatible endpoint. Model costs follow your provider."
                 }
               }
             ]
@@ -256,7 +336,7 @@
           <li>Outline panel with click-to-jump heading navigation</li>
           <li>AI paragraph rewrite with diff review, version snapshots, and one-click apply</li>
           <li>Rich typography: KaTeX math, Mermaid diagrams, syntax highlighting, CJK spacing</li>
-          <li>Export to PDF, WeChat HTML, Xiaohongshu cards, and long images</li>
+          <li>Export to PDF, rich HTML for blogs and newsletters, social share cards, and long images</li>
           <li>AI providers: MiniMax, Qwen, and custom OpenAI-compatible endpoints</li>
         </ul>
         <p>Built with Tauri v2, Vue 3, and CodeMirror 6. Licensed under AGPL-3.0.</p>
