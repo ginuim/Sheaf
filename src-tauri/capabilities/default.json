@@ -5,6 +5,8 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:app:allow-set-app-theme",
+    "core:window:allow-set-theme",
     "core:webview:allow-print",
     "allow-take-opened-files",
     "allow-open-dropped-files",
