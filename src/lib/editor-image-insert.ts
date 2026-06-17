@@ -7,12 +7,16 @@ import {
   type SavedEditorImage,
 } from "./save-editor-image";
 import { htmlToMarkdown } from "./html-to-markdown";
+import type { ImageHostingPreferences } from "./appPreferences";
+import { shouldUploadToDefaultImageHost } from "./imageHosting";
 
 export type EditorImageInsertOptions = {
   getDocumentPath: () => string | null;
   ensureDocumentSaved: () => Promise<string | null>;
+  getImageHostingPreferences?: () => ImageHostingPreferences | undefined;
   onRequiresSavedDocument: () => void;
   onInsertFailed: () => void;
+  onUploadFailed?: () => void;
 };
 
 function imageFilesFromDataTransfer(dataTransfer: DataTransfer | null | undefined): File[] {
@@ -69,6 +73,11 @@ function markdownFromClipboardHtml(dataTransfer: DataTransfer | null | undefined
 }
 
 async function resolveDocumentPath(options: EditorImageInsertOptions): Promise<string | null> {
+  const imageHosting = options.getImageHostingPreferences?.();
+  if (imageHosting && shouldUploadToDefaultImageHost(imageHosting)) {
+    return options.getDocumentPath();
+  }
+
   let documentPath = options.getDocumentPath();
   if (documentPath) return documentPath;
 
@@ -78,6 +87,19 @@ async function resolveDocumentPath(options: EditorImageInsertOptions): Promise<s
     return null;
   }
   return documentPath;
+}
+
+function isUploadEnabled(options: EditorImageInsertOptions) {
+  const imageHosting = options.getImageHostingPreferences?.();
+  return Boolean(imageHosting && shouldUploadToDefaultImageHost(imageHosting));
+}
+
+function handleInsertError(options: EditorImageInsertOptions) {
+  if (isUploadEnabled(options)) {
+    options.onUploadFailed?.();
+    return;
+  }
+  options.onInsertFailed();
 }
 
 export async function insertEditorImagesFromFiles(
@@ -92,9 +114,11 @@ export async function insertEditorImagesFromFiles(
   const savedImages: SavedEditorImage[] = [];
   for (const file of files) {
     try {
-      savedImages.push(await saveEditorImageFile(documentPath, file));
+      savedImages.push(
+        await saveEditorImageFile(documentPath, file, options.getImageHostingPreferences?.()),
+      );
     } catch {
-      options.onInsertFailed();
+      handleInsertError(options);
       return;
     }
   }
@@ -114,9 +138,11 @@ export async function insertEditorImagesFromPaths(
   const savedImages: SavedEditorImage[] = [];
   for (const path of paths) {
     try {
-      savedImages.push(await saveEditorImageFromPath(documentPath, path));
+      savedImages.push(
+        await saveEditorImageFromPath(documentPath, path, options.getImageHostingPreferences?.()),
+      );
     } catch {
-      options.onInsertFailed();
+      handleInsertError(options);
       return;
     }
   }

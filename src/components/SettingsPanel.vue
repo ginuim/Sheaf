@@ -11,10 +11,18 @@ import {
   markdownFormatToolIds,
   type MarkdownFormatToolId,
 } from "../types/markdown-format";
+import type {
+  CosImageHostingSettings,
+  ImageHostingProvider,
+  OssImageHostingSettings,
+  QiniuImageHostingRegion,
+  QiniuImageHostingSettings,
+  S3ImageHostingSettings,
+} from "../lib/appPreferences";
 import AiProviderSettingsPanel from "./AiProviderSettingsPanel.vue";
 import AiToolsSettingsPanel from "./AiToolsSettingsPanel.vue";
 
-type SettingsTab = "appearance" | "formatBar" | "aiModels" | "aiTools";
+type SettingsTab = "appearance" | "formatBar" | "imageHosting" | "aiModels" | "aiTools";
 
 const props = withDefaults(
   defineProps<{
@@ -56,6 +64,76 @@ function setMarkdownFormatToolEnabled(id: MarkdownFormatToolId, enabled: boolean
   });
 }
 
+function setImageHostingUploadToDefault(enabled: boolean) {
+  updateAppPreferences({
+    imageHosting: {
+      ...appPreferences.imageHosting,
+      uploadToDefault: enabled,
+    },
+  });
+}
+
+function setImageHostingProvider(provider: ImageHostingProvider) {
+  updateAppPreferences({
+    imageHosting: {
+      ...appPreferences.imageHosting,
+      provider,
+    },
+  });
+}
+
+function updateQiniuSettings(patch: Partial<QiniuImageHostingSettings>) {
+  updateAppPreferences({
+    imageHosting: {
+      ...appPreferences.imageHosting,
+      qiniu: {
+        ...appPreferences.imageHosting.qiniu,
+        ...patch,
+      },
+    },
+  });
+}
+
+function updateOssSettings(patch: Partial<OssImageHostingSettings>) {
+  updateAppPreferences({
+    imageHosting: {
+      ...appPreferences.imageHosting,
+      oss: {
+        ...appPreferences.imageHosting.oss,
+        ...patch,
+      },
+    },
+  });
+}
+
+function updateCosSettings(patch: Partial<CosImageHostingSettings>) {
+  updateAppPreferences({
+    imageHosting: {
+      ...appPreferences.imageHosting,
+      cos: {
+        ...appPreferences.imageHosting.cos,
+        ...patch,
+      },
+    },
+  });
+}
+
+function updateS3Settings(patch: Partial<S3ImageHostingSettings>) {
+  updateAppPreferences({
+    imageHosting: {
+      ...appPreferences.imageHosting,
+      s3: {
+        ...appPreferences.imageHosting.s3,
+        ...patch,
+      },
+    },
+  });
+}
+
+function eventValue(event: Event) {
+  return (event.target as HTMLInputElement | HTMLSelectElement).value;
+}
+
 const activeTab = ref<SettingsTab>("appearance");
 
 const draggedId = ref<MarkdownFormatToolId | null>(null);
@@ -90,6 +168,7 @@ function onDragEnd() {
 const tabs = computed(() => [
   { id: "appearance" as const, label: t("settings.tabs.appearance"), icon: "◐" },
   { id: "formatBar" as const, label: t("settings.tabs.formatBar"), icon: "Aa" },
+  { id: "imageHosting" as const, label: t("settings.tabs.imageHosting"), icon: "☁" },
   { id: "aiModels" as const, label: t("settings.tabs.aiModels"), icon: "✦" },
   { id: "aiTools" as const, label: t("settings.tabs.aiTools"), icon: "⚙" },
 ]);
@@ -105,6 +184,22 @@ const languageOptions: { id: AppLocale; label: string }[] = [
   { id: "en", label: "English" },
 ];
 
+const qiniuRegionOptions: { id: QiniuImageHostingRegion; labelKey: string }[] = [
+  { id: "auto", labelKey: "settings.imageHosting.regions.auto" },
+  { id: "z0", labelKey: "settings.imageHosting.regions.z0" },
+  { id: "z1", labelKey: "settings.imageHosting.regions.z1" },
+  { id: "z2", labelKey: "settings.imageHosting.regions.z2" },
+  { id: "na0", labelKey: "settings.imageHosting.regions.na0" },
+  { id: "as0", labelKey: "settings.imageHosting.regions.as0" },
+];
+
+const imageHostingProviderOptions: { id: ImageHostingProvider; labelKey: string }[] = [
+  { id: "qiniu", labelKey: "settings.imageHosting.providers.qiniu" },
+  { id: "oss", labelKey: "settings.imageHosting.providers.oss" },
+  { id: "cos", labelKey: "settings.imageHosting.providers.cos" },
+  { id: "s3", labelKey: "settings.imageHosting.providers.s3" },
+];
+
 const activeHint = computed(
   () => appearanceOptions.value.find((option) => option.id === preference.value)?.hint ?? "",
 );
@@ -112,6 +207,7 @@ const activeHint = computed(
 const tabTitles = computed<Record<SettingsTab, string>>(() => ({
   appearance: t("settings.tabs.appearance"),
   formatBar: t("settings.tabs.formatBar"),
+  imageHosting: t("settings.tabs.imageHosting"),
   aiModels: t("settings.tabs.aiModels"),
   aiTools: t("settings.tabs.aiTools"),
 }));
@@ -286,6 +382,441 @@ watch(
                     <span>{{ tool.label }}</span>
                   </label>
                 </div>
+              </div>
+            </div>
+          </section>
+
+          <section v-else-if="activeTab === 'imageHosting'" class="settings-section">
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">{{ t("settings.imageHosting.uploadToDefault") }}</span>
+                <span class="setting-desc">{{ t("settings.imageHosting.uploadToDefaultDesc") }}</span>
+              </div>
+              <label class="toggle">
+                <input
+                  :checked="appPreferences.imageHosting.uploadToDefault"
+                  type="checkbox"
+                  @change="setImageHostingUploadToDefault(!appPreferences.imageHosting.uploadToDefault)"
+                />
+                <span>{{
+                  appPreferences.imageHosting.uploadToDefault
+                    ? t("settings.imageHosting.uploadEnabled")
+                    : t("settings.imageHosting.uploadDisabled")
+                }}</span>
+              </label>
+            </div>
+
+            <div class="setting-row setting-row-col">
+              <div class="setting-label">
+                <span class="setting-name">{{ t("settings.imageHosting.provider") }}</span>
+                <span class="setting-desc">{{ t("settings.imageHosting.providerDesc") }}</span>
+              </div>
+              <div class="segmented" role="radiogroup" :aria-label="t('settings.imageHosting.provider')">
+                <button
+                  v-for="provider in imageHostingProviderOptions"
+                  :key="provider.id"
+                  class="segment-btn"
+                  :class="{ active: appPreferences.imageHosting.provider === provider.id }"
+                  role="radio"
+                  :aria-checked="appPreferences.imageHosting.provider === provider.id"
+                  @click="setImageHostingProvider(provider.id)"
+                >
+                  {{ t(provider.labelKey) }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="appPreferences.imageHosting.provider === 'qiniu'" class="setting-row setting-row-col">
+              <div class="setting-label">
+                <span class="setting-name">{{ t("settings.imageHosting.providers.qiniu") }}</span>
+                <span class="setting-desc">{{ t("settings.imageHosting.qiniuDesc") }}</span>
+              </div>
+
+              <div class="image-hosting-grid">
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.accessKey") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.qiniu.accessKey"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateQiniuSettings({ accessKey: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.secretKey") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.qiniu.secretKey"
+                    autocomplete="off"
+                    spellcheck="false"
+                    type="password"
+                    @input="updateQiniuSettings({ secretKey: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.bucket") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.qiniu.bucket"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateQiniuSettings({ bucket: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.domain") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.qiniu.domain"
+                    placeholder="https://cdn.example.com"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateQiniuSettings({ domain: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.region") }}</span>
+                  <select
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.qiniu.region"
+                    @change="updateQiniuSettings({ region: eventValue($event) as QiniuImageHostingRegion })"
+                  >
+                    <option
+                      v-for="region in qiniuRegionOptions"
+                      :key="region.id"
+                      :value="region.id"
+                    >
+                      {{ t(region.labelKey) }}
+                    </option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.pathTemplate") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.qiniu.prefix"
+                    placeholder="sheaf/{yyyy}/{MM}/"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateQiniuSettings({ prefix: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.fileNameTemplate") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.qiniu.fileNameTemplate"
+                    placeholder="{timestamp}-{random}.{ext}"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateQiniuSettings({ fileNameTemplate: eventValue($event) })"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div v-else-if="appPreferences.imageHosting.provider === 'oss'" class="setting-row setting-row-col">
+              <div class="setting-label">
+                <span class="setting-name">{{ t("settings.imageHosting.providers.oss") }}</span>
+                <span class="setting-desc">{{ t("settings.imageHosting.ossDesc") }}</span>
+              </div>
+
+              <div class="image-hosting-grid">
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.accessKeyId") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.oss.accessKeyId"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateOssSettings({ accessKeyId: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.accessKeySecret") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.oss.accessKeySecret"
+                    autocomplete="off"
+                    spellcheck="false"
+                    type="password"
+                    @input="updateOssSettings({ accessKeySecret: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.bucket") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.oss.bucket"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateOssSettings({ bucket: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.region") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.oss.region"
+                    placeholder="cn-hangzhou"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateOssSettings({ region: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.endpoint") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.oss.endpoint"
+                    placeholder="https://bucket.oss-cn-hangzhou.aliyuncs.com"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateOssSettings({ endpoint: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.domain") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.oss.domain"
+                    placeholder="https://cdn.example.com"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateOssSettings({ domain: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.pathTemplate") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.oss.prefix"
+                    placeholder="sheaf/{yyyy}/{MM}/"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateOssSettings({ prefix: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.fileNameTemplate") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.oss.fileNameTemplate"
+                    placeholder="{timestamp}-{random}.{ext}"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateOssSettings({ fileNameTemplate: eventValue($event) })"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div v-else-if="appPreferences.imageHosting.provider === 'cos'" class="setting-row setting-row-col">
+              <div class="setting-label">
+                <span class="setting-name">{{ t("settings.imageHosting.providers.cos") }}</span>
+                <span class="setting-desc">{{ t("settings.imageHosting.cosDesc") }}</span>
+              </div>
+
+              <div class="image-hosting-grid">
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.secretId") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.cos.secretId"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateCosSettings({ secretId: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.secretKey") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.cos.secretKey"
+                    autocomplete="off"
+                    spellcheck="false"
+                    type="password"
+                    @input="updateCosSettings({ secretKey: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.bucketWithAppId") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.cos.bucket"
+                    placeholder="examplebucket-1250000000"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateCosSettings({ bucket: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.region") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.cos.region"
+                    placeholder="ap-beijing"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateCosSettings({ region: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.domain") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.cos.domain"
+                    placeholder="https://cdn.example.com"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateCosSettings({ domain: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.pathTemplate") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.cos.prefix"
+                    placeholder="sheaf/{yyyy}/{MM}/"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateCosSettings({ prefix: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.fileNameTemplate") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.cos.fileNameTemplate"
+                    placeholder="{timestamp}-{random}.{ext}"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateCosSettings({ fileNameTemplate: eventValue($event) })"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div v-else class="setting-row setting-row-col">
+              <div class="setting-label">
+                <span class="setting-name">{{ t("settings.imageHosting.providers.s3") }}</span>
+                <span class="setting-desc">{{ t("settings.imageHosting.s3Desc") }}</span>
+              </div>
+
+              <div class="image-hosting-grid">
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.accessKeyId") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.s3.accessKeyId"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateS3Settings({ accessKeyId: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.secretAccessKey") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.s3.secretAccessKey"
+                    autocomplete="off"
+                    spellcheck="false"
+                    type="password"
+                    @input="updateS3Settings({ secretAccessKey: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.bucket") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.s3.bucket"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateS3Settings({ bucket: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.region") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.s3.region"
+                    placeholder="us-east-1"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateS3Settings({ region: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.endpoint") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.s3.endpoint"
+                    placeholder="https://bucket.s3.us-east-1.amazonaws.com"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateS3Settings({ endpoint: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.domain") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.s3.domain"
+                    placeholder="https://cdn.example.com"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateS3Settings({ domain: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.pathTemplate") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.s3.prefix"
+                    placeholder="sheaf/{yyyy}/{MM}/"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateS3Settings({ prefix: eventValue($event) })"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>{{ t("settings.imageHosting.fileNameTemplate") }}</span>
+                  <input
+                    class="setting-input"
+                    :value="appPreferences.imageHosting.s3.fileNameTemplate"
+                    placeholder="{timestamp}-{random}.{ext}"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @input="updateS3Settings({ fileNameTemplate: eventValue($event) })"
+                  />
+                </label>
               </div>
             </div>
           </section>
@@ -485,6 +1016,22 @@ watch(
 
 .setting-input:focus {
   border-color: var(--ink-accent);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ink-text-muted);
+}
+
+.image-hosting-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
 }
 
 .format-tool-grid {

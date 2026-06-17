@@ -43,6 +43,7 @@ import {
   type MarkdownFormatCommand,
   type MarkdownFormatToolId,
 } from "../types/markdown-format";
+import type { ImageHostingPreferences } from "../lib/appPreferences";
 
 const props = withDefaults(
   defineProps<{
@@ -56,6 +57,7 @@ const props = withDefaults(
     needsFormatSpacing?: boolean;
     formatBarTools?: Partial<Record<MarkdownFormatToolId, boolean>>;
     formatBarToolOrder?: MarkdownFormatToolId[];
+    imageHosting?: ImageHostingPreferences;
   }>(),
   {
     formatBarEnabled: true,
@@ -88,11 +90,15 @@ const { showToast } = useAppToast();
 const imageInsertOptions: EditorImageInsertOptions = {
   getDocumentPath: () => props.documentPath ?? null,
   ensureDocumentSaved: () => props.ensureDocumentSaved?.() ?? Promise.resolve(null),
+  getImageHostingPreferences: () => props.imageHosting,
   onRequiresSavedDocument: () => {
     showToast("info", t("editor.imageRequiresSavedDocument"));
   },
   onInsertFailed: () => {
     showToast("error", t("editor.imageInsertFailed"));
+  },
+  onUploadFailed: () => {
+    showToast("error", t("editor.imageUploadFailed"));
   },
 };
 const searchText = ref("");

@@ -90,7 +90,7 @@ const exportPdfLoadingText = computed(() =>
   exportPdfStage.value === "rendering" ? t("app.renderingDoc") : t("app.generatingPdf"),
 );
 const showSettings = ref(false);
-const settingsInitialTab = ref<"appearance" | "formatBar" | "aiModels" | "aiTools">("appearance");
+const settingsInitialTab = ref<"appearance" | "formatBar" | "imageHosting" | "aiModels" | "aiTools">("appearance");
 const showAbout = ref(false);
 const showAI = ref(false);
 const showVersionHistory = ref(false);
@@ -1110,6 +1110,7 @@ onUnmounted(() => {
           :format-bar-enabled="appPreferences.markdownFormatBarEnabled"
           :format-bar-tools="appPreferences.markdownFormatBarTools"
           :format-bar-tool-order="appPreferences.markdownFormatBarToolOrder"
+          :image-hosting="appPreferences.imageHosting"
           :needs-format-spacing="needsFormatSpacing"
           @scroll="onEditorScroll"
           @add-selection-context="handleAddSelectionContext"
