@@ -9,6 +9,14 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.26",
+    date: "2026-06",
+    title: "Windows 标题栏主题同步修复",
+    items: [
+      "补充 Tauri 主题 API 所需权限，修复 Windows 下标题栏与菜单栏无法随应用主题切换的问题",
+    ],
+  },
+  {
     version: "0.2.25",
     date: "2026-06",
     title: "Windows 标题栏主题同步",
@@ -262,6 +270,14 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.26",
+    date: "2026-06",
+    title: "Windows title bar theme sync fix",
+    items: [
+      "Add required Tauri permissions for theme APIs so native title bar and menu bar follow app theme on Windows",
+    ],
+  },
   {
     version: "0.2.25",
     date: "2026-06",
