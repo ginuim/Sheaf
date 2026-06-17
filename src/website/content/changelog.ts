@@ -9,6 +9,16 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.22",
+    date: "2026-06",
+    title: "导出工作台布局优化",
+    items: [
+      "窄屏下自动隐藏 Markdown 编辑区，预览区可收缩并支持横向滚动",
+      "新增编辑区显示/隐藏切换按钮，按需获得更大预览空间",
+      "修复格式栏默认工具顺序",
+    ],
+  },
+  {
     version: "0.2.21",
     date: "2026-06",
     title: "Markdown 格式栏",
@@ -242,6 +252,16 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.22",
+    date: "2026-06",
+    title: "Export Studio layout improvements",
+    items: [
+      "Hide Markdown source pane on narrow screens; preview canvas can shrink and scroll horizontally",
+      "Add header toggle to show or hide the editor pane for more preview space",
+      "Fix default format bar tool order in MarkdownEditor",
+    ],
+  },
   {
     version: "0.2.21",
     date: "2026-06",
