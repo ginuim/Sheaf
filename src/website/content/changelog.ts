@@ -9,6 +9,17 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.21",
+    date: "2026-06",
+    title: "Markdown 格式栏",
+    items: [
+      "编辑区顶部新增 Markdown 格式栏，支持标题、粗体、列表、链接等常用格式",
+      "格式栏工具可在设置中开关、排序和自定义",
+      "中英文间距格式化按钮移至格式栏",
+      "改进 Mac 芯片识别 fallback 逻辑",
+    ],
+  },
+  {
     version: "0.2.20",
     date: "2026-06",
     title: "Mac 芯片识别与官网 SEO",
@@ -231,6 +242,17 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.21",
+    date: "2026-06",
+    title: "Markdown format bar",
+    items: [
+      "Add a Markdown format bar above the editor with heading, bold, list, link, and other common tools",
+      "Format bar tools can be toggled, reordered, and customized in settings",
+      "Move CJK spacing formatting from the toolbar into the format bar",
+      "Refine Mac chip detection fallback logic",
+    ],
+  },
   {
     version: "0.2.20",
     date: "2026-06",
