@@ -9,6 +9,16 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.23",
+    date: "2026-06",
+    title: "图床上传支持",
+    items: [
+      "插入图片时可自动上传到七牛、阿里云 OSS、腾讯云 COS、AWS S3",
+      "设置面板新增图床配置，支持各云厂商凭据与上传偏好",
+      "启用图床后插入流程走云端上传而非本地保存",
+    ],
+  },
+  {
     version: "0.2.22",
     date: "2026-06",
     title: "导出工作台布局优化",
@@ -252,6 +262,16 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.23",
+    date: "2026-06",
+    title: "Image hosting upload support",
+    items: [
+      "Automatically upload images to Qiniu, Aliyun OSS, Tencent COS, or AWS S3 when inserting",
+      "New Image Hosting settings panel for provider credentials and upload preferences",
+      "Image insert flow routes through cloud upload instead of local save when enabled",
+    ],
+  },
   {
     version: "0.2.22",
     date: "2026-06",
