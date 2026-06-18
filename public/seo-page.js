@@ -52,3 +52,18 @@
     applyLocale(locale);
   });
 })();
+
+// Google tag (gtag.js) — same as website.html
+(function () {
+  var script = document.createElement("script");
+  script.async = true;
+  script.src = "https://www.googletagmanager.com/gtag/js?id=G-L58D2BS9HH";
+  document.head.appendChild(script);
+  window.dataLayer = window.dataLayer || [];
+  function gtag() {
+    window.dataLayer.push(arguments);
+  }
+  window.gtag = gtag;
+  gtag("js", new Date());
+  gtag("config", "G-L58D2BS9HH");
+})();
