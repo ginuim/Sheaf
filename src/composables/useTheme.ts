@@ -1,5 +1,6 @@
 import { setTheme as setAppTheme } from "@tauri-apps/api/app";
 import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { computed, ref, watch } from "vue";
 
 const STORAGE_KEY = "blank-theme";
@@ -35,8 +36,14 @@ function syncWindowTheme(theme: Theme) {
   if (!isTauri()) return;
 
   void setAppTheme(theme).catch((error) => {
-    console.warn("Failed to sync Tauri window theme:", error);
+    console.warn("Failed to sync Tauri app theme:", error);
   });
+
+  void getCurrentWindow()
+    .setTheme(theme)
+    .catch((error) => {
+      console.warn("Failed to sync Tauri window theme:", error);
+    });
 }
 
 function attachSystemListener() {
