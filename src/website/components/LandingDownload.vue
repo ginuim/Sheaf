@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useLocale } from "../../composables/useLocale";
 import { useLatestRelease } from "../composables/useLatestRelease";
 import {
   DOWNLOAD_PLATFORMS,
-  detectMacArch,
+  detectMacArchDetailed,
+  detectMacArchDetailedAsync,
   detectPlatform,
   getDownloadUrl,
   recommendedVariantId,
+  type MacArchDetection,
   type DownloadVariantId,
   type Platform,
 } from "../content/downloads";
@@ -17,12 +19,19 @@ const { t } = useLocale();
 const { version: releaseVersion } = useLatestRelease();
 
 const selectedPlatform = ref<Platform>(detectPlatform());
+const macArchDetection = ref<MacArchDetection>(detectMacArchDetailed());
 
 const activePlatform = computed(
   () => DOWNLOAD_PLATFORMS.find((item) => item.platform === selectedPlatform.value)!,
 );
 
-const recommendedId = computed(() => recommendedVariantId());
+const recommendedId = computed(() => recommendedVariantId(macArchDetection.value.arch));
+
+onMounted(() => {
+  void detectMacArchDetailedAsync().then((detection) => {
+    macArchDetection.value = detection;
+  });
+});
 
 function isRecommended(variantId: DownloadVariantId): boolean {
   return recommendedId.value === variantId;
@@ -35,7 +44,10 @@ function variantHref(variantId: DownloadVariantId, available: boolean): string |
 
 const detectedHint = computed(() => {
   if (selectedPlatform.value !== "macos") return null;
-  return detectMacArch() === "arm64"
+  if (macArchDetection.value.confidence === "fallback") {
+    return t("landing.download.defaultArm");
+  }
+  return macArchDetection.value.arch === "arm64"
     ? t("landing.download.detectedArm")
     : t("landing.download.detectedIntel");
 });

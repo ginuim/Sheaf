@@ -242,12 +242,148 @@ jobs:
           path: |
             release/${{ matrix.artifact }}.app.tar.gz
             release/${{ matrix.artifact }}.app.tar.gz.sig
-            release/release-metadata.json
+            release/release-metadata-${{ matrix.updater_platform }}.json
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+
+    env:
+      TARGET: x86_64-pc-windows-msvc
+      ARTIFACT: Sheaf-windows-x64
+      UPDATER_PLATFORM: windows-x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || env.RELEASE_TAG }}
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_tag="v$(node -p "require('./package.json').version")"
+          if [ "${RELEASE_TAG}" != "${expected_tag}" ]; then
+            echo "Tag ${RELEASE_TAG} does not match package.json version ${expected_tag}" >&2
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare updater config
+        shell: bash
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("fs");
+          const publicKey = process.env.TAURI_UPDATER_PUBLIC_KEY?.trim();
+          const endpoint = process.env.TAURI_UPDATER_ENDPOINT;
+
+          if (!publicKey) {
+            throw new Error("Missing TAURI_UPDATER_PUBLIC_KEY repository secret.");
+          }
+
+          const updaterConfig = {
+            bundle: {
+              createUpdaterArtifacts: true,
+              targets: ["nsis"],
+            },
+            plugins: {
+              updater: {
+                endpoints: [endpoint],
+                pubkey: publicKey,
+                windows: {
+                  installMode: "passive",
+                },
+              },
+            },
+          };
+
+          fs.writeFileSync(
+            "src-tauri/tauri.updater.conf.json",
+            `${JSON.stringify(updaterConfig, null, 2)}\n`,
+          );
+          NODE
+
+      - name: Build app bundles
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --target ${{ env.TARGET }} --config src-tauri/tauri.updater.conf.json
+
+      - name: Collect release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT_DIR="$GITHUB_WORKSPACE/release"
+          mkdir -p "$OUT_DIR"
+
+          SETUP=$(find "$GITHUB_WORKSPACE/src-tauri/target" -path '*/release/bundle/nsis/*-setup.exe' -print -quit)
+          if [ -z "$SETUP" ]; then
+            echo "NSIS setup not found under src-tauri/target" >&2
+            find "$GITHUB_WORKSPACE/src-tauri/target" -path '*/release/bundle/*' -type f 2>/dev/null | sort || true
+            exit 1
+          fi
+
+          if [ ! -f "${SETUP}.sig" ]; then
+            echo "Updater signature not found for ${SETUP}" >&2
+            exit 1
+          fi
+
+          SETUP_PATH="$OUT_DIR/${ARTIFACT}-setup.exe"
+          cp -f "$SETUP" "$SETUP_PATH"
+          cp -f "${SETUP}.sig" "${SETUP_PATH}.sig"
+          echo "Collected NSIS installer for ${ARTIFACT}"
+
+      - name: Create updater metadata
+        shell: bash
+        env:
+          RELEASE_DIR: release
+          UPDATER_PLATFORM: ${{ env.UPDATER_PLATFORM }}
+          ARTIFACT_BASE: ${{ env.ARTIFACT }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: node .github/scripts/release/create-updater-metadata.mjs
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT }}-installer
+          path: release/${{ env.ARTIFACT }}-setup.exe
+          if-no-files-found: error
+
+      - name: Upload updater artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT }}-updater
+          path: |
+            release/${{ env.ARTIFACT }}-setup.exe
+            release/${{ env.ARTIFACT }}-setup.exe.sig
+            release/release-metadata-${{ env.UPDATER_PLATFORM }}.json
           if-no-files-found: error
 
   publish:
     name: Publish GitHub Release
-    needs: build-macos
+    needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
 
     steps:
@@ -262,9 +398,10 @@ jobs:
           ## Sheaf ${version}
 
           ### 下载安装
-          请下载对应架构的 **DMG** 安装包（其余文件供应用内自动更新使用，无需手动下载）：
+          请下载对应平台的安装包（其余文件供应用内自动更新使用，无需手动下载）：
           - **Apple Silicon：** [Sheaf-macos-arm64.dmg](https://github.com/ginuim/Sheaf/releases/download/${RELEASE_TAG}/Sheaf-macos-arm64.dmg)
           - **Intel Mac：** [Sheaf-macos-x64.dmg](https://github.com/ginuim/Sheaf/releases/download/${RELEASE_TAG}/Sheaf-macos-x64.dmg)
+          - **Windows (x64)：** [Sheaf-windows-x64-setup.exe](https://github.com/ginuim/Sheaf/releases/download/${RELEASE_TAG}/Sheaf-windows-x64-setup.exe)
 
           官网下载：[sheaf.reaidea.com](https://sheaf.reaidea.com)
           EOF
@@ -276,21 +413,54 @@ jobs:
           path: release-dmg
           merge-multiple: true
 
+      - name: Download Windows installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Sheaf-windows-x64-installer
+          path: release-windows
+
       - name: Download updater artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: Sheaf-macos-*-updater
+          pattern: Sheaf-*-updater
           path: release-updater
+          merge-multiple: true
 
       - name: Generate updater manifest
         env:
           RELEASE_ASSETS_ROOT: release-updater
           RELEASE_NOTES_PATH: release-notes.md
           OUTPUT_PATH: release/latest.json
+          REQUIRED_PLATFORMS: darwin-aarch64,darwin-x86_64,windows-x86_64
         run: node .github/scripts/release/generate-updater-manifest.mjs
 
+      - name: Prepare release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+
+          copy_one() {
+            local name="$1"
+            local file
+            file=$(find "$2" -type f -name "$name" -print -quit)
+            if [ -z "$file" ]; then
+              echo "Release asset not found: $name under $2" >&2
+              find "$2" -type f | sort >&2 || true
+              exit 1
+            fi
+            cp -f "$file" "release-assets/$name"
+          }
+
+          copy_one "Sheaf-macos-arm64.dmg" release-dmg
+          copy_one "Sheaf-macos-x64.dmg" release-dmg
+          copy_one "Sheaf-windows-x64-setup.exe" release-windows
+          copy_one "Sheaf-macos-arm64.app.tar.gz" release-updater
+          copy_one "Sheaf-macos-x64.app.tar.gz" release-updater
+          cp -f release/latest.json release-assets/latest.json
+          ls -la release-assets/
+
       - name: List release files
-        run: find release-dmg release-updater release -type f | sort
+        run: find release-dmg release-windows release-updater release release-assets -type f | sort
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -301,9 +471,10 @@ jobs:
           draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
           prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
           files: |
-            release-dmg/Sheaf-macos-arm64.dmg
-            release-dmg/Sheaf-macos-x64.dmg
-            release-updater/Sheaf-macos-arm64-updater/Sheaf-macos-arm64.app.tar.gz
-            release-updater/Sheaf-macos-x64-updater/Sheaf-macos-x64.app.tar.gz
-            release/latest.json
+            release-assets/Sheaf-macos-arm64.dmg
+            release-assets/Sheaf-macos-x64.dmg
+            release-assets/Sheaf-windows-x64-setup.exe
+            release-assets/Sheaf-macos-arm64.app.tar.gz
+            release-assets/Sheaf-macos-x64.app.tar.gz
+            release-assets/latest.json
           fail_on_unmatched_files: true

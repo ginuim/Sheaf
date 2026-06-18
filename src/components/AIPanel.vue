@@ -72,6 +72,7 @@ const props = defineProps<{
   currentProofreadItemId?: string | null;
   activeProofreadIssueId?: string | null;
   demoMode?: boolean;
+  previewingDiffItemId?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -82,6 +83,7 @@ const emit = defineEmits<{
   "proofread-navigate": [issueId: string];
   "proofread-apply": [issueId: string];
   "proofread-dismiss": [issueId: string];
+  preview: [item: AIHistoryItem | null];
 }>();
 
 const resolvedDocumentKey = computed(() => props.documentKey?.trim() || "__untitled__");
@@ -749,12 +751,31 @@ function applyItemChanges(item: AIHistoryItem) {
   emit("apply", item.changes);
   item.status = "applied";
   item.resultDoc = nextDoc;
-  documentVersions.addSnapshot(labelBase, nextDoc, props.doc);
+  documentVersions.addChangeSnapshots(
+    t("version.beforeChange", { label: labelBase }),
+    t("version.afterChange", { label: labelBase }),
+    props.doc,
+    nextDoc,
+  );
+  if (props.previewingDiffItemId === item.id) {
+    emit("preview", null);
+  }
+}
+
+function previewItemChanges(item: AIHistoryItem) {
+  if (props.previewingDiffItemId === item.id) {
+    emit("preview", null);
+  } else {
+    emit("preview", item);
+  }
 }
 
 function discardItem(item: AIHistoryItem) {
   item.status = "discarded";
   if (expandedDiffId.value === item.id) expandedDiffId.value = null;
+  if (props.previewingDiffItemId === item.id) {
+    emit("preview", null);
+  }
 }
 
 function toggleConversationHistory() {
@@ -1415,6 +1436,15 @@ onUnmounted(() => {
           class="card-actions card-actions-split"
         >
           <div v-if="item.status === 'done'" class="card-actions-main">
+            <button
+              v-if="!props.demoMode"
+              class="ai-btn ai-btn-preview"
+              :class="{ 'is-previewing': props.previewingDiffItemId === item.id }"
+              @click="previewItemChanges(item)"
+            >
+              <GitCompare :size="12" />
+              {{ props.previewingDiffItemId === item.id ? t("ai.previewingDiff") : t("ai.preview") }}
+            </button>
             <button class="ai-btn ai-btn-apply" @click="applyItemChanges(item)">{{ t("ai.apply") }}</button>
             <button class="ai-btn ai-btn-ghost" @click="discardItem(item)">{{ t("ai.discard") }}</button>
           </div>
@@ -2720,6 +2750,23 @@ onUnmounted(() => {
 .ai-btn-proofread:hover:not(:disabled) {
   background: color-mix(in srgb, #e53e3e 8%, var(--ink-surface));
   border-color: color-mix(in srgb, #e53e3e 24%, var(--ink-border));
+}
+
+.ai-btn-preview {
+  color: var(--ink-text);
+  background: var(--ink-surface);
+  border-color: var(--ink-border);
+}
+
+.ai-btn-preview:hover:not(:disabled) {
+  background: var(--ink-surface-hover);
+  border-color: color-mix(in srgb, var(--ink-accent) 40%, var(--ink-border));
+}
+
+.ai-btn-preview.is-previewing {
+  color: var(--ink-accent);
+  background: var(--ink-accent-soft);
+  border-color: var(--ink-accent);
 }
 
 .ai-input-area {

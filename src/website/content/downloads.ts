@@ -1,4 +1,5 @@
 export type MacArch = "arm64" | "x64";
+export type MacArchDetectionConfidence = "detected" | "fallback";
 export type Platform = "macos" | "windows" | "linux";
 export type DownloadRegion = "cn" | "global";
 export type DownloadVariantId =
@@ -14,6 +15,8 @@ const MAC_DMG_NAMES: Record<MacArch, string> = {
   x64: "Sheaf-macos-x64.dmg",
 };
 
+const WINDOWS_SETUP_NAME = "Sheaf-windows-x64-setup.exe";
+
 export interface DownloadVariant {
   id: DownloadVariantId;
   platform: Platform;
@@ -26,6 +29,25 @@ export interface DownloadPlatformGroup {
   variants: DownloadVariant[];
 }
 
+export interface MacArchDetection {
+  arch: MacArch;
+  confidence: MacArchDetectionConfidence;
+}
+
+interface NavigatorUADataValues {
+  architecture?: string;
+  platform?: string;
+}
+
+interface NavigatorUADataLike {
+  platform?: string;
+  getHighEntropyValues?: (hints: string[]) => Promise<NavigatorUADataValues>;
+}
+
+type NavigatorWithUserAgentData = Navigator & {
+  userAgentData?: NavigatorUADataLike;
+};
+
 export const DOWNLOAD_PLATFORMS: DownloadPlatformGroup[] = [
   {
     platform: "macos",
@@ -37,8 +59,8 @@ export const DOWNLOAD_PLATFORMS: DownloadPlatformGroup[] = [
   },
   {
     platform: "windows",
-    available: false,
-    variants: [{ id: "windows-x64", platform: "windows", available: false }],
+    available: true,
+    variants: [{ id: "windows-x64", platform: "windows", available: true }],
   },
   {
     platform: "linux",
@@ -70,6 +92,9 @@ export function getDownloadUrl(
   if (variantId === "macos-x64") {
     return githubMacAssetUrl("x64");
   }
+  if (variantId === "windows-x64") {
+    return `https://github.com/${GITHUB_REPO}/releases/latest/download/${WINDOWS_SETUP_NAME}`;
+  }
   return "";
 }
 
@@ -77,7 +102,44 @@ export function getMacDownloadUrl(region: DownloadRegion, arch: MacArch): string
   return getDownloadUrl(region, `macos-${arch}`);
 }
 
-export function detectMacArch(): MacArch {
+function getNavigatorUAData(): NavigatorUADataLike | undefined {
+  if (typeof navigator === "undefined") return undefined;
+  return (navigator as NavigatorWithUserAgentData).userAgentData;
+}
+
+function isMacPlatform(platform: string | undefined): boolean {
+  return platform ? /mac/i.test(platform) : true;
+}
+
+function parseMacArchFromClientHints(values: NavigatorUADataValues): MacArch | null {
+  if (!isMacPlatform(values.platform ?? getNavigatorUAData()?.platform)) return null;
+
+  const architecture = values.architecture?.toLowerCase();
+  if (!architecture) return null;
+  if (architecture === "arm" || architecture === "arm64" || architecture === "aarch64") {
+    return "arm64";
+  }
+  if (architecture === "x86" || architecture === "x86_64" || architecture === "amd64") {
+    return "x64";
+  }
+  return null;
+}
+
+function parseMacArchFromRenderer(renderer: string): MacArch | null {
+  if (/\b(intel|amd|radeon|nvidia)\b/i.test(renderer)) {
+    return "x64";
+  }
+
+  if (/\bApple\b/i.test(renderer)) {
+    return "arm64";
+  }
+
+  return null;
+}
+
+function detectMacArchFromWebGL(): MacArch | null {
+  if (typeof document === "undefined") return null;
+
   try {
     const canvas = document.createElement("canvas");
     const gl = canvas.getContext("webgl") || (canvas.getContext("experimental-webgl") as WebGLRenderingContext | null);
@@ -85,8 +147,9 @@ export function detectMacArch(): MacArch {
       const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
       if (debugInfo) {
         const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-        if (renderer && /Apple/i.test(renderer)) {
-          return "arm64";
+        if (typeof renderer === "string") {
+          const arch = parseMacArchFromRenderer(renderer);
+          if (arch) return arch;
         }
       }
     }
@@ -94,24 +157,70 @@ export function detectMacArch(): MacArch {
     // 忽略异常，降级到默认架构推荐
   }
 
+  return null;
+}
+
+export function detectMacArchDetailed(): MacArchDetection {
+  if (detectPlatform() !== "macos") {
+    return { arch: "arm64", confidence: "fallback" };
+  }
+
+  const rendererArch = detectMacArchFromWebGL();
+  if (rendererArch) {
+    return { arch: rendererArch, confidence: "detected" };
+  }
+
   // 降级推荐：在 2026 年，Apple Silicon 已在 macOS 用户中占据绝对主导地位，
   // 原先基于 UA/platform 的检测逻辑在所有 Apple Silicon 设备上都会因为浏览器兼容性伪装
   // （即包含 "Intel Mac OS X" 和 "MacIntel"）而将其误判为 x64。
   // 因此在检测失效时，默认推荐 arm64 是体验更优的方案。
-  return "arm64";
+  return { arch: "arm64", confidence: "fallback" };
+}
+
+export function detectMacArch(): MacArch {
+  return detectMacArchDetailed().arch;
+}
+
+export async function detectMacArchDetailedAsync(): Promise<MacArchDetection> {
+  const localDetection = detectMacArchDetailed();
+  if (localDetection.confidence === "detected") {
+    return localDetection;
+  }
+
+  const uaData = getNavigatorUAData();
+  if (uaData?.getHighEntropyValues) {
+    try {
+      const values = await uaData.getHighEntropyValues(["architecture", "platform"]);
+      const hintedArch = parseMacArchFromClientHints(values);
+      if (hintedArch) {
+        return { arch: hintedArch, confidence: "detected" };
+      }
+    } catch (e) {
+      // 忽略异常，继续使用本地同步检测
+    }
+  }
+
+  return localDetection;
 }
 
 export function detectPlatform(): Platform {
-  const ua = navigator.userAgent;
+  const uaDataPlatform = getNavigatorUAData()?.platform;
+  if (uaDataPlatform) {
+    if (/windows/i.test(uaDataPlatform)) return "windows";
+    if (/linux/i.test(uaDataPlatform)) return "linux";
+    if (/mac/i.test(uaDataPlatform)) return "macos";
+  }
+
+  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
   if (/Windows/i.test(ua)) return "windows";
   if (/Linux/i.test(ua) && !/Android/i.test(ua)) return "linux";
   return "macos";
 }
 
-export function recommendedVariantId(): DownloadVariantId | null {
+export function recommendedVariantId(macArch = detectMacArch()): DownloadVariantId | null {
   const platform = detectPlatform();
   if (platform === "macos") {
-    return `macos-${detectMacArch()}`;
+    return `macos-${macArch}`;
   }
   const group = DOWNLOAD_PLATFORMS.find((item) => item.platform === platform);
   const variant = group?.variants.find((item) => item.available);

@@ -12,7 +12,6 @@ import { useLocale } from "../../composables/useLocale";
 import { getDemoMarkdown } from "../../shared/demoContent";
 import { getDemoAiInstruction } from "../../shared/demoAiData";
 import { parseOutline } from "../../composables/useOutline";
-import { needsChineseEnglishSpacingFormatting } from "../../lib/cjkSpacing";
 
 export type DemoScenarioId = "outline" | "preview" | "ai" | "export";
 type DemoPoint = { x: number; y: number };
@@ -61,9 +60,6 @@ let activeTimer: ReturnType<typeof setTimeout> | null = null;
 let resolveActiveTimer: ((keepGoing: boolean) => void) | null = null;
 
 const outlineItems = computed(() => parseOutline(content.value));
-const needsFormatSpacing = computed(() =>
-  needsChineseEnglishSpacingFormatting(content.value),
-);
 
 function resetDemoSurface() {
   content.value = getDemoMarkdown(locale.value);
@@ -319,6 +315,11 @@ function queryInDemo(selector: string) {
   return demoRoot.value?.querySelector<HTMLElement>(selector) ?? null;
 }
 
+function getDemoScale(rootRect: DOMRect) {
+  const width = demoRoot.value?.offsetWidth ?? rootRect.width;
+  return width > 0 ? rootRect.width / width : 1;
+}
+
 async function getTargetPoint(step: DemoStep) {
   await nextTick();
   if (!demoRoot.value) {
@@ -330,9 +331,10 @@ async function getTargetPoint(step: DemoStep) {
     if (target) {
       const rootRect = demoRoot.value.getBoundingClientRect();
       const targetRect = target.getBoundingClientRect();
+      const scale = getDemoScale(rootRect);
       return {
-        x: targetRect.left - rootRect.left + targetRect.width / 2,
-        y: targetRect.top - rootRect.top + targetRect.height / 2,
+        x: (targetRect.left - rootRect.left + targetRect.width / 2) / scale,
+        y: (targetRect.top - rootRect.top + targetRect.height / 2) / scale,
       };
     }
   }
@@ -465,10 +467,13 @@ function updateCursorFromPointer(event: PointerEvent) {
   if (!rect) {
     return;
   }
+  const scale = getDemoScale(rect);
+  const width = rect.width / scale;
+  const height = rect.height / scale;
 
   fakeCursor.value = {
-    x: Math.min(rect.width, Math.max(0, event.clientX - rect.left)),
-    y: Math.min(rect.height, Math.max(0, event.clientY - rect.top)),
+    x: Math.min(width, Math.max(0, (event.clientX - rect.left) / scale)),
+    y: Math.min(height, Math.max(0, (event.clientY - rect.top) / scale)),
   };
 }
 
@@ -531,7 +536,6 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
         :show-a-i="showAI"
         :show-versions="false"
         :has-versions="false"
-        :needs-format-spacing="needsFormatSpacing"
         @toggle-theme="toggleTheme"
         @toggle-outline="showOutline = !showOutline"
         @open-export="showExport = true"
@@ -661,6 +665,25 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
 
 .demo-app :deep(.toolbar) {
   -webkit-app-region: unset;
+  gap: 12px;
+}
+
+.demo-app :deep(.toolbar-left) {
+  flex: 0 0 auto;
+}
+
+.demo-app :deep(.toolbar-center) {
+  flex: 1 1 auto;
+}
+
+.demo-app :deep(.toolbar-right) {
+  flex: 0 0 auto;
+}
+
+.demo-app :deep(.btn),
+.demo-app :deep(.view-btn) {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .is-demo-animating .demo-app {

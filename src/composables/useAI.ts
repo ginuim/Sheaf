@@ -8,6 +8,7 @@ import {
   saveAiSettings,
   type AiProviderSettings,
 } from "../ai-providers/settings";
+import { safeSetLocalStorageItem, safeSetLocalStorageJson } from "../lib/storageBudget";
 import type { ProofreadIssue, ProofreadResult } from "../types/proofreading";
 
 export type AISettings = AiProviderSettings;
@@ -524,6 +525,11 @@ export function compressDiff(lines: DiffLine[], contextLines = 2): CompressedDif
 const HISTORY_KEY_PREFIX = "blank.ai-history:";
 const ACTIVE_CONVERSATION_KEY_PREFIX = "blank.ai-active-conversation:";
 const LEGACY_CONVERSATION_ID = "legacy";
+const MAX_STORED_HISTORY_ITEMS = 50;
+const HISTORY_STORAGE_BUDGET_CHARS = 2_000_000;
+const MAX_STORED_RESPONSE_CHARS = 12_000;
+const MAX_STORED_AGENT_ACTIVITIES = 40;
+const MAX_STORED_ACTIVITY_DETAIL_CHARS = 1_000;
 
 function historyStorageKey(documentKey: string) {
   return `${HISTORY_KEY_PREFIX}${documentKey}`;
@@ -597,7 +603,7 @@ function loadActiveConversationId(documentKey: string, items: AIHistoryItem[]) {
 }
 
 function saveActiveConversationId(documentKey: string, conversationId: string) {
-  localStorage.setItem(activeConversationStorageKey(documentKey), conversationId);
+  safeSetLocalStorageItem(activeConversationStorageKey(documentKey), conversationId);
 }
 
 function buildConversationSummaries(
@@ -642,6 +648,58 @@ function buildConversationSummaries(
 
 function isPersistableHistoryItem(item: AIHistoryItem) {
   return item.status !== "loading";
+}
+
+function truncateText(text: string | undefined, max: number) {
+  if (typeof text !== "string" || text.length <= max) return text;
+  return `${text.slice(0, max)}\n\n... 已截断过长内容以节省本地存储空间`;
+}
+
+function newestHistoryItems(list: AIHistoryItem[], maxItems: number) {
+  if (list.length <= maxItems) return list;
+  const keepIds = new Set(
+    [...list]
+      .sort((left, right) => right.timestamp - left.timestamp)
+      .slice(0, maxItems)
+      .map((item) => item.id),
+  );
+  return list.filter((item) => keepIds.has(item.id));
+}
+
+function compactHistoryItemForStorage(item: AIHistoryItem): AIHistoryItem {
+  return {
+    ...item,
+    resultDoc: undefined,
+    rawResponse: truncateText(item.rawResponse, MAX_STORED_RESPONSE_CHARS) ?? "",
+    assistantText: truncateText(item.assistantText, MAX_STORED_RESPONSE_CHARS),
+    agentActivities: item.agentActivities
+      ?.slice(-MAX_STORED_AGENT_ACTIVITIES)
+      .map((activity) => ({
+        ...activity,
+        detail: truncateText(activity.detail, MAX_STORED_ACTIVITY_DETAIL_CHARS),
+      })),
+  };
+}
+
+function trimHistoryForStorage(
+  list: AIHistoryItem[],
+  maxItems = MAX_STORED_HISTORY_ITEMS,
+  budgetChars = HISTORY_STORAGE_BUDGET_CHARS,
+) {
+  let payload = newestHistoryItems(list, maxItems)
+    .filter(isPersistableHistoryItem)
+    .map(compactHistoryItemForStorage);
+
+  while (payload.length > 1 && JSON.stringify(payload).length > budgetChars) {
+    const oldest = payload.reduce(
+      (oldestIndex, item, index) =>
+        item.timestamp < payload[oldestIndex].timestamp ? index : oldestIndex,
+      0,
+    );
+    payload = payload.filter((_, index) => index !== oldest);
+  }
+
+  return payload;
 }
 
 function normalizeStoredHistoryItem(value: unknown): AIHistoryItem | null {
@@ -737,8 +795,14 @@ function loadHistoryList(documentKey: string): AIHistoryItem[] {
 }
 
 function saveHistoryList(documentKey: string, list: AIHistoryItem[]) {
-  const payload = list.filter(isPersistableHistoryItem);
-  localStorage.setItem(historyStorageKey(documentKey), JSON.stringify(payload));
+  safeSetLocalStorageJson(historyStorageKey(documentKey), trimHistoryForStorage(list), {
+    onQuotaExceeded: (attempt) =>
+      trimHistoryForStorage(
+        list,
+        Math.max(10, MAX_STORED_HISTORY_ITEMS - (attempt + 1) * 10),
+        Math.max(500_000, HISTORY_STORAGE_BUDGET_CHARS - (attempt + 1) * 350_000),
+      ),
+  });
 }
 
 export function migrateAiHistoryKey(fromKey: string, toKey: string) {
@@ -758,7 +822,7 @@ export function migrateAiHistoryKey(fromKey: string, toKey: string) {
 
   const activeConversationId = localStorage.getItem(activeConversationStorageKey(from));
   if (activeConversationId) {
-    localStorage.setItem(activeConversationStorageKey(to), activeConversationId);
+    safeSetLocalStorageItem(activeConversationStorageKey(to), activeConversationId);
     localStorage.removeItem(activeConversationStorageKey(from));
   }
 }

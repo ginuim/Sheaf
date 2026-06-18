@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::error::Error as StdError;
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -8,7 +9,8 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
 const MAX_REDIRECTS: usize = 5;
-const TIMEOUT_SECS: u64 = 25;
+const DEFAULT_TIMEOUT_SECS: u64 = 25;
+const MAX_TIMEOUT_SECS: u64 = 120;
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
@@ -21,6 +23,8 @@ pub struct FetchUrlRequest {
     headers: HashMap<String, String>,
     #[serde(default)]
     body: Option<String>,
+    #[serde(default)]
+    timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -40,11 +44,12 @@ pub async fn fetch_url(request: FetchUrlRequest) -> Result<FetchUrlResponse, Str
     }
 
     let mut url = validate_fetch_url(&request.url)?;
+    let timeout_secs = resolve_timeout_secs(request.timeout_secs);
     let client = reqwest::Client::builder()
         .redirect(Policy::none())
-        .timeout(Duration::from_secs(TIMEOUT_SECS))
+        .timeout(Duration::from_secs(timeout_secs))
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format_error_chain("创建 HTTP 客户端失败", &e))?;
 
     let headers = merge_headers(&request.headers)?;
 
@@ -62,7 +67,10 @@ pub async fn fetch_url(request: FetchUrlRequest) -> Result<FetchUrlResponse, Str
             builder = builder.body(request.body.clone().unwrap_or_default());
         }
 
-        let response = builder.send().await.map_err(|e| e.to_string())?;
+        let response = builder
+            .send()
+            .await
+            .map_err(|e| format_error_chain("请求失败", &e))?;
         let status = response.status();
 
         if status.is_redirection() {
@@ -88,7 +96,10 @@ pub async fn fetch_url(request: FetchUrlRequest) -> Result<FetchUrlResponse, Str
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .map(str::to_string);
-        let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format_error_chain("读取响应失败", &e))?;
         if bytes.len() > MAX_BODY_BYTES {
             return Err(format!(
                 "响应过大（{} 字节），上限 {} 字节",
@@ -107,6 +118,23 @@ pub async fn fetch_url(request: FetchUrlRequest) -> Result<FetchUrlResponse, Str
     }
 
     Err("重定向次数过多".to_string())
+}
+
+fn resolve_timeout_secs(timeout_secs: Option<u64>) -> u64 {
+    timeout_secs
+        .unwrap_or(DEFAULT_TIMEOUT_SECS)
+        .clamp(1, MAX_TIMEOUT_SECS)
+}
+
+fn format_error_chain(context: &str, error: &dyn StdError) -> String {
+    let mut message = format!("{context}: {error}");
+    let mut source = error.source();
+    while let Some(err) = source {
+        message.push_str(": ");
+        message.push_str(&err.to_string());
+        source = err.source();
+    }
+    message
 }
 
 fn merge_headers(custom: &HashMap<String, String>) -> Result<HeaderMap, String> {
@@ -216,5 +244,13 @@ mod tests {
     #[test]
     fn accepts_https() {
         assert!(validate_fetch_url("https://example.com/a").is_ok());
+    }
+
+    #[test]
+    fn clamps_timeout() {
+        assert_eq!(resolve_timeout_secs(None), DEFAULT_TIMEOUT_SECS);
+        assert_eq!(resolve_timeout_secs(Some(0)), 1);
+        assert_eq!(resolve_timeout_secs(Some(90)), 90);
+        assert_eq!(resolve_timeout_secs(Some(999)), MAX_TIMEOUT_SECS);
     }
 }

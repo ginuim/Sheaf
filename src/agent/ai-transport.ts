@@ -2,6 +2,8 @@ import { errorMessage } from "./errors";
 
 type FetchFn = typeof fetch;
 
+const AI_PROXY_TIMEOUT_SECS = 90;
+
 function readRequestUrl(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.toString();
@@ -38,14 +40,14 @@ function readRequestHeaders(
 
 function guessContentType(body: string | undefined, reported?: string | null) {
   if (reported?.trim()) return reported;
-  if (!body) return "application/json";
+  if (!body) return "application/octet-stream";
+  if (body.trimStart().startsWith("data:")) return "text/event-stream";
   try {
-    const parsed = JSON.parse(body) as { stream?: boolean };
-    if (parsed.stream === true) return "text/event-stream";
+    JSON.parse(body);
+    return "application/json";
   } catch {
-    // ignore
+    return "text/plain";
   }
-  return "application/json";
 }
 
 async function fetchViaTauri(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -63,13 +65,13 @@ async function fetchViaTauri(input: RequestInfo | URL, init?: RequestInit): Prom
 
   try {
     result = await invoke("fetch_url", {
-      request: { url, method, headers, body },
+      request: { url, method, headers, body, timeoutSecs: AI_PROXY_TIMEOUT_SECS },
     });
   } catch (error) {
     throw new TypeError(errorMessage(error));
   }
 
-  const contentType = guessContentType(body, result.contentType ?? null);
+  const contentType = guessContentType(result.body, result.contentType ?? null);
   return new Response(result.body, {
     status: result.status,
     headers: { "content-type": contentType },

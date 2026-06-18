@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { Undo2 } from "@lucide/vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { Undo2, Eye, EyeOff } from "@lucide/vue";
 import { WECHAT_THEMES } from "../lib/wechatThemes";
 import {
   buildWechatHtml,
@@ -14,8 +14,10 @@ import MarkdownEditor from "./MarkdownEditor.vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { toPng } from "html-to-image";
 import { save, message } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { readFile, writeFile } from "@tauri-apps/plugin-fs";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useExportTypography } from "../composables/useExportTypography";
+import { useAppToast } from "../composables/useAppToast";
 import {
   loadExportCardSettings,
   saveExportCardSettings,
@@ -25,6 +27,7 @@ import { useLocale } from "../composables/useLocale";
 import QRCode from "qrcode";
 
 const { t } = useLocale();
+const { showToast, dismissToast } = useAppToast();
 
 const LONG_IMAGE_MAX_HEIGHT_PRESETS = [0, 800, 1200, 1600, 2000, 2400] as const;
 
@@ -44,6 +47,16 @@ async function studioMessage(
   await message(text, { title: t("export.dialogTitle"), kind });
 }
 
+async function revealSavedImageInFolder(path: string) {
+  try {
+    await revealItemInDir(path);
+    dismissToast();
+  } catch (error) {
+    console.error("Reveal saved image error:", error);
+    showToast("error", t("export.openSavedImageFolderFailed"));
+  }
+}
+
 function downloadDataUrl(dataUrl: string, fileName: string) {
   const anchor = document.createElement("a");
   anchor.href = dataUrl;
@@ -59,6 +72,8 @@ const modelValue = defineModel<string>({ required: true });
 const emit = defineEmits<{
   close: [];
 }>();
+
+const showEditor = ref(false);
 
 const { settings: exportTypographySettings } = useExportTypography();
 const savedCardSettings = loadExportCardSettings();
@@ -89,6 +104,8 @@ const XIAOHONGSHU_CAPTURE_SIZE = {
   width: XIAOHONGSHU_EXPORT_SIZE.width / XIAOHONGSHU_EXPORT_PIXEL_RATIO,
   height: XIAOHONGSHU_EXPORT_SIZE.height / XIAOHONGSHU_EXPORT_PIXEL_RATIO,
 } as const;
+const CARD_MEDIA_MIN_SCALE = 0.6;
+const CARD_PAGE_HEIGHT_BUFFER = 8;
 
 const exporting = ref(false);
 const exportingImage = ref(false);
@@ -107,6 +124,7 @@ let paginationRunId = 0;
 let measureHostEl: HTMLDivElement | null = null;
 let measureSurfaceEl: HTMLElement | null = null;
 let measureSurfaceSignature = "";
+let measureHeightCache = new Map<string, number>();
 
 // 渲染 Markdown (微信和大图片预览使用)
 const renderedHtml = computed(() => {
@@ -355,6 +373,35 @@ function compactPaginatedCardBlocks(blocks: string[]) {
   return compacted;
 }
 
+function isScalableCardMediaBlock(html: string) {
+  const root = document.createElement("div");
+  root.innerHTML = html.trim();
+  const elements = Array.from(root.children) as HTMLElement[];
+  if (!elements.length) return false;
+
+  const directMedia = elements.length === 1
+    ? elements[0].matches("img, svg, canvas, video, figure, .mermaid, .math-block")
+    : false;
+  const nestedMedia = root.querySelector("img, svg, canvas, video, figure, .mermaid, .math-block");
+  if (!directMedia && !nestedMedia) return false;
+
+  const textProbe = root.cloneNode(true) as HTMLElement;
+  textProbe
+    .querySelectorAll("img, svg, canvas, video, figure, .mermaid, .math-block")
+    .forEach((node) => node.remove());
+  return (textProbe.textContent ?? "").replace(/\s+/g, "").length <= 12;
+}
+
+function buildScaledMediaCardBlock(html: string, scale: number, height: number) {
+  const safeScale = Math.min(1, Math.max(CARD_MEDIA_MIN_SCALE, scale));
+  const safeHeight = Math.max(1, Math.ceil(height));
+  return [
+    `<div class="card-scaled-media" style="--card-media-scale: ${safeScale.toFixed(3)}; height: ${safeHeight}px;">`,
+    `<div class="card-scaled-media-body">${html}</div>`,
+    "</div>",
+  ].join("");
+}
+
 function splitTextIntoCardChunks(text: string, maxChars: number) {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxChars) return [normalized];
@@ -550,7 +597,7 @@ async function splitCardBlockToFitPage(
 }
 
 function ensureMeasureSurface() {
-  const signature = config.value.type;
+  const signature = `${config.value.type}:${config.value.cardTheme}`;
 
   if (
     measureHostEl &&
@@ -585,14 +632,173 @@ function ensureMeasureSurface() {
   return measureSurfaceEl;
 }
 
+async function waitForMeasureImages(root: HTMLElement) {
+  const images = Array.from(root.querySelectorAll("img")).filter(
+    (image) => !image.complete || image.naturalHeight === 0,
+  );
+  if (!images.length) return;
+
+  await Promise.race([
+    Promise.all(
+      images.map((image) => {
+        const imageLoaded = new Promise<void>((resolve) => {
+          image.addEventListener("load", () => resolve(), { once: true });
+          image.addEventListener("error", () => resolve(), { once: true });
+        });
+        return Promise.race([
+          image.decode().catch(() => undefined),
+          imageLoaded,
+        ]);
+      }),
+    ),
+    new Promise<void>((resolve) => window.setTimeout(resolve, 180)),
+  ]);
+}
+
+async function waitForImageDecode(image: HTMLImageElement, timeoutMs: number) {
+  if (image.complete && image.naturalWidth > 0) {
+    await image.decode().catch(() => undefined);
+    return;
+  }
+
+  await Promise.race([
+    new Promise<void>((resolve) => {
+      const settle = async () => {
+        image.removeEventListener("load", settle);
+        image.removeEventListener("error", settle);
+        if (image.complete && image.naturalWidth > 0) {
+          await image.decode().catch(() => undefined);
+        }
+        resolve();
+      };
+      image.addEventListener("load", settle, { once: true });
+      image.addEventListener("error", settle, { once: true });
+    }),
+    new Promise<void>((resolve) => window.setTimeout(resolve, timeoutMs)),
+  ]);
+}
+
+async function waitForCaptureImages(root: HTMLElement) {
+  const images = Array.from(root.querySelectorAll("img"));
+  if (!images.length) {
+    await waitForAnimationFrame();
+    return;
+  }
+
+  await Promise.all(images.map((image) => waitForImageDecode(image, 2500)));
+  await waitForAnimationFrame();
+  await waitForAnimationFrame();
+}
+
+async function inlineImagesForCapture(root: HTMLElement) {
+  const restoreItems: { image: HTMLImageElement; src: string }[] = [];
+
+  const images = Array.from(root.querySelectorAll("img"));
+  console.log(`[ExportStudio] 开始内联图片，共找到 ${images.length} 张图片`);
+
+  await Promise.all(
+    images.map(async (image, index) => {
+      const originalSrc = image.getAttribute("src") ?? "";
+      const sheafLocalSrc = image.dataset.sheafLocalSrc;
+      console.log(`[ExportStudio] 处理第 ${index + 1} 张图片:
+        - 原始 src: "${originalSrc}"
+        - 当前 src: "${image.src}"
+        - 本地路径 (sheafLocalSrc): "${sheafLocalSrc || '无'}"`);
+
+      if (image.src.startsWith("data:")) {
+        console.log(`[ExportStudio] 第 ${index + 1} 张图片已经是 base64 格式，跳过内联`);
+        return;
+      }
+
+      let base64: string | null = null;
+
+      // 1. 尝试直接 fetch (支持本地 asset:// 协议和支持 CORS 的网络图片)
+      try {
+        console.log(`[ExportStudio] 第 ${index + 1} 张图片：尝试使用 fetch 获取数据...`);
+        const response = await fetch(image.src);
+        const blob = await response.blob();
+        base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        console.log(`[ExportStudio] 第 ${index + 1} 张图片：fetch 转换 base64 成功！长度: ${base64.length}`);
+      } catch (e: any) {
+        console.warn(`[ExportStudio] 第 ${index + 1} 张图片：fetch 失败，原因:`, e);
+      }
+
+      // 2. 如果 fetch 失败，且是 Tauri 环境，且有本地路径，尝试用 Tauri fs.readFile 读取
+      if (!base64 && isTauri()) {
+        if (sheafLocalSrc) {
+          try {
+            console.log(`[ExportStudio] 第 ${index + 1} 张图片：尝试使用 Tauri fs.readFile 读取本地路径 "${sheafLocalSrc}"...`);
+            const bytes = await readFile(sheafLocalSrc);
+            const mimeType = imageMimeTypeFromPath(sheafLocalSrc);
+            base64 = `data:${mimeType};base64,${bytesToBase64(bytes)}`;
+            console.log(`[ExportStudio] 第 ${index + 1} 张图片：Tauri fs.readFile 读取成功！长度: ${base64.length}`);
+          } catch (e: any) {
+            console.error(`[ExportStudio] 第 ${index + 1} 张图片：Tauri fs.readFile 读取失败，原因:`, e);
+          }
+        } else {
+          console.log(`[ExportStudio] 第 ${index + 1} 张图片：fetch 失败且没有本地路径 (sheafLocalSrc)，无法使用 fs.readFile`);
+        }
+      }
+
+      // 3. 如果还是没有获取到 base64，且图片已经加载完成，尝试用 Canvas 转换
+      if (!base64) {
+        if (image.complete && image.naturalWidth > 0) {
+          try {
+            console.log(`[ExportStudio] 第 ${index + 1} 张图片：尝试使用 Canvas 转换...`);
+            const canvas = document.createElement("canvas");
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(image, 0, 0);
+              base64 = canvas.toDataURL("image/png");
+              console.log(`[ExportStudio] 第 ${index + 1} 张图片：Canvas 转换成功！长度: ${base64.length}`);
+            }
+          } catch (e: any) {
+            console.warn(`[ExportStudio] 第 ${index + 1} 张图片：Canvas 转换失败，原因:`, e);
+          }
+        } else {
+          console.log(`[ExportStudio] 第 ${index + 1} 张图片：图片未加载完或尺寸为 0，无法使用 Canvas 转换`);
+        }
+      }
+
+      // 4. 如果成功获取到了 base64，替换 image.src 并等待解码
+      if (base64) {
+        image.src = base64;
+        restoreItems.push({ image, src: originalSrc });
+        console.log(`[ExportStudio] 第 ${index + 1} 张图片：成功替换为 base64，开始等待解码...`);
+        await waitForImageDecode(image, 2500);
+        console.log(`[ExportStudio] 第 ${index + 1} 张图片：解码完成！`);
+      } else {
+        console.error(`[ExportStudio] 第 ${index + 1} 张图片：所有内联转换手段均告失败！图片在导出中可能会显示为空白。`);
+      }
+    }),
+  );
+
+  console.log(`[ExportStudio] 图片内联处理完毕，已替换 ${restoreItems.length} 张图片`);
+
+  return () => {
+    console.log(`[ExportStudio] 恢复 ${restoreItems.length} 张图片的原始 src 路径`);
+    for (const item of restoreItems) {
+      item.image.setAttribute("src", item.src);
+    }
+  };
+}
+
 async function measureContentHeight(html: string, runId: number) {
+  const cachedHeight = measureHeightCache.get(html);
+  if (cachedHeight !== undefined) return cachedHeight;
+
   const contentEl = ensureMeasureSurface();
   contentEl.innerHTML = `<div class="card-measure-inner">${html}</div>`;
   const measureTarget =
     (contentEl.firstElementChild as HTMLElement | null) ?? contentEl;
-  await nextTick();
-  await document.fonts.ready;
-  await waitForAnimationFrame();
+  await waitForMeasureImages(measureTarget);
   if (runId !== paginationRunId) return Number.POSITIVE_INFINITY;
 
   if (html.includes("data-mermaid-source")) {
@@ -606,7 +812,44 @@ async function measureContentHeight(html: string, runId: number) {
     measureTarget.scrollHeight,
     measureTarget.getBoundingClientRect().height,
   );
-  return Math.ceil(measuredHeight);
+  const height = Math.ceil(measuredHeight);
+  measureHeightCache.set(html, height);
+  return height;
+}
+
+async function buildScaledMediaBlockToFit(
+  currentHtml: string,
+  block: string,
+  targetHeight: number,
+  runId: number,
+) {
+  if (targetHeight <= 0 || !isScalableCardMediaBlock(block)) return null;
+
+  const blockHeight = await measureContentHeight(block, runId);
+  if (runId !== paginationRunId || blockHeight <= 0) return null;
+
+  let low = CARD_MEDIA_MIN_SCALE;
+  let high = 1;
+  let bestBlock: string | null = null;
+
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    const scale = (low + high) / 2;
+    const scaledBlock = buildScaledMediaCardBlock(block, scale, blockHeight * scale);
+    const candidateHeight = await measureContentHeight(
+      currentHtml + scaledBlock,
+      runId,
+    );
+    if (runId !== paginationRunId) return null;
+
+    if (candidateHeight <= targetHeight) {
+      bestBlock = scaledBlock;
+      low = scale;
+    } else {
+      high = scale;
+    }
+  }
+
+  return bestBlock;
 }
 
 async function paginateXiaohongshuCards(
@@ -626,7 +869,7 @@ async function paginateXiaohongshuCards(
   if (runId !== paginationRunId) return null;
 
   const availableHeight = contentEl.clientHeight;
-  const targetHeight = Math.max(1, Math.floor(availableHeight - 10));
+  const targetHeight = Math.max(1, Math.floor(availableHeight - CARD_PAGE_HEIGHT_BUFFER));
   const hardHeight = targetHeight;
 
   let currentBlocks: string[] = [];
@@ -651,6 +894,24 @@ async function paginateXiaohongshuCards(
     }
 
     if (currentBlocks.length) {
+      const scaledBlock = await buildScaledMediaBlockToFit(
+        currentRenderedHtml || currentBlocks.join(""),
+        block,
+        targetHeight,
+        runId,
+      );
+      if (runId !== paginationRunId) return null;
+      if (scaledBlock) {
+        const scaledHtml = currentRenderedHtml + scaledBlock;
+        const scaledHeight = await measureContentHeight(scaledHtml, runId);
+        if (runId !== paginationRunId) return null;
+        if (scaledHeight <= targetHeight) {
+          currentBlocks = [...currentBlocks, scaledBlock];
+          currentRenderedHtml = scaledHtml;
+          continue;
+        }
+      }
+
       const splitBlocks = await splitCardBlockToFitPage(
         currentRenderedHtml || currentBlocks.join(""),
         block,
@@ -668,6 +929,13 @@ async function paginateXiaohongshuCards(
       currentBlocks = [];
       currentRenderedHtml = "";
       blockIndex -= 1;
+      continue;
+    }
+
+    const scaledBlock = await buildScaledMediaBlockToFit("", block, hardHeight, runId);
+    if (runId !== paginationRunId) return null;
+    if (scaledBlock) {
+      pages.push(scaledBlock);
       continue;
     }
 
@@ -692,6 +960,7 @@ async function paginateXiaohongshuCards(
 
 async function rebuildCardPagination() {
   const runId = ++paginationRunId;
+  measureHeightCache = new Map<string, number>();
 
   if (!isXiaohongshuCard.value) {
     cardPaginationPending.value = false;
@@ -712,27 +981,15 @@ async function rebuildCardPagination() {
     return;
   }
 
-  const maxFontSize = Math.min(Math.max(Math.round(config.value.fontSize), 12), 24);
-  const minFontSize = 11;
+  const fontSize = Math.min(Math.max(Math.round(config.value.fontSize), 11), 24);
 
   try {
-    for (let size = maxFontSize; size >= minFontSize; size--) {
-      if (runId !== paginationRunId) return;
+    const result = await paginateXiaohongshuCards(renderedHtml.value, fontSize, runId);
+    if (!result || runId !== paginationRunId) return;
 
-      const result = await paginateXiaohongshuCards(renderedHtml.value, size, runId);
-      if (!result) continue;
-
-      if (runId !== paginationRunId) return;
-
-      cardPages.value = result.pages.length ? result.pages : [renderedHtml.value];
-      currentCardIndex.value = 0;
-      paginatedCardFontSize.value = result.fontSize;
-      return;
-    }
-
-    cardPages.value = [renderedHtml.value];
+    cardPages.value = result.pages.length ? result.pages : [renderedHtml.value];
     currentCardIndex.value = 0;
-    paginatedCardFontSize.value = minFontSize;
+    paginatedCardFontSize.value = result.fontSize;
   } finally {
     if (runId === paginationRunId) {
       cardPaginationPending.value = false;
@@ -779,6 +1036,15 @@ onMounted(() => {
   void syncPreviewLayout();
   void refreshLongImageQrCode();
   void updateLongImageClipState();
+});
+
+onBeforeUnmount(() => {
+  if (measureHostEl?.parentElement) {
+    measureHostEl.parentElement.removeChild(measureHostEl);
+  }
+  measureHostEl = null;
+  measureSurfaceEl = null;
+  measureHeightCache.clear();
 });
 
 watch(
@@ -864,6 +1130,37 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
   return bytes;
 }
 
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.slice(offset, offset + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+function imageMimeTypeFromPath(path: string) {
+  const extension = path.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase();
+  switch (extension) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    case "svg":
+      return "image/svg+xml";
+    case "bmp":
+      return "image/bmp";
+    case "avif":
+      return "image/avif";
+    default:
+      return "image/png";
+  }
+}
+
 function splitPathExtension(path: string) {
   const separatorIndex = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   const dotIndex = path.lastIndexOf(".");
@@ -880,56 +1177,91 @@ function cardImageFileName(pageIndex: number, pageCount: number) {
   return `${props.fileName || "untitled"}_${config.value.type}${cardSuffix}.png`;
 }
 
+async function toPngWithRetry(el: HTMLElement, options: any, maxAttempts = 3): Promise<string> {
+  let previousLength = 0;
+  let dataUrl = "";
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    dataUrl = await toPng(el, options);
+    console.log(`[ExportStudio] toPng 尝试第 ${attempt} 次, dataUrl 长度: ${dataUrl.length}`);
+    
+    // 如果长度没有变化，或者已经达到最大尝试次数，就直接返回
+    if (dataUrl.length === previousLength) {
+      console.log(`[ExportStudio] dataUrl 长度稳定在 ${dataUrl.length}，停止尝试`);
+      break;
+    }
+    
+    previousLength = dataUrl.length;
+    
+    // 稍微等待一个 animation frame，给 WebKit 渲染的时间
+    await waitForAnimationFrame();
+  }
+  
+  return dataUrl;
+}
+
 async function captureExportImage(el: HTMLElement) {
-  await waitForAnimationFrame();
-  const isXiaohongshu = config.value.type === "xiaohongshu";
-  const isLongImageExport = config.value.type === "long-image";
-  const captureWidth = isXiaohongshu
-    ? XIAOHONGSHU_CAPTURE_SIZE.width
-    : el.offsetWidth;
-  const captureHeight = isXiaohongshu
-    ? XIAOHONGSHU_CAPTURE_SIZE.height
-    : el.offsetHeight;
+  const restoreLocalImages = await inlineImagesForCapture(el);
+  try {
+    await waitForCaptureImages(el);
+    await waitForAnimationFrame();
+    const isXiaohongshu = config.value.type === "xiaohongshu";
+    const isLongImageExport = config.value.type === "long-image";
+    const captureWidth = isXiaohongshu
+      ? XIAOHONGSHU_CAPTURE_SIZE.width
+      : el.offsetWidth;
+    const captureHeight = isXiaohongshu
+      ? XIAOHONGSHU_CAPTURE_SIZE.height
+      : el.offsetHeight;
 
-  const baseOptions = {
-    cacheBust: true,
-    pixelRatio: isXiaohongshu ? XIAOHONGSHU_EXPORT_PIXEL_RATIO : 2,
-    backgroundColor: "transparent",
-    skipFonts: true,
-  } as const;
+    const themeBackgroundColors: Record<string, string> = {
+      classic: "#fbf9f4",
+      modern: "#eff0f1",
+      dark: "#17191a",
+    };
 
-  if (isLongImageExport) {
-    const capped = config.value.longImageMaxHeight > 0;
-    const exportHeight = capped ? el.offsetHeight : undefined;
-    return toPng(el, {
+    const baseOptions = {
+      cacheBust: false,
+      pixelRatio: isXiaohongshu ? XIAOHONGSHU_EXPORT_PIXEL_RATIO : 2,
+      backgroundColor: themeBackgroundColors[config.value.cardTheme] || "#ffffff",
+      skipFonts: true,
+    } as const;
+
+    if (isLongImageExport) {
+      const capped = config.value.longImageMaxHeight > 0;
+      const exportHeight = capped ? el.offsetHeight : undefined;
+      return await toPngWithRetry(el, {
+        ...baseOptions,
+        width: captureWidth,
+        height: exportHeight,
+        canvasWidth: exportHeight ? captureWidth : undefined,
+        canvasHeight: exportHeight,
+        style: {
+          transform: "scale(1)",
+          transformOrigin: "top left",
+          width: `${captureWidth}px`,
+          height: capped ? `${exportHeight}px` : "auto",
+          overflow: "hidden",
+        },
+      });
+    }
+
+    return await toPngWithRetry(el, {
       ...baseOptions,
       width: captureWidth,
-      height: exportHeight,
-      canvasWidth: exportHeight ? captureWidth : undefined,
-      canvasHeight: exportHeight,
+      height: captureHeight,
+      canvasWidth: captureWidth,
+      canvasHeight: captureHeight,
       style: {
         transform: "scale(1)",
         transformOrigin: "top left",
         width: `${captureWidth}px`,
-        height: capped ? `${exportHeight}px` : "auto",
-        overflow: "hidden",
+        height: `${captureHeight}px`,
       },
     });
+  } finally {
+    restoreLocalImages();
   }
-
-  return toPng(el, {
-    ...baseOptions,
-    width: captureWidth,
-    height: captureHeight,
-    canvasWidth: captureWidth,
-    canvasHeight: captureHeight,
-    style: {
-      transform: "scale(1)",
-      transformOrigin: "top left",
-      width: `${captureWidth}px`,
-      height: `${captureHeight}px`,
-    },
-  });
 }
 
 // 导出微信 HTML
@@ -1039,17 +1371,27 @@ async function handleDownloadImage() {
         imageJobs.length > 1
           ? selectedParts.base.replace(/-card-\d+$/i, "")
           : selectedParts.base;
+      const savedPaths: string[] = [];
       for (let index = 0; index < imageJobs.length; index++) {
         const targetPath =
           imageJobs.length === 1
             ? selectedPath
             : `${selectedBase}-card-${String(index + 1).padStart(2, "0")}${selectedParts.extension || ".png"}`;
         await writeFile(targetPath, dataUrlToBytes(imageJobs[index].dataUrl));
+        savedPaths.push(targetPath);
       }
-      await studioMessage(
+      showToast(
+        "success",
         imageJobs.length > 1
           ? t("export.imageSavedMultiple", { count: imageJobs.length })
           : t("export.imageSaved"),
+        0,
+        savedPaths[0]
+          ? {
+              label: t("export.openSavedImageFolder"),
+              onClick: () => revealSavedImageInFolder(savedPaths[0]),
+            }
+          : undefined,
       );
     } else {
       for (const image of imageJobs) {
@@ -1098,6 +1440,16 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
         <span class="studio-title">{{ t("export.title") }}</span>
       </div>
       <div class="header-right">
+        <button
+          class="toggle-editor-btn"
+          :class="{ active: showEditor }"
+          :title="showEditor ? t('export.hideEditor') : t('export.showEditor')"
+          @click="showEditor = !showEditor"
+        >
+          <EyeOff v-if="showEditor" :size="14" aria-hidden="true" />
+          <Eye v-else :size="14" aria-hidden="true" />
+          <span>{{ showEditor ? t("export.hideEditor") : t("export.showEditor") }}</span>
+        </button>
         <button class="exit-btn" :title="t('export.backToEditTitle')" @click="emit('close')">
           <Undo2 :size="14" aria-hidden="true" />
           <span>{{ t("export.backToEdit") }}</span>
@@ -1108,7 +1460,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
     <!-- 工作台主体 -->
     <div class="studio-body">
       <!-- 左栏：Markdown 事实源 -->
-      <section class="studio-pane pane-editor-source">
+      <section v-show="showEditor" class="studio-pane pane-editor-source">
         <!-- <header class="pane-header">
           <div class="pane-title-group">
             <h2 class="pane-title">Markdown 事实源</h2>
@@ -1600,6 +1952,39 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   color: var(--ink-text-muted);
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggle-editor-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--ink-border);
+  color: var(--ink-text-muted);
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toggle-editor-btn:hover {
+  color: var(--ink-text);
+  background: var(--ink-inset-hover);
+  border-color: var(--ink-border-strong);
+}
+
+.toggle-editor-btn.active {
+  background: var(--ink-accent-soft);
+  color: var(--ink-accent);
+  border-color: var(--ink-accent);
+}
+
 .exit-btn {
   display: inline-flex;
   align-items: center;
@@ -1661,6 +2046,12 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   width: 40%;
 }
 
+@media (max-width: 960px) {
+  .pane-editor-source {
+    display: none;
+  }
+}
+
 .pane-title-group {
   display: flex;
   flex-direction: column;
@@ -1684,6 +2075,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 /* 中面板：高保真预览画布 */
 .pane-preview-canvas {
   flex: 1;
+  min-width: 0; /* 允许在空间不足时收缩，防止挤压右侧控制栏 */
   background: var(--ink-bg-preview);
 }
 
@@ -1709,7 +2101,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 .canvas-scroller {
   width: 100%;
   height: 100%;
-  overflow-y: auto;
+  overflow: auto; /* 允许水平和垂直滚动 */
   display: flex;
   justify-content: center;
   align-items: center;
@@ -2049,6 +2441,8 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 /* 1. 经典米白主题 */
 .theme-classic {
   --card-fade-color: #fbf9f4;
+  --card-link-color: #3d5a4c;
+  --card-link-underline: rgba(61, 90, 76, 0.28);
   background: #fbf9f4;
   color: #2e2a24;
   border: 1px solid #eae5db;
@@ -2082,6 +2476,8 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 /* 2. 现代冷灰主题 */
 .theme-modern {
   --card-fade-color: #eff0f1;
+  --card-link-color: #3f5f70;
+  --card-link-underline: rgba(63, 95, 112, 0.26);
   background: linear-gradient(135deg, #f4f5f6 0%, #e9ebed 100%);
   color: #1a1a1b;
   border: 1px solid rgba(0, 0, 0, 0.05);
@@ -2107,6 +2503,8 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 /* 3. 暗黑极简 */
 .theme-dark {
   --card-fade-color: #17191a;
+  --card-link-color: #b8c8bd;
+  --card-link-underline: rgba(184, 200, 189, 0.34);
   background: linear-gradient(135deg, #1e2022 0%, #101112 100%);
   color: #e3e4e6;
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -2209,6 +2607,14 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 
 .card-main-content :deep(p) {
   margin: 0 0 0.72em;
+}
+
+.card-main-content :deep(a) {
+  color: var(--card-link-color, currentColor);
+  text-decoration-color: var(--card-link-underline, currentColor);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+  word-break: break-word;
 }
 
 .card-main-content :deep(hr) {
@@ -2333,6 +2739,17 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   border-radius: 6px;
   margin: 10px auto;
   display: block;
+}
+
+.card-main-content :deep(.card-scaled-media) {
+  width: 100%;
+  overflow: hidden;
+}
+
+.card-main-content :deep(.card-scaled-media-body) {
+  width: 100%;
+  transform: scale(var(--card-media-scale, 1));
+  transform-origin: top center;
 }
 
 .card-footer {
@@ -2498,6 +2915,11 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   border: none;
   cursor: pointer;
   transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 28px;
 }
 
 .type-btn:hover {

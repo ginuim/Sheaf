@@ -9,6 +9,164 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.26",
+    date: "2026-06",
+    title: "Windows 标题栏主题同步修复",
+    items: [
+      "补充 Tauri 主题 API 所需权限，修复 Windows 下标题栏与菜单栏无法随应用主题切换的问题",
+    ],
+  },
+  {
+    version: "0.2.25",
+    date: "2026-06",
+    title: "Windows 标题栏主题同步",
+    items: [
+      "修复 Windows 下切换浅色/深色主题时，系统标题栏和菜单栏不同步的问题",
+    ],
+  },
+  {
+    version: "0.2.24",
+    date: "2026-06",
+    title: "修复应用内自动更新",
+    items: [
+      "修复 macOS 多架构发布时 updater 元数据互相覆盖，导致 Apple Silicon 无法检测更新",
+      "发布流程增加 updater 平台清单校验，避免 latest.json 缺少平台条目",
+    ],
+  },
+  {
+    version: "0.2.23",
+    date: "2026-06",
+    title: "图床上传支持",
+    items: [
+      "插入图片时可自动上传到七牛、阿里云 OSS、腾讯云 COS、AWS S3",
+      "设置面板新增图床配置，支持各云厂商凭据与上传偏好",
+      "启用图床后插入流程走云端上传而非本地保存",
+    ],
+  },
+  {
+    version: "0.2.22",
+    date: "2026-06",
+    title: "导出工作台布局优化",
+    items: [
+      "窄屏下自动隐藏 Markdown 编辑区，预览区可收缩并支持横向滚动",
+      "新增编辑区显示/隐藏切换按钮，按需获得更大预览空间",
+      "修复格式栏默认工具顺序",
+    ],
+  },
+  {
+    version: "0.2.21",
+    date: "2026-06",
+    title: "Markdown 格式栏",
+    items: [
+      "编辑区顶部新增 Markdown 格式栏，支持标题、粗体、列表、链接等常用格式",
+      "格式栏工具可在设置中开关、排序和自定义",
+      "中英文间距格式化按钮移至格式栏",
+    ],
+  },
+  {
+    version: "0.2.20",
+    date: "2026-06",
+    title: "分屏宽度修复",
+    items: [
+      "修复分屏宽度 localStorage 读取逻辑",
+    ],
+  },
+  {
+    version: "0.2.19",
+    date: "2026-06",
+    title: "AI 修改编辑区预览",
+    items: [
+      "AI 建议可在编辑区预览 diff，支持接受或放弃修改",
+      "版本历史弹窗无上一版本时默认显示预览，并优化最小高度",
+      "修复编辑器滚动比例计算，考虑文档内边距",
+    ],
+  },
+  {
+    version: "0.2.18",
+    date: "2026-06",
+    title: "同步滚动与导出体验",
+    items: [
+      "图片保存成功后 Toast 提供「打开目录」快捷操作",
+      "修复标点符号后 loose strong marker 解析问题",
+      "编辑器与预览区支持同步滚动，分栏宽度可拖拽调整",
+      "修复同步滚动在内容边界处的异常",
+    ],
+  },
+  {
+    version: "0.2.17",
+    date: "2026-06",
+    title: "导出图片内联修复",
+    items: [
+      "导出卡片与长图时内联本地图片，修复图片显示空白",
+      "Markdown 图片标记本地路径，支持 Tauri 文件系统读取",
+      "导出截图增加重试机制与主题背景色",
+    ],
+  },
+  {
+    version: "0.2.16",
+    date: "2026-06",
+    title: "小红书卡片媒体自适应",
+    items: [
+      "引入可缩放媒体块，大尺寸图片与图表可等比例收缩以完美适应卡片空间",
+      "优化卡片分页算法，改用固定字号并移除耗时的字号迭代循环",
+      "卸载组件时自动清理测量元素，避免内存泄漏",
+    ],
+  },
+  {
+    version: "0.2.15",
+    date: "2026-06",
+    title: "本地存储配额管理",
+    items: [
+      "本地存储超出配额时自动清理旧数据并重试写入",
+      "AI 历史、文档版本与草稿写入增加容量预算与内容截断",
+    ],
+  },
+  {
+    version: "0.2.14",
+    date: "2026-06",
+    title: "富文本粘贴转 Markdown",
+    items: [
+      "从网页或富文本应用粘贴时，自动转换为 Markdown 格式",
+      "支持标题、列表、链接、图片、表格等常见 HTML 元素",
+    ],
+  },
+  {
+    version: "0.2.12",
+    date: "2026-06",
+    title: "微信导出修复",
+    items: [
+      "修复文档开头空行导致微信公众号导出标题识别失败",
+    ],
+  },
+  {
+    version: "0.2.11",
+    date: "2026-06",
+    title: "AI 变更快照与超时配置",
+    items: [
+      "应用 AI 建议或校对修复时记录变更前后快照，保留版本历史",
+      "AI 代理请求支持自定义超时（最长 120 秒）",
+      "改进 AI 错误报告，展示完整错误链",
+    ],
+  },
+  {
+    version: "0.2.10",
+    date: "2026-06",
+    title: "发布流程修复",
+    items: [
+      "修复 GitHub Release 发布时产物路径不匹配导致上传失败的问题",
+    ],
+  },
+  {
+    version: "0.2.9",
+    date: "2026-06",
+    title: "Windows 打包支持",
+    items: [
+      "支持 Windows x64 安装包构建与 GitHub Release 发布",
+      "应用内更新支持 Windows 平台",
+      "安装包内嵌 WebView2 引导程序，无需单独安装运行时",
+    ],
+  },
+  {
     version: "0.2.8",
     date: "2026-06",
     title: "系统标题栏主题同步",
@@ -72,7 +230,6 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
     items: [
       "支持后台检查、下载并安装新版本，完成后一键重启",
       "设置页可开关自动检查，菜单与设置页支持手动检查更新",
-      "官网 favicon 与动态版本号展示",
     ],
   },
   {
@@ -92,7 +249,6 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
       "Agent 结构化文档编辑工具，支持段落级改写与 diff 审阅",
       "编辑器支持拖拽与粘贴插入图片",
       "当前文件可在 Finder 中快速定位",
-      "官网新增平台下载选择器，README 补充产品截图",
     ],
   },
   {
@@ -114,6 +270,164 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.26",
+    date: "2026-06",
+    title: "Windows title bar theme sync fix",
+    items: [
+      "Add required Tauri permissions for theme APIs so native title bar and menu bar follow app theme on Windows",
+    ],
+  },
+  {
+    version: "0.2.25",
+    date: "2026-06",
+    title: "Windows title bar theme sync",
+    items: [
+      "Fix native title bar and menu bar not updating when switching light or dark theme on Windows",
+    ],
+  },
+  {
+    version: "0.2.24",
+    date: "2026-06",
+    title: "Fix in-app auto-update",
+    items: [
+      "Fix updater metadata overwrite during multi-arch macOS release, which broke Apple Silicon update detection",
+      "Validate required updater platforms when generating latest.json",
+    ],
+  },
+  {
+    version: "0.2.23",
+    date: "2026-06",
+    title: "Image hosting upload support",
+    items: [
+      "Automatically upload images to Qiniu, Aliyun OSS, Tencent COS, or AWS S3 when inserting",
+      "New Image Hosting settings panel for provider credentials and upload preferences",
+      "Image insert flow routes through cloud upload instead of local save when enabled",
+    ],
+  },
+  {
+    version: "0.2.22",
+    date: "2026-06",
+    title: "Export Studio layout improvements",
+    items: [
+      "Hide Markdown source pane on narrow screens; preview canvas can shrink and scroll horizontally",
+      "Add header toggle to show or hide the editor pane for more preview space",
+      "Fix default format bar tool order in MarkdownEditor",
+    ],
+  },
+  {
+    version: "0.2.21",
+    date: "2026-06",
+    title: "Markdown format bar",
+    items: [
+      "Add a Markdown format bar above the editor with heading, bold, list, link, and other common tools",
+      "Format bar tools can be toggled, reordered, and customized in settings",
+      "Move CJK spacing formatting from the toolbar into the format bar",
+    ],
+  },
+  {
+    version: "0.2.20",
+    date: "2026-06",
+    title: "Split pane width fix",
+    items: [
+      "Harden split pane width localStorage reads",
+    ],
+  },
+  {
+    version: "0.2.19",
+    date: "2026-06",
+    title: "In-editor AI diff preview",
+    items: [
+      "Preview AI edit diffs in the editor before accepting or discarding",
+      "Version history dialog defaults to preview without a previous snapshot and improves min height",
+      "Fix editor scroll ratio calculation to account for document padding",
+    ],
+  },
+  {
+    version: "0.2.18",
+    date: "2026-06",
+    title: "Sync scroll and export polish",
+    items: [
+      "Show persistent toast with open-folder action after saving export images",
+      "Fix loose strong marker parsing after punctuation",
+      "Add synchronized scrolling and resizable split pane between editor and preview",
+      "Fix scroll sync edge cases at content boundaries",
+    ],
+  },
+  {
+    version: "0.2.17",
+    date: "2026-06",
+    title: "Export image inlining fix",
+    items: [
+      "Inline local images before card and long-image export to fix blank image output",
+      "Tag Markdown images with local paths for Tauri filesystem fallback",
+      "Add capture retry and theme-aware background colors",
+    ],
+  },
+  {
+    version: "0.2.16",
+    date: "2026-06",
+    title: "Xiaohongshu card media auto-scaling",
+    items: [
+      "Introduce scalable media blocks to proportionally shrink large images and charts to fit within card space",
+      "Optimize card pagination algorithm by using a fixed font size and removing the iterative font-size search loop",
+      "Clean up measure surface elements on unmount to prevent memory leaks",
+    ],
+  },
+  {
+    version: "0.2.15",
+    date: "2026-06",
+    title: "Local storage quota management",
+    items: [
+      "Auto-evict stale localStorage entries and retry when quota is exceeded",
+      "Add storage budgets and payload trimming for AI history, versions, and drafts",
+    ],
+  },
+  {
+    version: "0.2.14",
+    date: "2026-06",
+    title: "Rich HTML paste to Markdown",
+    items: [
+      "Convert rich HTML clipboard content to Markdown on paste",
+      "Support headings, lists, links, images, tables, and common HTML elements",
+    ],
+  },
+  {
+    version: "0.2.12",
+    date: "2026-06",
+    title: "Article HTML export fix",
+    items: [
+      "Fix rich HTML export title detection when the document starts with blank lines",
+    ],
+  },
+  {
+    version: "0.2.11",
+    date: "2026-06",
+    title: "AI change snapshots and timeout",
+    items: [
+      "Record before/after snapshots when applying AI suggestions or proofread fixes",
+      "Configurable timeout for AI proxy requests (up to 120 seconds)",
+      "Improved AI error reporting with full error chain",
+    ],
+  },
+  {
+    version: "0.2.10",
+    date: "2026-06",
+    title: "Release pipeline fix",
+    items: [
+      "Fix GitHub Release publish failures caused by mismatched artifact paths",
+    ],
+  },
+  {
+    version: "0.2.9",
+    date: "2026-06",
+    title: "Windows packaging support",
+    items: [
+      "Build and publish Windows x64 NSIS installers via GitHub Actions",
+      "In-app updates now support the Windows platform",
+      "Embed the WebView2 bootstrapper so users do not need a separate runtime install",
+    ],
+  },
   {
     version: "0.2.8",
     date: "2026-06",
@@ -178,7 +492,6 @@ const CHANGELOG_EN: ChangelogEntry[] = [
     items: [
       "Background update checks, downloads, and install with one-click restart",
       "Auto-check toggle in Settings; manual check from menu and Settings",
-      "Website favicon and dynamic version display",
     ],
   },
   {
@@ -198,7 +511,6 @@ const CHANGELOG_EN: ChangelogEntry[] = [
       "Agent structured document editing with paragraph-level rewrite and diff review",
       "Editor image insertion via drag-and-drop and paste",
       "Reveal current file in Finder",
-      "Website platform download picker and README product screenshots",
     ],
   },
   {
@@ -211,7 +523,7 @@ const CHANGELOG_EN: ChangelogEntry[] = [
       "Outline panel with click-to-jump headings",
       "Three view modes: split, edit-only, preview-only",
       "AI rewriting: natural-language instructions, diff review, one-click apply",
-      "Export PDF, WeChat HTML, social share cards, and long images",
+      "Export PDF, rich HTML for blogs and newsletters, social share cards, and long images",
       "Automatic CJK spacing with one-click full-document formatting",
       "Version snapshots with diff compare and restore",
       "Light / dark themes; interface in Chinese and English",

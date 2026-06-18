@@ -21,6 +21,11 @@ function walkMetadataFiles(dir, results = []) {
       continue;
     }
 
+    if (entry.name.startsWith("release-metadata-") && entry.name.endsWith(".json")) {
+      results.push(fullPath);
+      continue;
+    }
+
     if (entry.name === "release-metadata.json") {
       results.push(fullPath);
     }
@@ -31,8 +36,13 @@ function walkMetadataFiles(dir, results = []) {
 
 const metadataFiles = walkMetadataFiles(assetsRoot);
 if (metadataFiles.length === 0) {
-  throw new Error(`No release-metadata.json files found under ${assetsRoot}`);
+  throw new Error(`No release-metadata*.json files found under ${assetsRoot}`);
 }
+
+const requiredPlatforms = (process.env.REQUIRED_PLATFORMS ?? "")
+  .split(",")
+  .map((platform) => platform.trim())
+  .filter(Boolean);
 
 const platforms = {};
 for (const metadataPath of metadataFiles) {
@@ -45,6 +55,15 @@ for (const metadataPath of metadataFiles) {
     signature: metadata.signature,
     url: `https://github.com/${repository}/releases/download/${releaseTag}/${metadata.filename}`,
   };
+}
+
+if (requiredPlatforms.length > 0) {
+  const missing = requiredPlatforms.filter((platform) => !platforms[platform]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing updater metadata for platforms: ${missing.join(", ")}. Found: ${Object.keys(platforms).join(", ")}`,
+    );
+  }
 }
 
 const notes = fs.existsSync(notesPath)

@@ -33,15 +33,18 @@ export type WechatMarkdownTitleSplit = {
 };
 
 export function splitLeadingH1Title(source: string): WechatMarkdownTitleSplit {
-  const lineBreakMatch = source.match(/\r?\n/);
-  const firstLineEnd = lineBreakMatch?.index ?? source.length;
-  const firstLine = source.slice(0, firstLineEnd);
+  const leadingBlankLinesMatch = source.match(/^(?:[^\S\r\n]*(?:\r?\n|$))*/);
+  const contentStart = leadingBlankLinesMatch?.[0].length ?? 0;
+  const content = source.slice(contentStart);
+  const lineBreakMatch = content.match(/\r?\n/);
+  const firstLineEnd = lineBreakMatch?.index ?? content.length;
+  const firstLine = content.slice(0, firstLineEnd);
   const match = firstLine.match(/^#(?:[ \t]+|$)(.*?)(?:[ \t]+#+[ \t]*)?$/);
   const title = match?.[1].trim() ?? "";
   if (!title) return { title: "", body: source };
 
   const bodyStart = lineBreakMatch
-    ? firstLineEnd + lineBreakMatch[0].length
+    ? contentStart + firstLineEnd + lineBreakMatch[0].length
     : source.length;
   return {
     title,

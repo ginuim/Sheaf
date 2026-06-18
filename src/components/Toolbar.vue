@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from "vue";
-import { ChevronDown, FilePlus, Folder, FolderOpen, ClipboardClock, ListTree, Save, WholeWord } from "@lucide/vue";
+import { ChevronDown, FilePlus, Folder, FolderOpen, ClipboardClock, ListTree, Save } from "@lucide/vue";
 import { useLocale } from "../composables/useLocale";
 
 export type ViewMode = "split" | "edit" | "preview";
@@ -19,14 +19,12 @@ defineProps<{
   showAI: boolean;
   showVersions: boolean;
   hasVersions: boolean;
-  needsFormatSpacing: boolean;
 }>();
 
 const emit = defineEmits<{
   newDoc: [];
   open: [];
   save: [];
-  formatSpacing: [];
   exportPdf: [];
   openExport: [];
   toggleTheme: [];
@@ -102,15 +100,6 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
         @click="emit('save')"
       >
         <Save :size="iconSize" aria-hidden="true" />
-      </button>
-      <button
-        v-if="needsFormatSpacing"
-        class="btn btn-icon"
-        :title="`${t('toolbar.formatSpacing')} (⌘⇧Space)`"
-        :aria-label="t('toolbar.formatSpacing')"
-        @click="emit('formatSpacing')"
-      >
-        <WholeWord :size="iconSize" aria-hidden="true" />
       </button>
     </div>
 

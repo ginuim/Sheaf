@@ -1,5 +1,10 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { exists, readFile, writeFile } from "@tauri-apps/plugin-fs";
+import type { ImageHostingPreferences } from "./appPreferences";
+import {
+  shouldUploadToDefaultImageHost,
+  uploadToDefaultImageHost,
+} from "./imageHosting";
 
 const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
   "image/png": "png",
@@ -99,8 +104,20 @@ async function saveEditorImageBytes(
   extension: string,
   bytes: Uint8Array,
   mimeType?: string,
+  imageHosting?: ImageHostingPreferences,
 ): Promise<SavedEditorImage> {
   const alt = altFromFileName(sourceName);
+  const resolvedMime = mimeType || `image/${extension === "jpg" ? "jpeg" : extension}`;
+
+  if (imageHosting && shouldUploadToDefaultImageHost(imageHosting)) {
+    const hosted = await uploadToDefaultImageHost(imageHosting, {
+      bytes,
+      extension,
+      mimeType: resolvedMime,
+      sourceName,
+    });
+    return buildSavedImage(hosted.alt, hosted.src);
+  }
 
   if (documentPath && isTauri()) {
     const dir = documentDir(documentPath);
@@ -111,7 +128,6 @@ async function saveEditorImageBytes(
     return buildSavedImage(alt, fileName, fullPath);
   }
 
-  const resolvedMime = mimeType || `image/${extension === "jpg" ? "jpeg" : extension}`;
   const dataUrl = bytesToDataUrl(bytes, resolvedMime);
   return buildSavedImage(alt, dataUrl);
 }
@@ -119,18 +135,20 @@ async function saveEditorImageBytes(
 export async function saveEditorImageFile(
   documentPath: string | null,
   file: File,
+  imageHosting?: ImageHostingPreferences,
 ): Promise<SavedEditorImage> {
   const extension = imageExtension(file);
   const bytes = new Uint8Array(await file.arrayBuffer());
-  return saveEditorImageBytes(documentPath, file.name, extension, bytes, file.type);
+  return saveEditorImageBytes(documentPath, file.name, extension, bytes, file.type, imageHosting);
 }
 
 export async function saveEditorImageFromPath(
   documentPath: string | null,
   sourcePath: string,
+  imageHosting?: ImageHostingPreferences,
 ): Promise<SavedEditorImage> {
   const sourceName = sourcePath.split(/[/\\]/).pop() ?? "image.png";
   const extension = imageExtensionFromPath(sourcePath);
   const bytes = await readFile(sourcePath);
-  return saveEditorImageBytes(documentPath, sourceName, extension, bytes);
+  return saveEditorImageBytes(documentPath, sourceName, extension, bytes, undefined, imageHosting);
 }

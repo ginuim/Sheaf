@@ -6,6 +6,7 @@ import type { AppLocale } from "../i18n";
 import LandingChangelog from "./components/LandingChangelog.vue";
 import LandingDownload from "./components/LandingDownload.vue";
 import LandingDocs from "./components/LandingDocs.vue";
+import LandingFaq from "./components/LandingFaq.vue";
 import LandingLegal from "./components/LandingLegal.vue";
 import LandingOverlay from "./components/LandingOverlay.vue";
 import SheafProductDemo from "./components/SheafProductDemo.vue";
@@ -21,11 +22,12 @@ const landingRoot = ref<HTMLElement | null>(null);
 useLandingMotion(landingRoot);
 
 const { locale, setLocale, t, tm } = useLocale();
-const { docSections, changelog, privacyPolicy, termsOfService } = useLandingContent();
+const { docSections, changelog, faqItems, privacyPolicy, termsOfService } = useLandingContent();
 
 const { downloadHref } = useDownloadLink();
 const demoRef = ref<InstanceType<typeof SheafProductDemo> | null>(null);
 const isDark = ref(false);
+const activeDemoScenario = ref<DemoScenarioId | null>(null);
 const activeOverlay = ref<LandingOverlayPanel | null>(null);
 
 function openOverlay(panel: LandingOverlayPanel) {
@@ -55,17 +57,14 @@ function toggleLandingTheme() {
 }
 
 function toggleDemoTheme() {
+  activeDemoScenario.value = null;
   demoRef.value?.runThemeToggle();
 }
 
-function toggleLocale() {
-  const next: AppLocale = locale.value === "zh-CN" ? "en" : "zh-CN";
+function switchLocale(next: AppLocale) {
+  if (locale.value === next) return;
   setLocale(next);
 }
-
-const localeToggleLabel = computed(() =>
-  locale.value === "zh-CN" ? "English" : "中文",
-);
 
 const themeToggleLabel = computed(() =>
   isDark.value ? t("landing.nav.themeLight") : t("landing.nav.themeDark"),
@@ -80,6 +79,7 @@ const demoScenarios = computed(() => {
 });
 
 function runDemoScenario(id: DemoScenarioId) {
+  activeDemoScenario.value = id;
   demoRef.value?.runScenario(id);
 }
 
@@ -107,6 +107,13 @@ const features = computed(() => [
     link: "#download",
     linkLabel: t("landing.features.local.linkLabel"),
   },
+  {
+    key: "export",
+    title: t("landing.features.export.title"),
+    body: t("landing.features.export.body"),
+    link: "#demo",
+    linkLabel: t("landing.features.export.linkLabel"),
+  },
 ]);
 </script>
 
@@ -124,17 +131,26 @@ const features = computed(() => [
       <nav class="landing-nav-links" :aria-label="t('landing.nav.main')">
         <a href="#features">{{ t("landing.nav.features") }}</a>
         <a href="#demo">{{ t("landing.nav.demo") }}</a>
+        <a href="#faq">{{ t("landing.nav.faq") }}</a>
         <a href="#download">{{ t("landing.nav.download") }}</a>
       </nav>
       <div class="landing-nav-actions">
-        <button
-          type="button"
-          class="landing-nav-icon-btn landing-nav-locale-btn"
-          :aria-label="t('landing.nav.switchLocale')"
-          @click="toggleLocale"
-        >
-          {{ localeToggleLabel }}
-        </button>
+        <span class="landing-lang-switch" :aria-label="t('landing.nav.switchLocale')">
+          <button
+            type="button"
+            :aria-pressed="locale === 'zh-CN'"
+            @click="switchLocale('zh-CN')"
+          >
+            中
+          </button>
+          <button
+            type="button"
+            :aria-pressed="locale === 'en'"
+            @click="switchLocale('en')"
+          >
+            EN
+          </button>
+        </span>
         <button
           type="button"
           class="landing-nav-icon-btn"
@@ -145,7 +161,6 @@ const features = computed(() => [
           <Sun v-if="isDark" :size="18" aria-hidden="true" />
           <Moon v-else :size="18" aria-hidden="true" />
         </button>
-        <a class="landing-btn landing-btn-ghost" href="#features">{{ t("landing.nav.learnMore") }}</a>
         <a
           class="landing-btn landing-btn-primary"
           :href="downloadHref"
@@ -173,13 +188,20 @@ const features = computed(() => [
     </section>
 
     <section id="demo" class="landing-demo-wrap" :aria-label="t('landing.demo.ariaLabel')">
-      <SheafProductDemo ref="demoRef" v-model:dark="isDark" />
+      <div class="landing-demo-stage">
+        <SheafProductDemo
+          ref="demoRef"
+          v-model:dark="isDark"
+        />
+      </div>
       <div class="landing-demo-controls" role="group" :aria-label="t('landing.demo.controls')">
         <button
           v-for="item in demoScenarios"
           :key="item.id"
           type="button"
           class="landing-demo-scenario-btn"
+          :class="{ active: activeDemoScenario === item.id }"
+          :aria-pressed="activeDemoScenario === item.id"
           @click="runDemoScenario(item.id)"
         >
           {{ item.label }}
@@ -222,6 +244,12 @@ const features = computed(() => [
       <blockquote>{{ t("landing.quote.text") }}</blockquote>
       <cite>{{ t("landing.quote.cite") }}</cite>
     </section>
+
+    <LandingFaq
+      :items="faqItems"
+      :title="t('landing.faq.title')"
+      :lead="t('landing.faq.lead')"
+    />
 
     <LandingOverlay
       :open="activeOverlay === 'docs'"
@@ -272,6 +300,7 @@ const features = computed(() => [
           <ul>
             <li><a href="#features">{{ t("landing.nav.features") }}</a></li>
             <li><a href="#demo">{{ t("landing.nav.demo") }}</a></li>
+            <li><a href="#faq">{{ t("landing.nav.faq") }}</a></li>
             <li><a href="#download">{{ t("landing.nav.download") }}</a></li>
           </ul>
         </div>
@@ -288,6 +317,8 @@ const features = computed(() => [
                 {{ t("landing.footer.docs") }}
               </button>
             </li>
+            <li><a href="/download.html">{{ t("landing.footer.downloadPage") }}</a></li>
+            <li><a href="/articles.html">{{ t("landing.footer.articles") }}</a></li>
             <li>
               <a :href="GITHUB_REPO_URL" target="_blank" rel="noopener noreferrer">
                 {{ t("landing.footer.github") }}
@@ -310,7 +341,7 @@ const features = computed(() => [
             </li>
           </ul>
         </div>
-        <div>
+        <div class="landing-footer-contact">
           <h4>{{ t("landing.footer.contact") }}</h4>
           <ul>
             <li><a href="mailto:webmaster@reaidea.com">webmaster@reaidea.com</a></li>

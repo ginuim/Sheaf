@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Markdown 导出微信公众号 HTML | Sheaf 排版工作流</title>
+    <meta name="description" content="用 Sheaf 把 Markdown 文章导出为微信公众号可用的富文本 HTML：保留标题、代码块、图片、公式和中英文排版间距，减少公众号后台二次排版。" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://sheaf.reaidea.com/markdown-to-wechat.html" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="stylesheet" href="/src/website/seo-pages.css" />
+    <script defer src="/seo-page.js"></script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "HowTo",
+        "name": "如何把 Markdown 导出为微信公众号 HTML",
+        "description": "使用 Sheaf 编写 Markdown 并导出适合微信公众号后台粘贴的富文本 HTML。",
+        "inLanguage": "zh-CN",
+        "step": [
+          { "@type": "HowToStep", "name": "在 Sheaf 中完成 Markdown 正文" },
+          { "@type": "HowToStep", "name": "检查预览、代码块、图片和中英文间距" },
+          { "@type": "HowToStep", "name": "导出公众号 HTML 并粘贴到公众号后台" }
+        ]
+      }
+    </script>
+  </head>
+  <body
+    data-title-zh="Markdown 导出微信公众号 HTML | Sheaf 排版工作流"
+    data-title-en="Markdown to Blog and Newsletter HTML | Sheaf Publishing Workflow"
+    data-description-zh="用 Sheaf 把 Markdown 文章导出为微信公众号可用的富文本 HTML：保留标题、代码块、图片、公式和中英文排版间距，减少公众号后台二次排版。"
+    data-description-en="Use Sheaf to export Markdown as paste-ready rich HTML for blogs, newsletters, and CMS editors, with headings, code blocks, images, math, diagrams, and inlined styles."
+  >
+    <div class="seo-page">
+      <header class="seo-nav">
+        <a class="seo-brand" href="/"><span class="seo-brand-mark">S</span><span>Sheaf</span></a>
+        <nav class="seo-nav-links" aria-label="站点导航">
+          <a href="/download.html"><span class="lang-zh">下载</span><span class="lang-en">Download</span></a>
+          <a href="/docs.html"><span class="lang-zh">使用文档</span><span class="lang-en">Docs</span></a>
+          <a href="/articles.html"><span class="lang-zh">文章</span><span class="lang-en">Articles</span></a>
+          <a href="https://github.com/ginuim/Sheaf" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <span class="seo-lang-switch" aria-label="Language"><button type="button" data-seo-locale="zh-CN">中</button><button type="button" data-seo-locale="en">EN</button></span>
+        </nav>
+      </header>
+      <main>
+        <section class="seo-hero">
+          <span class="seo-eyebrow">Workflow</span>
+          <h1><span class="lang-zh">Markdown 导出微信公众号 HTML</span><span class="lang-en">Markdown to Blog and Newsletter HTML</span></h1>
+          <p class="seo-lead"><span class="lang-zh">如果你习惯用 Markdown 写公众号，最烦人的部分通常不是写作，而是把文章搬进公众号后台后的二次排版。Sheaf 的公众号 HTML 导出就是为这个环节准备的。</span><span class="lang-en">If you write in Markdown but publish in a rich-text editor, the painful part is usually cleanup after pasting. Sheaf exports paste-ready HTML for blogs, newsletters, and CMS editors.</span></p>
+          <div class="seo-cta-row">
+            <a class="seo-button seo-button-primary" href="/download.html"><span class="lang-zh">下载 Sheaf</span><span class="lang-en">Download Sheaf</span></a>
+            <a class="seo-button" href="/docs.html"><span class="lang-zh">查看完整文档</span><span class="lang-en">Read docs</span></a>
+          </div>
+        </section>
+        <div class="seo-layout">
+          <article class="seo-article">
+            <div class="lang-zh">
+            <h2>为什么公众号文章适合先用 Markdown 写</h2>
+            <p>Markdown 让作者先关注结构：标题层级、段落、列表、引用、代码块和图片。对于技术文章、产品说明、读书笔记和长文草稿，这种写法比直接在富文本编辑器里排版更稳定。</p>
+            <p>问题在于，公众号后台并不直接接受一篇完整的 Markdown 文件。你需要把 Markdown 转成带样式的富文本，再粘贴进去。Sheaf 在导出时会内联样式，尽量保留预览中的排版效果。</p>
+            <h2>推荐工作流</h2>
+            <ol>
+              <li>在 Sheaf 中完成正文，使用分屏预览检查标题层级和段落节奏。</li>
+              <li>插入图片后确认图片路径或图床地址可访问。</li>
+              <li>开启中英文间距，让中文、英文、数字之间的间隔更适合阅读。</li>
+              <li>用 AI 改写时先审阅 diff，再应用到正文。</li>
+              <li>导出公众号 HTML，复制到公众号后台后做最后检查。</li>
+            </ol>
+            <figure class="seo-media">
+              <img src="https://raw.githubusercontent.com/ginuim/Sheaf/main/assets/screenshots/export-studio.png" alt="Sheaf 导出工作台界面截图" />
+            </figure>
+            <h2>导出时需要重点检查什么</h2>
+            <table class="seo-table">
+              <thead>
+                <tr><th>内容类型</th><th>检查点</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>标题</td><td>确认一级标题不会重复出现在封面标题和正文开头。</td></tr>
+                <tr><td>代码块</td><td>确认语言标记正确，长代码在移动端不会破坏阅读。</td></tr>
+                <tr><td>图片</td><td>确认图片已经上传到稳定地址，或能被公众号后台正确接收。</td></tr>
+                <tr><td>公式和图表</td><td>复杂内容发布前建议在手机端预览一次。</td></tr>
+              </tbody>
+            </table>
+            <h2>适合哪些公众号作者</h2>
+            <p>Sheaf 更适合认真写长文的作者：技术教程、AI 产品笔记、开发日志、知识管理文章、读书笔记和产品更新说明。如果你的文章包含代码块、图表、公式或很多中英文混排内容，先用 Markdown 再导出会更省心。</p>
+            </div>
+            <div class="lang-en">
+              <h2>Why write in Markdown before publishing</h2>
+              <p>Markdown lets you focus on structure first: headings, paragraphs, lists, quotes, code blocks, and images. That is useful for technical tutorials, product notes, reading notes, and long-form articles.</p>
+              <p>The problem is that many publishing tools expect rich text, not a raw Markdown file. Sheaf converts your draft into HTML with inlined styles so the pasted result is closer to the preview.</p>
+              <h2>Recommended workflow</h2>
+              <ol>
+                <li>Finish the Markdown draft in Sheaf and check heading hierarchy in split preview.</li>
+                <li>Confirm images use stable local paths or hosted URLs.</li>
+                <li>Enable CJK spacing if the article mixes Chinese, English, and numbers.</li>
+                <li>Review AI edits as diffs before applying them.</li>
+                <li>Export rich HTML and paste it into your blog, newsletter, or CMS editor.</li>
+              </ol>
+              <figure class="seo-media">
+                <img src="https://raw.githubusercontent.com/ginuim/Sheaf/main/assets/screenshots/export-studio.png" alt="Sheaf export studio screenshot" />
+              </figure>
+              <h2>What to check before publishing</h2>
+              <table class="seo-table">
+                <thead><tr><th>Content</th><th>Check</th></tr></thead>
+                <tbody>
+                  <tr><td>Headings</td><td>Make sure the article title and first heading are not duplicated.</td></tr>
+                  <tr><td>Code blocks</td><td>Use language markers and check long code on narrow screens.</td></tr>
+                  <tr><td>Images</td><td>Use stable public URLs when your publishing platform needs hosted images.</td></tr>
+                  <tr><td>Math and diagrams</td><td>Preview complex content on the target platform before publishing.</td></tr>
+                </tbody>
+              </table>
+              <h2>Who this workflow is for</h2>
+              <p>It works best for technical writers, product builders, and newsletter authors whose drafts include code, diagrams, formulas, or careful typography.</p>
+            </div>
+          </article>
+          <aside class="seo-aside">
+            <section class="seo-aside-card">
+              <h2>相关页面</h2>
+              <ul>
+                <li><a href="/docs.html"><span class="lang-zh">Sheaf 使用文档</span><span class="lang-en">Sheaf documentation</span></a></li>
+                <li><a href="/download.html"><span class="lang-zh">下载 Sheaf</span><span class="lang-en">Download Sheaf</span></a></li>
+                <li><a href="/local-first-ai-markdown-editor.html"><span class="lang-zh">本地优先写作</span><span class="lang-en">Local-first writing</span></a></li>
+              </ul>
+            </section>
+          </aside>
+        </div>
+      </main>
+      <footer class="seo-footer">
+        <div class="seo-footer-links">
+          <a href="/"><span class="lang-zh">首页</span><span class="lang-en">Home</span></a>
+          <a href="/download.html"><span class="lang-zh">下载</span><span class="lang-en">Download</span></a>
+          <a href="https://github.com/ginuim/Sheaf" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </div>
+        <p>© 2026 reaidea. 用 Markdown 写作，用富文本发布。</p>
+      </footer>
+    </div>
+  </body>
+</html>

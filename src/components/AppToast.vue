@@ -2,6 +2,10 @@
 import { useAppToast } from "../composables/useAppToast";
 
 const { toast, dismissToast } = useAppToast();
+
+function handleActionClick() {
+  void toast.value?.action?.onClick();
+}
 </script>
 
 <template>
@@ -25,7 +29,7 @@ const { toast, dismissToast } = useAppToast();
           v-if="toast.action"
           class="app-toast-action"
           type="button"
-          @click="toast.action.onClick()"
+          @click="handleActionClick"
         >
           {{ toast.action.label }}
         </button>

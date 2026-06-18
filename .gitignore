@@ -9,6 +9,7 @@ lerna-debug.log*
 *.pkg
 
 node_modules
+docs/
 dist
 dist-ssr
 /release

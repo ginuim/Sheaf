@@ -1,7 +1,7 @@
 {
   "name": "blank",
   "private": true,
-  "version": "0.2.8",
+  "version": "0.2.26",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -14,7 +14,8 @@
     "tauri": "tauri",
     "build:mac": "tauri build && bash scripts/collect-dmg.sh",
     "build:mac:arm64": "tauri build --target aarch64-apple-darwin && bash scripts/collect-dmg.sh Sheaf-macos-arm64.dmg",
-    "build:mac:x64": "tauri build --target x86_64-apple-darwin && bash scripts/collect-dmg.sh Sheaf-macos-x64.dmg"
+    "build:mac:x64": "tauri build --target x86_64-apple-darwin && bash scripts/collect-dmg.sh Sheaf-macos-x64.dmg",
+    "build:windows": "tauri build --target x86_64-pc-windows-msvc"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.81",

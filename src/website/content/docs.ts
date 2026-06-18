@@ -127,9 +127,9 @@ const DOC_SECTIONS_EN: DocSection[] = [
       "The Export menu offers several outputs, all based on the current preview layout.",
     ],
     list: [
-      "Social export: WeChat HTML, Xiaohongshu share cards, or long images with inlined styles",
+      "Social export: rich HTML for blogs and newsletters, social share cards, or long images with inlined styles",
       "Export PDF: opens the system print dialog — choose Save as PDF",
-      "Copy WeChat HTML: also available in the File menu",
+      "Copy rich HTML: also available in the File menu",
     ],
   },
   {

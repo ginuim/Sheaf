@@ -3,7 +3,7 @@ import markdownItKatex from "markdown-it-katex";
 import katex from "katex";
 import { applyChineseEnglishSpacingToMarkdownTokens } from "../lib/cjkSpacing";
 import { loadExportTypographySettings } from "../lib/exportTypographySettings";
-import { resolveMediaSrc } from "./resolveMediaSrc";
+import { resolveMediaPath, resolveMediaSrc } from "./resolveMediaSrc";
 import { buildHeadingIds } from "./useOutline";
 
 const KATEX_OPTIONS = {
@@ -22,15 +22,17 @@ md.use(markdownItKatex, KATEX_OPTIONS);
 
 // markdown-it-katex 会把块级公式包进 <p>，在 preview 的大 line-height 下会被裁切。
 md.renderer.rules.math_block = (tokens, idx) => {
-  const content = tokens[idx].content.trim();
+  const token = tokens[idx];
+  const content = token.content.trim();
+  const sourceLineAttrs = getSourceLineAttrs(token);
   try {
     const html = katex.renderToString(content, {
       ...KATEX_OPTIONS,
       displayMode: true,
     });
-    return `<div class="math-block">${html}</div>\n`;
+    return `<div class="math-block"${sourceLineAttrs}>${html}</div>\n`;
   } catch {
-    return `<pre class="math-block-error">${md.utils.escapeHtml(content)}</pre>\n`;
+    return `<pre class="math-block-error"${sourceLineAttrs}>${md.utils.escapeHtml(content)}</pre>\n`;
   }
 };
 
@@ -45,7 +47,7 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   if (language !== "mermaid") return defaultFence(tokens, idx, options, env, self);
 
   const content = md.utils.escapeHtml(token.content.trim());
-  return `<div class="mermaid" data-mermaid-source="${content}">${content}</div>\n`;
+  return `<div class="mermaid"${getSourceLineAttrs(token)} data-mermaid-source="${content}">${content}</div>\n`;
 };
 
 const defaultHeadingOpen =
@@ -69,6 +71,10 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
   const src = token.attrGet("src");
   if (src && env.docFilePath) {
+    const localPath = resolveMediaPath(env.docFilePath, src);
+    if (localPath) {
+      token.attrSet("data-sheaf-local-src", localPath);
+    }
     const resolveMedia = typeof env.resolveMedia === "function"
       ? env.resolveMedia
       : resolveMediaSrc;
@@ -76,6 +82,75 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   }
   return defaultImageRender(tokens, idx, options, env, self);
 };
+
+function getSourceLineAttrs(token: { map: [number, number] | null }) {
+  if (!token.map) return "";
+  const [start, end] = token.map;
+  return ` data-source-line="${start}" data-source-line-end="${Math.max(start, end - 1)}"`;
+}
+
+md.core.ruler.after("inline", "source_line_attrs", (state) => {
+  for (const token of state.tokens) {
+    if (!token.map) continue;
+    if (token.nesting !== 1 && token.type !== "fence" && token.type !== "code_block") {
+      continue;
+    }
+
+    const [start, end] = token.map;
+    token.attrSet("data-source-line", String(start));
+    token.attrSet("data-source-line-end", String(Math.max(start, end - 1)));
+  }
+});
+
+md.core.ruler.after("inline", "loose_strong_after_punctuation", (state) => {
+  for (const blockToken of state.tokens) {
+    if (blockToken.type !== "inline" || !blockToken.children) continue;
+
+    const nextChildren = [];
+    for (const token of blockToken.children) {
+      if (token.type !== "text" || !token.content.includes("**")) {
+        nextChildren.push(token);
+        continue;
+      }
+
+      const pattern = /\*\*(\S(?:[^*\n]|\*(?!\*))*?\S)\*\*/gu;
+      let cursor = 0;
+      let match: RegExpExecArray | null;
+
+      while ((match = pattern.exec(token.content)) !== null) {
+        const [raw, content] = match;
+        if (match.index > cursor) {
+          const textToken = new state.Token("text", "", 0);
+          textToken.content = token.content.slice(cursor, match.index);
+          nextChildren.push(textToken);
+        }
+
+        const openToken = new state.Token("strong_open", "strong", 1);
+        openToken.markup = "**";
+        const contentToken = new state.Token("text", "", 0);
+        contentToken.content = content;
+        const closeToken = new state.Token("strong_close", "strong", -1);
+        closeToken.markup = "**";
+        nextChildren.push(openToken, contentToken, closeToken);
+
+        cursor = match.index + raw.length;
+      }
+
+      if (cursor === 0) {
+        nextChildren.push(token);
+        continue;
+      }
+
+      if (cursor < token.content.length) {
+        const textToken = new state.Token("text", "", 0);
+        textToken.content = token.content.slice(cursor);
+        nextChildren.push(textToken);
+      }
+    }
+
+    blockToken.children = nextChildren;
+  }
+});
 
 md.core.ruler.after("inline", "cjk_spacing", (state) => {
   if (!state.env?.chineseEnglishSpacing) return;

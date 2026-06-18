@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { syntaxHighlighting } from "@codemirror/language";
@@ -23,6 +25,7 @@ import {
   type DecorationSet,
 } from "@codemirror/view";
 import EditorSearchReplace from "./EditorSearchReplace.vue";
+import MarkdownFormatBar from "./MarkdownFormatBar.vue";
 import { editorHighlightStyle } from "../lib/editorHighlightStyle";
 import {
   editorImageInsertExtension,
@@ -30,17 +33,38 @@ import {
   type EditorImageInsertOptions,
 } from "../lib/editor-image-insert";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { GitCompare, CheckCircle2, X } from "@lucide/vue";
+import { applyChangesToDoc, lineDiff } from "../composables/useAI";
 import { useAppToast } from "../composables/useAppToast";
 import { useLocale } from "../composables/useLocale";
 import type { ProofreadIssue } from "../types/proofreading";
+import {
+  markdownFormatToolIds,
+  type MarkdownFormatCommand,
+  type MarkdownFormatToolId,
+} from "../types/markdown-format";
+import type { ImageHostingPreferences } from "../lib/appPreferences";
 
-const props = defineProps<{
-  modelValue: string;
-  documentPath?: string | null;
-  ensureDocumentSaved?: () => Promise<string | null>;
-  proofreadIssues?: ProofreadIssue[];
-  activeProofreadIssueId?: string | null;
-}>();
+const props = withDefaults(
+  defineProps<{
+    modelValue: string;
+    documentPath?: string | null;
+    ensureDocumentSaved?: () => Promise<string | null>;
+    proofreadIssues?: ProofreadIssue[];
+    activeProofreadIssueId?: string | null;
+    previewDiffItem?: any;
+    formatBarEnabled?: boolean;
+    needsFormatSpacing?: boolean;
+    formatBarTools?: Partial<Record<MarkdownFormatToolId, boolean>>;
+    formatBarToolOrder?: MarkdownFormatToolId[];
+    imageHosting?: ImageHostingPreferences;
+  }>(),
+  {
+    formatBarEnabled: true,
+    needsFormatSpacing: false,
+    formatBarToolOrder: () => [...markdownFormatToolIds],
+  },
+);
 
 const emit = defineEmits<{
   "update:modelValue": [value: string];
@@ -49,6 +73,10 @@ const emit = defineEmits<{
   "proofread-select": [issueId: string];
   "proofread-apply": [issueId: string];
   "proofread-dismiss": [issueId: string];
+  "accept-preview": [item: any];
+  "discard-preview": [];
+  "format-spacing": [];
+  "open-format-settings": [];
 }>();
 
 const root = ref<HTMLElement | null>(null);
@@ -62,11 +90,15 @@ const { showToast } = useAppToast();
 const imageInsertOptions: EditorImageInsertOptions = {
   getDocumentPath: () => props.documentPath ?? null,
   ensureDocumentSaved: () => props.ensureDocumentSaved?.() ?? Promise.resolve(null),
+  getImageHostingPreferences: () => props.imageHosting,
   onRequiresSavedDocument: () => {
     showToast("info", t("editor.imageRequiresSavedDocument"));
   },
   onInsertFailed: () => {
     showToast("error", t("editor.imageInsertFailed"));
+  },
+  onUploadFailed: () => {
+    showToast("error", t("editor.imageUploadFailed"));
   },
 };
 const searchText = ref("");
@@ -87,6 +119,12 @@ let syncing = false;
 let proofreadPopoverFrame = 0;
 
 type MatchRange = { from: number; to: number };
+type ScrollAnchor = {
+  line: number;
+  lineEnd: number;
+  offsetRatio: number;
+  absoluteRatio: number;
+};
 type ProofreadDecorationPayload = {
   issues: ProofreadIssue[];
   activeId: string | null;
@@ -192,6 +230,12 @@ const searchCountText = computed(() => {
   const current = matchCurrent.value > 0 ? matchCurrent.value : 0;
   return t("search.matchCount", { current, total: matchTotal.value });
 });
+
+const enabledFormatBarTools = computed(() =>
+  Object.fromEntries(
+    markdownFormatToolIds.map((id) => [id, props.formatBarTools?.[id] !== false]),
+  ) as Record<MarkdownFormatToolId, boolean>,
+);
 
 const activeProofreadIssue = computed(() => {
   const activeId = props.activeProofreadIssueId;
@@ -542,6 +586,250 @@ function handleDocumentKeydown(event: KeyboardEvent) {
   if (event.key === "Escape") closeSelectionContextMenu();
 }
 
+function editorPlaceholder(key: string) {
+  return t(`editor.placeholders.${key}`);
+}
+
+function dispatchEditorChange(
+  from: number,
+  to: number,
+  insert: string,
+  selectionFrom: number,
+  selectionTo = selectionFrom,
+  userEvent = "input.markdown-format",
+) {
+  if (!view) return;
+
+  view.dispatch({
+    changes: { from, to, insert },
+    selection: EditorSelection.single(selectionFrom, selectionTo),
+    scrollIntoView: true,
+    userEvent,
+  });
+  view.focus();
+}
+
+function selectedText() {
+  if (!view) return "";
+  const { from, to } = view.state.selection.main;
+  return view.state.sliceDoc(from, to);
+}
+
+function applyInlineWrap(prefix: string, suffix: string, placeholderKey = "text") {
+  if (!view) return;
+
+  const { from, to } = view.state.selection.main;
+  const selected = selectedText();
+  const text = selected || editorPlaceholder(placeholderKey);
+  const insert = `${prefix}${text}${suffix}`;
+  const selectionFrom = from + prefix.length;
+  const selectionTo = selectionFrom + text.length;
+
+  dispatchEditorChange(from, to, insert, selectionFrom, selectionTo);
+}
+
+function applyLinkFormat() {
+  if (!view) return;
+
+  const { from, to } = view.state.selection.main;
+  const selected = selectedText();
+  const text = selected && !/[\r\n]/.test(selected)
+    ? selected
+    : editorPlaceholder("linkText");
+  const url = editorPlaceholder("linkUrl");
+  const insert = `[${text}](${url})`;
+  const textStart = from + 1;
+  const urlStart = from + text.length + 3;
+
+  if (selected && !/[\r\n]/.test(selected)) {
+    dispatchEditorChange(from, to, insert, urlStart, urlStart + url.length);
+    return;
+  }
+
+  dispatchEditorChange(from, to, insert, textStart, textStart + text.length);
+}
+
+function applyImagePlaceholder() {
+  if (!view) return;
+
+  const { from, to } = view.state.selection.main;
+  const selected = selectedText();
+  const alt = selected && !/[\r\n]/.test(selected)
+    ? selected
+    : editorPlaceholder("imageAlt");
+  const path = editorPlaceholder("imagePath");
+  const insert = `![${alt}](${path})`;
+  const pathStart = from + alt.length + 4;
+
+  dispatchEditorChange(from, to, insert, pathStart, pathStart + path.length);
+}
+
+function stripBlockPrefix(text: string) {
+  return text.replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s*)/, "");
+}
+
+function applyHeadingFormat(level: number) {
+  if (!view) return;
+
+  const selection = view.state.selection.main;
+  const line = view.state.doc.lineAt(selection.from);
+  const content = stripBlockPrefix(line.text).trimEnd() ||
+    editorPlaceholder("heading");
+  const prefix = `${"#".repeat(level)} `;
+  const insert = `${prefix}${content}`;
+  const selectionFrom = line.from + prefix.length;
+
+  dispatchEditorChange(
+    line.from,
+    line.to,
+    insert,
+    selectionFrom,
+    selectionFrom + content.length,
+  );
+}
+
+function selectionLineRange() {
+  if (!view) return null;
+
+  const selection = view.state.selection.main;
+  const startLine = view.state.doc.lineAt(selection.from);
+  const endPos = selection.empty
+    ? selection.to
+    : Math.max(selection.from, selection.to - 1);
+  const endLine = view.state.doc.lineAt(endPos);
+
+  return { selection, startLine, endLine };
+}
+
+function applyLinePrefixFormat(command: "unorderedList" | "orderedList" | "quote" | "task") {
+  if (!view) return;
+
+  const range = selectionLineRange();
+  if (!range) return;
+
+  const { selection, startLine, endLine } = range;
+  const lines = [];
+  for (let lineNumber = startLine.number; lineNumber <= endLine.number; lineNumber += 1) {
+    lines.push(view.state.doc.line(lineNumber));
+  }
+
+  const noSelection = selection.empty;
+  const replacementLines = lines.map((line, index) => {
+    const fallback = command === "quote"
+      ? editorPlaceholder("quote")
+      : editorPlaceholder("listItem");
+    const content = stripBlockPrefix(line.text) ||
+      (noSelection && index === 0 ? fallback : "");
+    if (command === "orderedList") return `${index + 1}. ${content}`;
+    if (command === "quote") return `> ${content}`;
+    if (command === "task") return `- [ ] ${content}`;
+    return `- ${content}`;
+  });
+  const insert = replacementLines.join("\n");
+  const firstPrefixLength = command === "orderedList" ? 3 : (command === "task" ? 6 : 2);
+  const selectionFrom = startLine.from + firstPrefixLength;
+  const selectionTo = noSelection
+    ? selectionFrom + replacementLines[0]!.slice(firstPrefixLength).length
+    : startLine.from + insert.length;
+
+  dispatchEditorChange(startLine.from, endLine.to, insert, selectionFrom, selectionTo);
+}
+
+function applyCodeBlockFormat() {
+  if (!view) return;
+
+  const { from, to } = view.state.selection.main;
+  const selected = selectedText();
+  const code = selected || editorPlaceholder("code");
+  const insert = `\`\`\`\n${code}\n\`\`\``;
+  const selectionFrom = from + 4;
+
+  dispatchEditorChange(from, to, insert, selectionFrom, selectionFrom + code.length);
+}
+
+function selectedDialogPaths(value: string | string[] | null): string[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function isSupportedImagePath(path: string) {
+  return /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(path);
+}
+
+async function applyImageFormat() {
+  if (!view) return;
+
+  if (!isTauri()) {
+    applyImagePlaceholder();
+    return;
+  }
+
+  try {
+    const selected = await openDialog({
+      multiple: true,
+      filters: [
+        {
+          name: "Images",
+          extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "heic", "heif"],
+        },
+      ],
+    });
+    const paths = selectedDialogPaths(selected).filter(isSupportedImagePath);
+    if (paths.length === 0) {
+      if (selected) showToast("info", t("editor.imageSelectInvalid"));
+      return;
+    }
+
+    await invoke("allow_dropped_paths", { paths });
+    await insertEditorImagesFromPaths(
+      view,
+      view.state.selection.main.head,
+      paths,
+      imageInsertOptions,
+    );
+  } catch {
+    showToast("error", t("editor.imageSelectFailed"));
+  }
+}
+
+function applyHorizontalRuleFormat() {
+  if (!view) return;
+  const { from, to } = view.state.selection.main;
+  const insert = "\n---\n";
+  dispatchEditorChange(from, to, insert, from + insert.length);
+}
+
+function applyTableFormat() {
+  if (!view) return;
+  const { from, to } = view.state.selection.main;
+  const insert = "\n| Header 1 | Header 2 |\n| -------- | -------- |\n| Cell 1   | Cell 2   |\n";
+  dispatchEditorChange(from, to, insert, from + insert.length);
+}
+
+function handleFormatCommand(command: MarkdownFormatCommand) {
+  if (!view) return;
+
+  closeSelectionContextMenu();
+
+  if (command === "heading1") applyHeadingFormat(1);
+  else if (command === "heading2") applyHeadingFormat(2);
+  else if (command === "heading3") applyHeadingFormat(3);
+  else if (command === "heading4") applyHeadingFormat(4);
+  else if (command === "bold") applyInlineWrap("**", "**");
+  else if (command === "italic") applyInlineWrap("*", "*");
+  else if (command === "strikethrough") applyInlineWrap("~~", "~~");
+  else if (command === "link") applyLinkFormat();
+  else if (command === "unorderedList") applyLinePrefixFormat(command);
+  else if (command === "orderedList") applyLinePrefixFormat(command);
+  else if (command === "task") applyLinePrefixFormat(command);
+  else if (command === "quote") applyLinePrefixFormat(command);
+  else if (command === "inlineCode") applyInlineWrap("`", "`", "code");
+  else if (command === "codeBlock") applyCodeBlockFormat();
+  else if (command === "table") applyTableFormat();
+  else if (command === "image") void applyImageFormat();
+  else if (command === "horizontalRule") applyHorizontalRuleFormat();
+}
+
 watch([searchText, replaceText, caseSensitive], applySearchQuery);
 watch(
   [() => props.proofreadIssues, () => props.activeProofreadIssueId],
@@ -699,11 +987,182 @@ watch(
   },
 );
 
+watch(
+  () => props.previewDiffItem,
+  async (newVal: any) => {
+    if (!newVal) {
+      await nextTick();
+      if (view) {
+        view.focus();
+        view.requestMeasure();
+      }
+    }
+  },
+);
+
+const previewDiffLines = computed(() => {
+  if (!props.previewDiffItem) return [];
+  const oldStr = props.previewDiffItem.originalDoc;
+  const newStr = applyChangesToDoc(oldStr, props.previewDiffItem.changes);
+  const diffs = lineDiff(oldStr, newStr);
+
+  let oldLineNum = 1;
+  let newLineNum = 1;
+
+  const fullLines = diffs.map((line) => {
+    let currentOld: number | null = null;
+    let currentNew: number | null = null;
+    let sign = " ";
+
+    if (line.type === "normal") {
+      currentOld = oldLineNum++;
+      currentNew = newLineNum++;
+    } else if (line.type === "removed") {
+      currentOld = oldLineNum++;
+      sign = "-";
+    } else if (line.type === "added") {
+      currentNew = newLineNum++;
+      sign = "+";
+    }
+
+    return {
+      type: line.type,
+      text: line.text,
+      oldLineNum: currentOld,
+      newLineNum: currentNew,
+      sign,
+    };
+  });
+
+  const contextLines = 3;
+  const n = fullLines.length;
+  const shouldShow = new Array<boolean>(n).fill(false);
+
+  for (let i = 0; i < n; i++) {
+    if (fullLines[i].type === "added" || fullLines[i].type === "removed") {
+      shouldShow[i] = true;
+      for (let j = 1; j <= contextLines; j++) {
+        if (i - j >= 0) shouldShow[i - j] = true;
+        if (i + j < n) shouldShow[i + j] = true;
+      }
+    }
+  }
+
+  const result: Array<{
+    type: "normal" | "added" | "removed" | "ellipsis";
+    text: string;
+    oldLineNum: number | null;
+    newLineNum: number | null;
+    sign: string;
+  }> = [];
+
+  let inEllipsis = false;
+  for (let i = 0; i < n; i++) {
+    if (shouldShow[i]) {
+      inEllipsis = false;
+      result.push(fullLines[i]);
+    } else {
+      if (!inEllipsis) {
+        let count = 0;
+        for (let k = i; k < n; k++) {
+          if (!shouldShow[k]) count++;
+          else break;
+        }
+        result.push({
+          type: "ellipsis",
+          text: `... 省略 ${count} 行相同内容 ...`,
+          oldLineNum: null,
+          newLineNum: null,
+          sign: " ",
+        });
+        inEllipsis = true;
+      }
+    }
+  }
+
+  return result;
+});
+
 function insertDroppedImagePaths(paths: string[]) {
   if (!view || paths.length === 0) return;
 
   const insertPos = view.state.selection.main.head;
   void insertEditorImagesFromPaths(view, insertPos, paths, imageInsertOptions);
+}
+
+function getEditorScrollRatio(): number {
+  if (!view) return 0;
+
+  const scroller = view.scrollDOM;
+  const max = scroller.scrollHeight - scroller.clientHeight;
+  if (max <= 0) return 0;
+
+  const padding = view.documentPadding;
+  if (scroller.scrollTop <= padding.top + 1) return 0;
+  if (scroller.scrollTop >= max - padding.bottom - 1) return 1;
+
+  const scrollable = Math.max(max - padding.top - padding.bottom, 1);
+  return Math.min(Math.max((scroller.scrollTop - padding.top) / scrollable, 0), 1);
+}
+
+function setEditorScrollRatio(ratio: number) {
+  if (!view) return;
+
+  const scroller = view.scrollDOM;
+  const max = scroller.scrollHeight - scroller.clientHeight;
+  if (max <= 0) {
+    scroller.scrollTop = 0;
+    return;
+  }
+
+  if (ratio <= 0) {
+    scroller.scrollTop = 0;
+    return;
+  }
+  if (ratio >= 1) {
+    scroller.scrollTop = max;
+    return;
+  }
+
+  const padding = view.documentPadding;
+  const scrollable = Math.max(max - padding.top - padding.bottom, 1);
+  scroller.scrollTop = padding.top + scrollable * ratio;
+}
+
+function getScrollAnchor(): ScrollAnchor | null {
+  if (!view) return null;
+
+  const scroller = view.scrollDOM;
+  const viewportTop = scroller.getBoundingClientRect().top;
+  const documentHeightAtTop = Math.max(0, viewportTop - view.documentTop + 1);
+  const block = view.lineBlockAtHeight(documentHeightAtTop);
+  const line = view.state.doc.lineAt(block.from);
+
+  return {
+    line: line.number - 1,
+    lineEnd: line.number - 1,
+    offsetRatio: 0,
+    absoluteRatio: getEditorScrollRatio(),
+  };
+}
+
+function scrollToSourceAnchor(anchor: ScrollAnchor) {
+  if (!view) return false;
+
+  const lineNumber = Math.min(
+    Math.max(Math.floor(anchor.line) + 1, 1),
+    view.state.doc.lines,
+  );
+  const line = view.state.doc.line(lineNumber);
+  const block = view.lineBlockAt(line.from);
+  const scroller = view.scrollDOM;
+  const offsetRatio = anchor.line === anchor.lineEnd ? 0 : anchor.offsetRatio;
+  const targetHeight =
+    block.top + block.height * Math.min(Math.max(offsetRatio, 0), 1);
+  const targetScreenTop = view.documentTop + targetHeight;
+  const scrollerTop = scroller.getBoundingClientRect().top;
+  scroller.scrollTop = Math.max(0, scroller.scrollTop + targetScreenTop - scrollerTop);
+  return true;
 }
 
 defineExpose({
@@ -712,18 +1171,13 @@ defineExpose({
   closeSearch,
   isSearchOpen: () => searchOpen.value,
   insertDroppedImagePaths,
+  getScrollAnchor,
+  scrollToSourceAnchor,
   scrollRatio(ratio: number) {
-    if (!view) return;
-    const scroller = view.scrollDOM;
-    const max = scroller.scrollHeight - scroller.clientHeight;
-    scroller.scrollTop = max * ratio;
+    setEditorScrollRatio(ratio);
   },
   getScrollRatio(): number {
-    if (!view) return 0;
-    const scroller = view.scrollDOM;
-    const max = scroller.scrollHeight - scroller.clientHeight;
-    if (max <= 0) return 0;
-    return scroller.scrollTop / max;
+    return getEditorScrollRatio();
   },
   scrollToLine(line: number) {
     if (!view) return;
@@ -743,7 +1197,20 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="root" class="editor-root">
+  <div
+    ref="root"
+    class="editor-root"
+    :class="{ 'has-format-bar': props.formatBarEnabled && !props.previewDiffItem }"
+  >
+    <MarkdownFormatBar
+      v-if="props.formatBarEnabled && !props.previewDiffItem"
+      :needs-format-spacing="props.needsFormatSpacing"
+      :enabled-tools="enabledFormatBarTools"
+      :tool-order="props.formatBarToolOrder"
+      @command="handleFormatCommand"
+      @format-spacing="emit('format-spacing')"
+      @open-settings="emit('open-format-settings')"
+    />
     <EditorSearchReplace
       v-if="searchOpen"
       ref="searchReplaceRef"
@@ -759,7 +1226,40 @@ defineExpose({
       @replace-all="runReplaceAll"
       @close="closeSearch"
     />
-    <div ref="container" class="editor-container" />
+    <div v-show="!props.previewDiffItem" ref="container" class="editor-container" />
+
+    <div v-if="props.previewDiffItem" class="diff-preview-container">
+      <div class="diff-preview-header">
+        <div class="diff-preview-title-group">
+          <GitCompare :size="16" class="diff-preview-icon" />
+          <span class="diff-preview-title">{{ t("ai.previewingDiff") }}</span>
+        </div>
+        <div class="diff-preview-actions">
+          <button class="diff-preview-btn accept" @click="emit('accept-preview', props.previewDiffItem)">
+            <CheckCircle2 :size="14" />
+            {{ t("ai.acceptPreview") }}
+          </button>
+          <button class="diff-preview-btn discard" @click="emit('discard-preview')">
+            <X :size="14" />
+            {{ t("ai.discardPreview") }}
+          </button>
+        </div>
+      </div>
+      <div class="diff-preview-body">
+        <div class="diff-preview-lines">
+          <div
+            v-for="(line, idx) in previewDiffLines"
+            :key="idx"
+            :class="['diff-preview-line', `diff-type-${line.type}`]"
+          >
+            <span class="diff-line-num old-num">{{ line.oldLineNum || '' }}</span>
+            <span class="diff-line-num new-num">{{ line.newLineNum || '' }}</span>
+            <span class="diff-line-sign">{{ line.sign }}</span>
+            <span class="diff-line-content">{{ line.text }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
     <div
       v-if="selectionContextMenu"
       class="selection-context-menu"
@@ -805,13 +1305,21 @@ defineExpose({
 <style scoped>
 .editor-root {
   position: relative;
+  display: flex;
+  flex-direction: column;
   height: 100%;
   background: var(--ink-bg-editor);
   overflow: hidden;
 }
 
 .editor-container {
+  flex: 1;
+  min-height: 0;
   height: 100%;
+}
+
+.editor-root.has-format-bar :deep(.search-bar) {
+  top: 54px;
 }
 
 .editor-root :deep(.cm-editor) {
@@ -928,5 +1436,161 @@ defineExpose({
 
 .proofread-ignore:hover {
   color: var(--ink-text);
+}
+
+.diff-preview-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--ink-bg-editor);
+  color: var(--ink-text);
+}
+
+.diff-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--ink-surface);
+  border-bottom: 1px solid var(--ink-border);
+  flex-shrink: 0;
+}
+
+.diff-preview-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--ink-text);
+}
+
+.diff-preview-icon {
+  color: var(--ink-text-muted);
+}
+
+.diff-preview-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.diff-preview-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.diff-preview-btn.accept {
+  background: var(--ink-accent);
+  color: var(--ink-bg);
+}
+
+.diff-preview-btn.accept:hover {
+  opacity: 0.9;
+}
+
+.diff-preview-btn.discard {
+  background: transparent;
+  border-color: var(--ink-border);
+  color: var(--ink-text-muted);
+}
+
+.diff-preview-btn.discard:hover {
+  background: var(--ink-surface-hover);
+  color: var(--ink-text);
+}
+
+.diff-preview-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 0;
+}
+
+.diff-preview-lines {
+  display: flex;
+  flex-direction: column;
+}
+
+.diff-preview-line {
+  display: flex;
+  padding: 2px 0;
+  font-family: var(--font-editor);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-line-num {
+  flex-shrink: 0;
+  width: 40px;
+  text-align: right;
+  padding-right: 8px;
+  user-select: none;
+  color: var(--ink-text-muted);
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.diff-line-num.old-num {
+  border-right: none;
+}
+
+.diff-line-num.new-num {
+  border-right: 1px solid var(--ink-border);
+  margin-right: 8px;
+}
+
+.diff-line-sign {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  user-select: none;
+  font-weight: bold;
+  opacity: 0.75;
+}
+
+.diff-line-content {
+  flex: 1;
+  padding-right: 16px;
+}
+
+.diff-preview-line.diff-type-removed {
+  color: #c53030;
+  background: color-mix(in srgb, #e53e3e 9%, transparent);
+}
+
+.diff-preview-line.diff-type-removed .diff-line-num {
+  color: #c53030;
+}
+
+.diff-preview-line.diff-type-added {
+  color: #2f855a;
+  background: color-mix(in srgb, #38a169 10%, transparent);
+}
+
+.diff-preview-line.diff-type-added .diff-line-num {
+  color: #2f855a;
+}
+
+.diff-preview-line.diff-type-normal {
+  color: var(--ink-text);
+}
+
+.diff-preview-line.diff-type-ellipsis {
+  justify-content: center;
+  padding: 6px 0;
+  color: var(--ink-text-muted);
+  font-size: 11px;
+  font-style: italic;
+  background: color-mix(in srgb, var(--ink-bg) 82%, var(--ink-surface));
+  opacity: 0.75;
 }
 </style>

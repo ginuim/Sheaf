@@ -1,4 +1,5 @@
 import { computed, ref, watch, type Ref } from "vue";
+import { safeSetLocalStorageJson } from "../lib/storageBudget";
 import { isBlankDocument } from "./useAI";
 
 export type DocumentVersionKind = "snapshot";
@@ -14,14 +15,15 @@ export interface DocumentVersion {
 }
 
 const VERSIONS_KEY_PREFIX = "blank.doc-versions:";
-const MAX_VERSIONS = 48;
+const MAX_VERSIONS = 24;
+const VERSION_STORAGE_BUDGET_CHARS = 2_000_000;
 
 function versionsStorageKey(documentKey: string) {
   return `${VERSIONS_KEY_PREFIX}${documentKey}`;
 }
 
 function normalizeLabel(label: string) {
-  return label.replace(/^(修改前|修改后|应用前|应用后)\s*·\s*/, "").trim() || "历史版本";
+  return label.trim() || "历史版本";
 }
 
 function normalizeVersion(value: unknown): DocumentVersion | null {
@@ -30,7 +32,6 @@ function normalizeVersion(value: unknown): DocumentVersion | null {
   if (typeof item.id !== "string" || typeof item.timestamp !== "number") return null;
   if (typeof item.label !== "string" || typeof item.content !== "string") return null;
   if (item.kind !== "snapshot" && item.kind !== "ai-before" && item.kind !== "ai-after") return null;
-  if (/^(修改前|应用前)\s*·\s*/.test(item.label)) return null;
 
   return {
     id: item.id,
@@ -59,7 +60,29 @@ function loadSnapshots(documentKey: string): DocumentVersion[] {
 }
 
 function saveSnapshots(documentKey: string, versions: DocumentVersion[]) {
-  localStorage.setItem(versionsStorageKey(documentKey), JSON.stringify(versions.slice(0, MAX_VERSIONS)));
+  const trimSnapshots = (maxItems: number, budgetChars: number) => {
+    let payload = versions
+      .slice(0, maxItems)
+      .map((version) => ({ ...version, previousContent: undefined }));
+
+    while (payload.length > 1 && JSON.stringify(payload).length > budgetChars) {
+      payload = payload.slice(0, -1);
+    }
+
+    return payload;
+  };
+
+  safeSetLocalStorageJson(
+    versionsStorageKey(documentKey),
+    trimSnapshots(MAX_VERSIONS, VERSION_STORAGE_BUDGET_CHARS),
+    {
+      onQuotaExceeded: (attempt) =>
+        trimSnapshots(
+          Math.max(6, MAX_VERSIONS - (attempt + 1) * 4),
+          Math.max(500_000, VERSION_STORAGE_BUDGET_CHARS - (attempt + 1) * 350_000),
+        ),
+    },
+  );
 }
 
 export function migrateDocumentVersionsKey(fromKey: string, toKey: string) {
@@ -148,6 +171,23 @@ export function useDocumentVersions(getDocumentKey: () => string = () => "__unti
     currentSnapshots.value = [version, ...currentSnapshots.value].slice(0, MAX_VERSIONS);
   }
 
+  function addChangeSnapshots(
+    beforeLabel: string,
+    afterLabel: string,
+    previousContent: string,
+    nextContent: string,
+    timestamp = Date.now(),
+  ) {
+    if (previousContent === nextContent) return;
+
+    const currentSnapshots = snapshotsForKey(documentKey.value);
+    const latest = currentSnapshots.value[0];
+    if (latest?.content !== previousContent) {
+      addSnapshot(beforeLabel, previousContent, undefined, timestamp - 1);
+    }
+    addSnapshot(afterLabel, nextContent, previousContent, timestamp);
+  }
+
   function listVersions() {
     return [...snapshots.value].sort((left, right) => right.timestamp - left.timestamp);
   }
@@ -164,6 +204,7 @@ export function useDocumentVersions(getDocumentKey: () => string = () => "__unti
   return {
     snapshots,
     addSnapshot,
+    addChangeSnapshots,
     listVersions,
     removeVersionsForHistoryItem,
     clearSnapshots
