@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Moon, Sun } from "@lucide/vue";
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { useLocale } from "../composables/useLocale";
 import type { AppLocale } from "../i18n";
 import LandingChangelog from "./components/LandingChangelog.vue";
@@ -9,8 +9,16 @@ import LandingDocs from "./components/LandingDocs.vue";
 import LandingFaq from "./components/LandingFaq.vue";
 import LandingLegal from "./components/LandingLegal.vue";
 import LandingOverlay from "./components/LandingOverlay.vue";
-import SheafProductDemo from "./components/SheafProductDemo.vue";
 import type { DemoScenarioId } from "./components/SheafProductDemo.vue";
+
+const SheafProductDemo = defineAsyncComponent(
+  () => import("./components/SheafProductDemo.vue"),
+);
+
+type SheafProductDemoHandle = {
+  runScenario: (id: DemoScenarioId) => void;
+  runThemeToggle: () => void;
+};
 import { GITHUB_REPO_URL } from "./content/repo";
 import { useDownloadLink } from "./composables/useDownloadLink";
 import { useLandingContent } from "./composables/useLandingContent";
@@ -25,7 +33,9 @@ const { locale, setLocale, t, tm } = useLocale();
 const { docSections, changelog, faqItems, privacyPolicy, termsOfService } = useLandingContent();
 
 const { downloadHref } = useDownloadLink();
-const demoRef = ref<InstanceType<typeof SheafProductDemo> | null>(null);
+const demoRef = ref<SheafProductDemoHandle | null>(null);
+const demoSectionRef = ref<HTMLElement | null>(null);
+const shouldLoadDemo = ref(false);
 const isDark = ref(false);
 const activeDemoScenario = ref<DemoScenarioId | null>(null);
 const activeOverlay = ref<LandingOverlayPanel | null>(null);
@@ -48,7 +58,28 @@ function applyLandingTheme(dark: boolean) {
 
 watch(isDark, applyLandingTheme, { immediate: true });
 
+let demoObserver: IntersectionObserver | null = null;
+
+onMounted(() => {
+  const section = demoSectionRef.value;
+  if (!section) return;
+
+  demoObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        shouldLoadDemo.value = true;
+        demoObserver?.disconnect();
+        demoObserver = null;
+      }
+    },
+    { rootMargin: "320px" },
+  );
+
+  demoObserver.observe(section);
+});
+
 onUnmounted(() => {
+  demoObserver?.disconnect();
   delete document.documentElement.dataset.theme;
 });
 
@@ -187,12 +218,19 @@ const features = computed(() => [
       </div>
     </section>
 
-    <section id="demo" class="landing-demo-wrap" :aria-label="t('landing.demo.ariaLabel')">
+    <section
+      id="demo"
+      ref="demoSectionRef"
+      class="landing-demo-wrap"
+      :aria-label="t('landing.demo.ariaLabel')"
+    >
       <div class="landing-demo-stage">
         <SheafProductDemo
+          v-if="shouldLoadDemo"
           ref="demoRef"
           v-model:dark="isDark"
         />
+        <div v-else class="landing-demo-placeholder" aria-hidden="true" />
       </div>
       <div class="landing-demo-controls" role="group" :aria-label="t('landing.demo.controls')">
         <button
