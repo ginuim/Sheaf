@@ -9,6 +9,15 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.28",
+    date: "2026-07",
+    title: "小红书卡片分页优化",
+    items: [
+      "改用 DOM Range 精确保留文本边界的卡片分页切分",
+      "移除标题块合并和高度缓冲，避免导出空白页",
+    ],
+  },
+  {
     version: "0.2.27",
     date: "2026-06",
     title: "全局滚动条样式优化",
@@ -278,6 +287,15 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.28",
+    date: "2026-07",
+    title: "Xiaohongshu card pagination improvements",
+    items: [
+      "Use DOM range-based card pagination for accurate text boundaries",
+      "Remove heading block compaction and height buffer to prevent empty pages",
+    ],
+  },
   {
     version: "0.2.27",
     date: "2026-06",
