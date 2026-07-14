@@ -105,7 +105,7 @@ const XIAOHONGSHU_CAPTURE_SIZE = {
   height: XIAOHONGSHU_EXPORT_SIZE.height / XIAOHONGSHU_EXPORT_PIXEL_RATIO,
 } as const;
 const CARD_MEDIA_MIN_SCALE = 0.6;
-const CARD_PAGE_HEIGHT_BUFFER = 8;
+const CARD_SPLIT_SNAP_MAX_BACKTRACK = 4;
 
 const exporting = ref(false);
 const exportingImage = ref(false);
@@ -281,7 +281,7 @@ function extractCardBlocks(html: string) {
     }
   }
 
-  return compactPaginatedCardBlocks(blocks);
+  return blocks;
 }
 
 function splitPaginatedCardElement(element: HTMLElement) {
@@ -338,39 +338,6 @@ function splitPaginatedCardTable(table: HTMLTableElement) {
   }
 
   return blocks;
-}
-
-function isHeadingBlock(html: string) {
-  const root = document.createElement("div");
-  root.innerHTML = html.trim();
-  const first = root.firstElementChild;
-  return !!first && /^H[1-6]$/.test(first.tagName);
-}
-
-function compactPaginatedCardBlocks(blocks: string[]) {
-  const compacted: string[] = [];
-  for (let index = 0; index < blocks.length; index++) {
-    const block = blocks[index];
-    if (isHeadingBlock(block)) {
-      let group = block;
-      let cursor = index + 1;
-      while (cursor < blocks.length && isHeadingBlock(blocks[cursor])) {
-        group += blocks[cursor];
-        cursor += 1;
-      }
-      if (cursor < blocks.length) {
-        group += blocks[cursor];
-        compacted.push(group);
-        index = cursor;
-      } else {
-        compacted.push(group);
-        index = cursor - 1;
-      }
-      continue;
-    }
-    compacted.push(block);
-  }
-  return compacted;
 }
 
 function isScalableCardMediaBlock(html: string) {
@@ -474,43 +441,62 @@ function splitOversizedCardBlock(html: string, heightRatio: number) {
   });
 }
 
-function buildSplitCardBlock(original: HTMLElement, text: string, prefixHtml = "") {
-  const tagName = original.tagName.toLowerCase();
-  if (tagName === "ul" || tagName === "ol") {
-    const list = original.cloneNode(false) as HTMLElement;
-    const item = document.createElement("li");
-    item.textContent = text;
-    list.appendChild(item);
-    return prefixHtml + list.outerHTML;
+type SplittableCardBlock = {
+  element: HTMLElement;
+  contentElement: HTMLElement;
+  text: string;
+  textStart: number;
+};
+
+function findCardTextBoundary(root: HTMLElement, offset: number) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let remaining = Math.max(0, offset);
+  let node = walker.nextNode() as Text | null;
+
+  while (node) {
+    if (remaining <= node.data.length) {
+      return { container: node as Node, offset: remaining };
+    }
+    remaining -= node.data.length;
+    node = walker.nextNode() as Text | null;
   }
-  if (tagName === "blockquote") {
-    const quote = original.cloneNode(false) as HTMLElement;
-    quote.textContent = text;
-    return prefixHtml + quote.outerHTML;
+
+  return { container: root as Node, offset: root.childNodes.length };
+}
+
+function buildSplitCardBlock(
+  parsed: SplittableCardBlock,
+  startIndex: number,
+  endIndex: number,
+) {
+  const start = findCardTextBoundary(
+    parsed.contentElement,
+    parsed.textStart + startIndex,
+  );
+  const end = findCardTextBoundary(
+    parsed.contentElement,
+    parsed.textStart + endIndex,
+  );
+  const range = document.createRange();
+  range.setStart(start.container, start.offset);
+  range.setEnd(end.container, end.offset);
+
+  const contentClone = parsed.contentElement.cloneNode(false) as HTMLElement;
+  contentClone.appendChild(range.cloneContents());
+
+  if (parsed.contentElement === parsed.element) {
+    return contentClone.outerHTML;
   }
-  const paragraph = document.createElement("p");
-  paragraph.textContent = text;
-  return prefixHtml + paragraph.outerHTML;
+
+  const blockClone = parsed.element.cloneNode(false) as HTMLElement;
+  blockClone.appendChild(contentClone);
+  return blockClone.outerHTML;
 }
 
 function readSplittableCardBlock(html: string) {
   const root = document.createElement("div");
   root.innerHTML = html.trim();
   const elements = Array.from(root.children) as HTMLElement[];
-  if (elements.length > 1 && /^H[1-6]$/.test(elements[0].tagName)) {
-    const bodyElements = elements.slice(1);
-    if (!bodyElements.length || bodyElements.some((element) => element.tagName.toLowerCase() === "table")) {
-      return null;
-    }
-    const text = bodyElements.map((element) => element.textContent ?? "").join(" ").replace(/\s+/g, " ").trim();
-    if (text.length < 24) return null;
-    return {
-      element: bodyElements[0],
-      prefixHtml: elements[0].outerHTML,
-      text,
-    };
-  }
-
   if (elements.length !== 1) return null;
 
   const element = elements[0];
@@ -519,14 +505,29 @@ function readSplittableCardBlock(html: string) {
     return null;
   }
 
-  const text = (element.textContent ?? "").replace(/\s+/g, " ").trim();
-  if (text.length < 24) return null;
+  let contentElement = element;
+  if (tagName === "ul" || tagName === "ol") {
+    const items = Array.from(element.children).filter(
+      (child): child is HTMLElement => child.tagName.toLowerCase() === "li",
+    );
+    if (items.length !== 1) return null;
+    contentElement = items[0];
+  }
 
-  return { element, prefixHtml: "", text };
+  const rawText = contentElement.textContent ?? "";
+  const textStart = rawText.search(/\S/);
+  if (textStart < 0) return null;
+  const textEnd = rawText.search(/\s*$/);
+  const text = rawText.slice(textStart, textEnd);
+  if (text.length < 2) return null;
+
+  return { element, contentElement, text, textStart };
 }
 
 function snapCardSplitIndex(text: string, index: number) {
-  const minIndex = Math.max(1, index - 18);
+  // 只在测得的行尾附近吸附标点，避免为了完整句子回退大半行，
+  // 造成当前页明明还能容纳文字却留下明显空白。
+  const minIndex = Math.max(1, index - CARD_SPLIT_SNAP_MAX_BACKTRACK);
   const windowText = text.slice(0, index);
   const breakIndex = Math.max(
     windowText.lastIndexOf("。"),
@@ -540,16 +541,6 @@ function snapCardSplitIndex(text: string, index: number) {
   return breakIndex >= minIndex ? breakIndex + 1 : index;
 }
 
-function normalizeCardSplitText(head: string, tail: string) {
-  let normalizedHead = head.trim();
-  let normalizedTail = tail.trim();
-  while (/^[。；;，,、.!?！？]/.test(normalizedTail)) {
-    normalizedHead += normalizedTail[0];
-    normalizedTail = normalizedTail.slice(1).trim();
-  }
-  return { head: normalizedHead, tail: normalizedTail };
-}
-
 async function splitCardBlockToFitPage(
   currentHtml: string,
   block: string,
@@ -560,16 +551,12 @@ async function splitCardBlockToFitPage(
   if (!parsed) return null;
 
   let low = 1;
-  let high = parsed.text.length;
+  let high = parsed.text.length - 1;
   let bestIndex = 0;
 
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
-    const candidate = buildSplitCardBlock(
-      parsed.element,
-      parsed.text.slice(0, mid),
-      parsed.prefixHtml,
-    );
+    const candidate = buildSplitCardBlock(parsed, 0, mid);
     const candidateHeight = await measureContentHeight(currentHtml + candidate, runId);
     if (runId !== paginationRunId) return null;
 
@@ -582,17 +569,14 @@ async function splitCardBlockToFitPage(
   }
 
   const splitIndex = snapCardSplitIndex(parsed.text, bestIndex);
-  if (splitIndex < Math.min(18, parsed.text.length)) return null;
-
-  const { head: headText, tail: tailText } = normalizeCardSplitText(
-    parsed.text.slice(0, splitIndex),
-    parsed.text.slice(splitIndex),
-  );
-  if (!headText || !tailText) return null;
+  // DOM 高度按整行增长；只要能放入任意字符，二分搜索就会继续吃满
+  // 当前可用的最后一行。不要再用固定字符数判断，否则列表缩进、粗体
+  // 或较大字号下，一整行少于 18 个字符时会被误判为不可拆分。
+  if (splitIndex <= 0 || splitIndex >= parsed.text.length) return null;
 
   return [
-    buildSplitCardBlock(parsed.element, headText, parsed.prefixHtml),
-    buildSplitCardBlock(parsed.element, tailText),
+    buildSplitCardBlock(parsed, 0, splitIndex),
+    buildSplitCardBlock(parsed, splitIndex, parsed.text.length),
   ];
 }
 
@@ -869,7 +853,9 @@ async function paginateXiaohongshuCards(
   if (runId !== paginationRunId) return null;
 
   const availableHeight = contentEl.clientHeight;
-  const targetHeight = Math.max(1, Math.floor(availableHeight - CARD_PAGE_HEIGHT_BUFFER));
+  // 测量面与最终卡片共用同一套尺寸和样式，直接使用完整正文高度。
+  // 额外扣减固定缓冲会让本可容纳的最后一行被错误推到下一页。
+  const targetHeight = Math.max(1, Math.floor(availableHeight));
   const hardHeight = targetHeight;
 
   let currentBlocks: string[] = [];

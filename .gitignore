@@ -14,6 +14,9 @@ dist
 dist-ssr
 /release
 *.local
+.env
+.env.*
+!.env.example
 .tauri/
 *.key
 src-tauri/tauri.updater.conf.json
@@ -37,4 +40,5 @@ docs/superpowers/
 src-tauri/docs/ARCHIVED_MAC_APP_STORE.md
 
 # Local ops scripts (deploy, nginx, etc.) — not part of the public repo
-/scripts/
+/scripts/*
+!/scripts/upload-r2.mjs
