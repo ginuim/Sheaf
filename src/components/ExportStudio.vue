@@ -2845,6 +2845,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   align-items: center;
   gap: 10px;
   min-width: 0;
+  flex: 1;
 }
 
 .author-avatar {
@@ -2864,21 +2865,16 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   flex-direction: column;
   line-height: 1.3;
   min-width: 0;
+  flex: 1;
 }
 
 .author-name {
   font-size: 11px;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .author-desc {
   font-size: 9px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* 控制台目的地切换 */
