@@ -15,6 +15,7 @@ import OutlinePanel from "./components/OutlinePanel.vue";
 import AboutPanel from "./components/AboutPanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import UpdateDialog from "./components/UpdateDialog.vue";
+import ImageCropDialog from "./components/ImageCropDialog.vue";
 import StartPage from "./components/StartPage.vue";
 import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
@@ -44,6 +45,14 @@ import {
   needsChineseEnglishSpacingFormatting,
 } from "./lib/cjkSpacing";
 import { filterDocumentPaths, filterImagePaths } from "./lib/dropped-paths";
+import { mimeTypeFromPath, extensionFromMimeType, extensionFromSrc, sourceNameFromSrc, isExternalImageSrc } from "./lib/crop-image";
+import { replaceImageSrc, findImageBySrc } from "./lib/markdown-image";
+import {
+  isImageHostingProviderConfigured,
+  uploadToConfiguredImageHost,
+} from "./lib/imageHosting";
+import type { PreviewImageCropPayload } from "./components/MarkdownPreview.vue";
+import { writeFile } from "@tauri-apps/plugin-fs";
 import {
   clearUnsavedDraft,
   hasRecoverableDraft,
@@ -72,6 +81,11 @@ const showExport = ref(false);
 const editorRef = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 const previewRef = ref<InstanceType<typeof MarkdownPreview> | null>(null);
 const previewPaneRef = ref<HTMLElement | null>(null);
+const previewMediaEpoch = ref(0);
+const imageCropOpen = ref(false);
+const imageCropTarget = ref<PreviewImageCropPayload | null>(null);
+const imageCropPreviewSrc = ref("");
+const imageCropObjectUrl = ref<string | null>(null);
 const workspaceRef = ref<HTMLElement | null>(null);
 const exporting = ref(false);
 const exportingPdf = ref(false);
@@ -441,6 +455,127 @@ async function handleOpenLink(href: string) {
   }
   await restoreScrollRatio(0);
 }
+
+function revokeImageCropObjectUrl() {
+  if (!imageCropObjectUrl.value) return;
+  URL.revokeObjectURL(imageCropObjectUrl.value);
+  imageCropObjectUrl.value = null;
+}
+
+function closeImageCropDialog() {
+  imageCropOpen.value = false;
+  imageCropTarget.value = null;
+  imageCropPreviewSrc.value = "";
+  revokeImageCropObjectUrl();
+}
+
+async function handleCropImageRequest(payload: PreviewImageCropPayload) {
+  if (/\.svg(?:$|[?#])/i.test(payload.markdownSrc) || /\.svg$/i.test(payload.localPath ?? "")) {
+    showToast("info", t("editor.imageCrop.svgUnsupported"));
+    return;
+  }
+
+  if (isExternalImageSrc(payload.markdownSrc)) {
+    if (!isImageHostingProviderConfigured(appPreferences.imageHosting)) {
+      showToast("info", t("editor.imageCrop.uploadNotConfigured"));
+      return;
+    }
+
+    try {
+      const response = await fetch(payload.previewSrc);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image (${response.status}).`);
+      }
+      const blob = await response.blob();
+      revokeImageCropObjectUrl();
+      const objectUrl = URL.createObjectURL(blob);
+      imageCropObjectUrl.value = objectUrl;
+      imageCropPreviewSrc.value = objectUrl;
+    } catch {
+      showToast("error", t("editor.imageCrop.loadFailed"));
+      return;
+    }
+  } else {
+    revokeImageCropObjectUrl();
+    const joiner = payload.previewSrc.includes("?") ? "&" : "?";
+    imageCropPreviewSrc.value = `${payload.previewSrc}${joiner}crop=${Date.now()}`;
+  }
+
+  imageCropTarget.value = payload;
+  imageCropOpen.value = true;
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function handleImageCropConfirm(blob: Blob) {
+  const target = imageCropTarget.value;
+  if (!target) return;
+
+  try {
+    if (target.localPath && isTauri()) {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      await writeFile(target.localPath, bytes);
+      previewMediaEpoch.value += 1;
+      closeImageCropDialog();
+      showToast("success", t("editor.imageCrop.saved"));
+      return;
+    }
+
+    if (isExternalImageSrc(target.markdownSrc)) {
+      const mimeType = blob.type || mimeTypeFromPath(`image.${extensionFromSrc(target.markdownSrc)}`);
+      const hosted = await uploadToConfiguredImageHost(appPreferences.imageHosting, {
+        bytes: new Uint8Array(await blob.arrayBuffer()),
+        extension: extensionFromMimeType(mimeType),
+        mimeType,
+        sourceName: sourceNameFromSrc(target.markdownSrc),
+      });
+      const match = findImageBySrc(content.value, target.markdownSrc);
+      if (!match) {
+        showToast("error", t("editor.imageCrop.saveFailed"));
+        return;
+      }
+      content.value = replaceImageSrc(content.value, match, hosted.src);
+      previewMediaEpoch.value += 1;
+      closeImageCropDialog();
+      showToast("success", t("editor.imageCrop.saved"));
+      return;
+    }
+
+    if (target.markdownSrc.startsWith("data:")) {
+      const dataUrl = await blobToDataUrl(blob);
+      const match = findImageBySrc(content.value, target.markdownSrc);
+      if (!match) {
+        showToast("error", t("editor.imageCrop.saveFailed"));
+        return;
+      }
+      content.value = replaceImageSrc(content.value, match, dataUrl);
+      closeImageCropDialog();
+      showToast("success", t("editor.imageCrop.saved"));
+      return;
+    }
+
+    showToast("error", t("editor.imageCrop.saveFailed"));
+  } catch {
+    showToast("error", t("editor.imageCrop.saveFailed"));
+  }
+}
+
+const imageCropOutputMimeType = computed(() => {
+  const target = imageCropTarget.value;
+  if (!target) return "image/png";
+  if (target.localPath) return mimeTypeFromPath(target.localPath);
+  if (isExternalImageSrc(target.markdownSrc)) {
+    return mimeTypeFromPath(`image.${extensionFromSrc(target.markdownSrc)}`);
+  }
+  return "image/png";
+});
 
 async function goBackDocument() {
   const previous = docHistory.value[docHistory.value.length - 1];
@@ -876,6 +1011,10 @@ function navigateToHeading(item: OutlineItem) {
 
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") {
+    if (imageCropOpen.value) {
+      closeImageCropDialog();
+      return;
+    }
     if (!showStartPage.value && editorRef.value?.isSearchOpen()) {
       editorRef.value.closeSearch();
       return;
@@ -1062,6 +1201,14 @@ onUnmounted(() => {
       @cancel="dismissPendingUpdate"
     />
 
+    <ImageCropDialog
+      :open="imageCropOpen"
+      :image-src="imageCropPreviewSrc"
+      :output-mime-type="imageCropOutputMimeType"
+      @close="closeImageCropDialog"
+      @confirm="handleImageCropConfirm"
+    />
+
     <StartPage
       v-if="showStartPage"
       :recent-files="recentFiles"
@@ -1149,7 +1296,9 @@ onUnmounted(() => {
           ref="previewRef"
           :source="content"
           :doc-file-path="filePath"
+          :media-epoch="previewMediaEpoch"
           @open-link="handleOpenLink"
+          @crop-image="handleCropImageRequest"
           @layout-change="handlePreviewLayoutChange"
         />
       </section>

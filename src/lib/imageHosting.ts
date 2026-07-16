@@ -440,7 +440,7 @@ async function uploadToS3(
   };
 }
 
-export async function uploadToDefaultImageHost(
+export async function uploadToConfiguredImageHost(
   preferences: ImageHostingPreferences,
   source: ImageUploadSource,
 ): Promise<HostedImage> {
@@ -457,4 +457,19 @@ export async function uploadToDefaultImageHost(
     return uploadToS3(preferences.s3, source);
   }
   throw new Error("Unsupported image hosting provider.");
+}
+
+export function isImageHostingProviderConfigured(preferences: ImageHostingPreferences) {
+  if (preferences.provider === "qiniu") return isQiniuConfigured(preferences.qiniu);
+  if (preferences.provider === "oss") return isOssConfigured(preferences.oss);
+  if (preferences.provider === "cos") return isCosConfigured(preferences.cos);
+  if (preferences.provider === "s3") return isS3Configured(preferences.s3);
+  return false;
+}
+
+export async function uploadToDefaultImageHost(
+  preferences: ImageHostingPreferences,
+  source: ImageUploadSource,
+): Promise<HostedImage> {
+  return uploadToConfiguredImageHost(preferences, source);
 }

@@ -2,16 +2,26 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { renderMermaidIn } from "../composables/useMermaid";
 import { renderMarkdown } from "../composables/useMarkdown";
+import { resolveMediaSrc } from "../composables/resolveMediaSrc";
 import { useExportTypography } from "../composables/useExportTypography";
+
+export type PreviewImageCropPayload = {
+  previewSrc: string;
+  markdownSrc: string;
+  localPath: string | null;
+  sourceLine: number;
+};
 
 const props = defineProps<{
   source: string;
   docFilePath?: string | null;
+  mediaEpoch?: number;
 }>();
 
 const emit = defineEmits<{
   "open-link": [href: string];
   "layout-change": [];
+  "crop-image": [payload: PreviewImageCropPayload];
 }>();
 
 const articleRef = ref<HTMLElement | null>(null);
@@ -27,6 +37,12 @@ type ScrollAnchor = {
 const html = computed(() =>
   renderMarkdown(props.source, props.docFilePath ?? null, {
     chineseEnglishSpacing: exportTypographySettings.chineseEnglishSpacing,
+    resolveMedia: (docFilePath, src) => {
+      const url = resolveMediaSrc(docFilePath, src);
+      if (!props.mediaEpoch) return url;
+      const joiner = url.includes("?") ? "&" : "?";
+      return `${url}${joiner}v=${props.mediaEpoch}`;
+    },
   }),
 );
 
@@ -138,6 +154,22 @@ function scheduleLayoutChange() {
 }
 
 function onPreviewClick(e: MouseEvent) {
+  const image = (e.target as HTMLElement).closest("img.preview-image");
+  if (image instanceof HTMLImageElement) {
+    const markdownSrc = image.dataset.sheafMdSrc;
+    if (!markdownSrc) return;
+
+    const sourceLine = Number(image.dataset.sourceLine);
+    e.preventDefault();
+    emit("crop-image", {
+      previewSrc: image.currentSrc || image.src,
+      markdownSrc,
+      localPath: image.dataset.sheafLocalSrc ?? null,
+      sourceLine: Number.isFinite(sourceLine) ? sourceLine : 0,
+    });
+    return;
+  }
+
   const anchor = (e.target as HTMLElement).closest("a");
   if (!anchor) return;
 
@@ -175,5 +207,9 @@ defineExpose({
   max-width: var(--content-max);
   margin: 0 auto;
   padding: 2.5rem 2rem 4rem;
+}
+
+.preview-content :deep(img.preview-image) {
+  cursor: pointer;
 }
 </style>

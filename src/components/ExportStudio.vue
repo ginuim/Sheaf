@@ -2340,7 +2340,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 
 /* 宽高比例适配 */
 .capture-box.type-xiaohongshu {
-  aspect-ratio: 1242 / 1660;
+  aspect-ratio: 3 / 4;
   width: 414px;
   height: 553.333333px;
 }

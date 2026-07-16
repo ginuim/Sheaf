@@ -70,6 +70,14 @@ const defaultImageRender =
 md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
   const src = token.attrGet("src");
+  if (src) {
+    token.attrSet("data-sheaf-md-src", src);
+  }
+  if (token.map) {
+    const [start, end] = token.map;
+    token.attrSet("data-source-line", String(start));
+    token.attrSet("data-source-line-end", String(Math.max(start, end - 1)));
+  }
   if (src && env.docFilePath) {
     const localPath = resolveMediaPath(env.docFilePath, src);
     if (localPath) {
@@ -80,6 +88,7 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
       : resolveMediaSrc;
     token.attrSet("src", resolveMedia(env.docFilePath, src));
   }
+  token.attrJoin("class", "preview-image");
   return defaultImageRender(tokens, idx, options, env, self);
 };
 
