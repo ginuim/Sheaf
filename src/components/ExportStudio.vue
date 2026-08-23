@@ -97,7 +97,7 @@ const longImageQrDataUrl = ref("");
 
 const XIAOHONGSHU_EXPORT_SIZE = {
   width: 1242,
-  height: 1660,
+  height: 2070,
 } as const;
 const XIAOHONGSHU_EXPORT_PIXEL_RATIO = 3;
 const XIAOHONGSHU_CAPTURE_SIZE = {
@@ -2340,9 +2340,9 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 
 /* 宽高比例适配 */
 .capture-box.type-xiaohongshu {
-  aspect-ratio: 3 / 4;
+  aspect-ratio: 3 / 5;
   width: 414px;
-  height: 553.333333px;
+  height: 690px;
 }
 
 .capture-box.type-long-image {

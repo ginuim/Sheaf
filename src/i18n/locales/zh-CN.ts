@@ -105,6 +105,10 @@ export default {
     viewEdit: "编辑",
     viewPreview: "预览",
   },
+  documents: {
+    ariaLabel: "已打开的文档",
+    title: "文档",
+  },
   startPage: {
     ariaLabel: "开始",
     title: "开始写作",
@@ -472,7 +476,7 @@ console.log(greeting);
     wechatStyle: "公众号样式",
     wechatStyleHint: "样式已自动内联，无需手动调色",
     cardSettings: "卡片设置",
-    cardSettingsHint: "分享卡片固定为 3:4 竖图，正文会自动收放以适配卡面。",
+    cardSettingsHint: "分享卡片固定为 3:5 竖图，正文会自动收放以适配卡面。",
     longImageSettings: "长图设置",
     longImageSettingsHint: "可限制最大高度，超出部分以渐变遮罩；二维码用于引流。",
     longImageMaxHeight: "最大高度",

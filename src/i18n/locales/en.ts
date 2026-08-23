@@ -105,6 +105,10 @@ export default {
     viewEdit: "Edit",
     viewPreview: "Preview",
   },
+  documents: {
+    ariaLabel: "Open documents",
+    title: "Documents",
+  },
   startPage: {
     ariaLabel: "Start",
     title: "Start writing",
@@ -472,7 +476,7 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     wechatStyle: "Layout style",
     wechatStyleHint: "Styles are inlined automatically — paste-ready for blogs, newsletters, and CMS editors.",
     cardSettings: "Card settings",
-    cardSettingsHint: "Share cards use a fixed 3:4 portrait ratio. Content scales to fit.",
+    cardSettingsHint: "Share cards use a fixed 3:5 portrait ratio. Content scales to fit.",
     longImageSettings: "Long image settings",
     longImageSettingsHint: "Cap the max height with a gradient fade; add a QR code for traffic.",
     longImageMaxHeight: "Max height",

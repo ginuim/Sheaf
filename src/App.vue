@@ -10,6 +10,7 @@ import AIPanel from "./components/AIPanel.vue";
 import AIVersionViewer from "./components/AIVersionViewer.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
 import MarkdownPreview from "./components/MarkdownPreview.vue";
+import DocumentSwitcher from "./components/DocumentSwitcher.vue";
 import ExportStudio from "./components/ExportStudio.vue";
 import OutlinePanel from "./components/OutlinePanel.vue";
 import AboutPanel from "./components/AboutPanel.vue";
@@ -44,7 +45,7 @@ import {
   applyChineseEnglishSpacingToMarkdownSource,
   needsChineseEnglishSpacingFormatting,
 } from "./lib/cjkSpacing";
-import { filterDocumentPaths, filterImagePaths } from "./lib/dropped-paths";
+import { filterImagePaths } from "./lib/dropped-paths";
 import { mimeTypeFromPath, extensionFromMimeType, extensionFromSrc, sourceNameFromSrc, isExternalImageSrc } from "./lib/crop-image";
 import { replaceImageSrc, findImageBySrc } from "./lib/markdown-image";
 import {
@@ -116,6 +117,7 @@ const pendingAiContext = ref<AgentContextSnippet | null>(null);
 const previewingDiffItem = ref<AIHistoryItem | null>(null);
 const showStartPage = ref(true);
 const recentFiles = ref<string[]>(loadRecent());
+const workspaceDocuments = ref<string[]>([]);
 const pendingDraft = ref<UnsavedDraft | null>(loadUnsavedDraft());
 const recoverableDraft = computed(() =>
   hasRecoverableDraft(pendingDraft.value) ? pendingDraft.value : null
@@ -234,6 +236,9 @@ function onPathOpened(path: string) {
 const allowedAiReadPaths = computed(() => {
   const paths = new Set<string>();
   if (filePath.value) paths.add(filePath.value);
+  for (const path of workspaceDocuments.value) {
+    paths.add(path);
+  }
   for (const path of recentFiles.value) {
     paths.add(path);
   }
@@ -390,6 +395,7 @@ async function openFileWithConfirm() {
   if (!(await confirmDiscardChanges())) return;
   const opened = await openFile();
   if (opened) {
+    workspaceDocuments.value = filePath.value ? [filePath.value] : [];
     showStartPage.value = false;
     clearDocHistory();
   }
@@ -408,6 +414,7 @@ async function openRecentFile(path: string) {
   }
 
   showStartPage.value = false;
+  workspaceDocuments.value = [path];
   clearDocHistory();
 }
 
@@ -589,13 +596,41 @@ async function goBackDocument() {
 }
 
 async function handleOpenedFiles(paths: string[]) {
-  let opened = false;
-  for (const path of paths) {
-    opened = (await openAssociatedFile(path)) || opened;
+  const uniquePaths = [...new Set(paths)];
+  if (uniquePaths.length === 0) return;
+
+  const nextDocuments = workspaceDocuments.value.length > 1
+    ? [...new Set([...workspaceDocuments.value, ...uniquePaths])]
+    : uniquePaths;
+  const targetPath = uniquePaths[0];
+
+  if (targetPath !== filePath.value && !(await confirmDiscardChanges())) return;
+
+  const opened = targetPath === filePath.value || await openFileAtPath(targetPath);
+  if (!opened) {
+    await message(t("app.fileReadError"), {
+      title: t("app.title"),
+      kind: "error",
+    });
+    return;
   }
-  if (opened) {
-    showStartPage.value = false;
-    clearDocHistory();
+
+  workspaceDocuments.value = nextDocuments;
+  showStartPage.value = false;
+  clearDocHistory();
+}
+
+async function switchWorkspaceDocument(path: string) {
+  if (path === filePath.value) return;
+  if (!(await confirmDiscardChanges())) return;
+
+  const opened = await openFileAtPath(path);
+  if (!opened) {
+    workspaceDocuments.value = workspaceDocuments.value.filter((item) => item !== path);
+    await message(t("app.fileReadError"), {
+      title: t("app.title"),
+      kind: "error",
+    });
   }
 }
 
@@ -1126,14 +1161,16 @@ onMounted(async () => {
         if (event.payload.type !== "drop") return;
 
         const imagePaths = filterImagePaths(event.payload.paths);
-        const documentPaths = filterDocumentPaths(event.payload.paths);
+        const documentSources = event.payload.paths.filter(
+          (path) => !imagePaths.includes(path),
+        );
 
         if (imagePaths.length > 0) {
           void handleDroppedImagePaths(imagePaths);
         }
 
-        if (documentPaths.length > 0) {
-          void invoke("open_dropped_files", { paths: documentPaths });
+        if (documentSources.length > 0) {
+          void invoke("open_dropped_files", { paths: documentSources });
         }
       });
     } catch (error) {
@@ -1235,6 +1272,13 @@ onUnmounted(() => {
       ]"
       :style="splitLayoutStyle"
     >
+      <DocumentSwitcher
+        v-if="workspaceDocuments.length > 1"
+        :paths="workspaceDocuments"
+        :active-path="filePath"
+        @select="switchWorkspaceDocument"
+      />
+
       <button
         v-if="canGoBack"
         class="doc-back"
@@ -1308,7 +1352,7 @@ onUnmounted(() => {
         :doc="content"
         :document-key="aiDocumentKey"
         :document-path="filePath"
-        :workspace-paths="recentFiles"
+        :workspace-paths="workspaceDocuments.length > 1 ? workspaceDocuments : recentFiles"
         :read-workspace-file="readAiWorkspaceFile"
         :pending-context="pendingAiContext"
         :proofread-issues="proofreadIssues"

@@ -10,6 +10,70 @@ use tauri::{AppHandle, Emitter, Manager};
 
 struct PendingFiles(Mutex<Vec<String>>);
 
+const MAX_DROPPED_DOCUMENTS: usize = 1_000;
+
+fn is_document(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "md" | "markdown" | "txt"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn collect_documents(path: &Path, documents: &mut Vec<PathBuf>) {
+    if documents.len() >= MAX_DROPPED_DOCUMENTS {
+        return;
+    }
+
+    if path.is_file() {
+        if is_document(path) {
+            documents.push(path.to_path_buf());
+        }
+        return;
+    }
+
+    if !path.is_dir() {
+        return;
+    }
+
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        if documents.len() >= MAX_DROPPED_DOCUMENTS {
+            break;
+        }
+
+        let entry_path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() || file_type.is_file() {
+            collect_documents(&entry_path, documents);
+        }
+    }
+}
+
+fn expand_document_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut documents = Vec::new();
+    for path in paths {
+        collect_documents(&path, &mut documents);
+    }
+
+    documents.sort_by_cached_key(|path| path.to_string_lossy().to_lowercase());
+    documents.dedup();
+    documents
+}
+
 fn allow_file(app: &AppHandle, path: &Path) {
     use tauri_plugin_fs::FsExt;
     let _ = app.fs_scope().allow_file(path);
@@ -46,7 +110,7 @@ fn take_opened_files(state: tauri::State<'_, PendingFiles>) -> Vec<String> {
 #[tauri::command]
 fn open_dropped_files(app: AppHandle, paths: Vec<String>) {
     let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-    handle_opened_files(&app, paths);
+    handle_opened_files(&app, expand_document_paths(paths));
 }
 
 #[tauri::command]
