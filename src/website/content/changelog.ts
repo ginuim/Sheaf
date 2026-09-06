@@ -9,6 +9,16 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.29",
+    date: "2026-09",
+    title: "多文档工作流与图片裁剪",
+    items: [
+      "支持拖入文件夹展开为 Markdown 文档列表，并在文档切换栏中快速切换",
+      "预览区点击图片可直接裁剪，结果可保存到本地或上传图床",
+      "支持关闭当前文档（菜单 / 工具栏 / ⌘W），窗口重新聚焦时检测外部文件变更并提示刷新",
+    ],
+  },
+  {
     version: "0.2.28",
     date: "2026-07",
     title: "小红书卡片分页优化",
@@ -287,6 +297,16 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.29",
+    date: "2026-09",
+    title: "Multi-document workflow and image cropping",
+    items: [
+      "Drop folders to expand into a Markdown document list and switch quickly from the document bar",
+      "Crop images directly from the preview pane; save locally or upload to the configured image host",
+      "Close the current document via menu, toolbar, or Cmd/Ctrl+W; detect external file changes on focus and offer reload",
+    ],
+  },
   {
     version: "0.2.28",
     date: "2026-07",
