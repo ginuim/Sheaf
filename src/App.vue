@@ -2,6 +2,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
@@ -53,7 +54,7 @@ import {
   uploadToConfiguredImageHost,
 } from "./lib/imageHosting";
 import type { PreviewImageCropPayload } from "./components/MarkdownPreview.vue";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { readTextFile, writeFile } from "@tauri-apps/plugin-fs";
 import {
   clearUnsavedDraft,
   hasRecoverableDraft,
@@ -253,7 +254,7 @@ async function readAiWorkspaceFile(path: string): Promise<string> {
   return readTextFile(path);
 }
 
-const { filePath, fileName, openFile, openFileAtPath, newFile, saveFile, saveFileAs, restoreFileState } =
+const { filePath, fileName, diskContent, fileOperationInProgress, openFile, openFileAtPath, newFile, saveFile, saveFileAs, restoreFileState } =
   useFile(
     (loaded) => {
       content.value = loaded;
@@ -361,7 +362,8 @@ function recoverUnsavedDraft() {
   restoreFileState({
     content: draft.content,
     fileName: draft.fileName,
-    filePath: draft.filePath
+    filePath: draft.filePath,
+    diskContent: draft.baselineContent,
   });
   baselineContent.value = draft.baselineContent;
   showOutline.value = parseOutline(draft.content).length > 0;
@@ -374,12 +376,91 @@ function discardUnsavedDraft() {
   pendingDraft.value = null;
 }
 
+let nativePromptOpen = false;
+
 async function confirmDiscardChanges(): Promise<boolean> {
   if (!isDirty.value) return true;
-  return ask(t("app.unsavedChanges"), {
-    title: t("app.title"),
-    kind: "warning",
-  });
+  nativePromptOpen = true;
+  try {
+    return await ask(t("app.unsavedChanges"), {
+      title: t("app.title"),
+      kind: "warning",
+    });
+  } finally {
+    nativePromptOpen = false;
+  }
+}
+
+let checkingExternalFile = false;
+
+async function checkCurrentFileForExternalChanges() {
+  const checkedPath = filePath.value;
+  if (
+    !checkedPath ||
+    showStartPage.value ||
+    checkingExternalFile ||
+    nativePromptOpen ||
+    fileOperationInProgress.value
+  ) return;
+
+  checkingExternalFile = true;
+  try {
+    const nextDiskContent = await readTextFile(checkedPath);
+    if (filePath.value !== checkedPath || showStartPage.value) return;
+    if (diskContent.value === null) {
+      diskContent.value = nextDiskContent;
+      return;
+    }
+    if (nextDiskContent === diskContent.value) return;
+
+    // Record the observed version before opening the native prompt so focus
+    // events caused by the prompt cannot enqueue the same change again.
+    diskContent.value = nextDiskContent;
+
+    if (nextDiskContent === content.value) {
+      baselineContent.value = nextDiskContent;
+      clearUnsavedDraft();
+      pendingDraft.value = null;
+      return;
+    }
+
+    const shouldRefresh = await ask(
+      t(isDirty.value ? "app.externalFileChangedDirty" : "app.externalFileChanged"),
+      { title: t("app.title"), kind: "warning" },
+    );
+    if (filePath.value !== checkedPath || showStartPage.value) return;
+
+    // The current editor contents are compared with the latest disk version.
+    // Declining therefore keeps the editor contents and marks them as dirty.
+    baselineContent.value = nextDiskContent;
+    if (!shouldRefresh) return;
+
+    content.value = nextDiskContent;
+    showOutline.value = parseOutline(nextDiskContent).length > 0;
+    clearUnsavedDraft();
+    pendingDraft.value = null;
+  } catch {
+    // A temporarily unavailable or deleted file cannot be refreshed. Existing
+    // content remains intact and normal open/save errors continue to handle it.
+  } finally {
+    checkingExternalFile = false;
+  }
+}
+
+async function closeCurrentDocument() {
+  if (showStartPage.value) return;
+  if (!(await confirmDiscardChanges())) return;
+
+  newFile();
+  draftSessionId.value = createDraftSessionId();
+  workspaceDocuments.value = [];
+  showStartPage.value = true;
+  showExport.value = false;
+  showAI.value = false;
+  closeVersionHistory();
+  clearDocHistory();
+  clearUnsavedDraft();
+  pendingDraft.value = null;
 }
 
 async function newFileWithConfirm() {
@@ -647,6 +728,7 @@ function handleRemoveRecent(path: string) {
 
 let unlistenOpened: UnlistenFn | null = null;
 let unlistenDragDrop: UnlistenFn | null = null;
+let unlistenWindowFocus: UnlistenFn | null = null;
 
 const showEditor = computed(() => viewMode.value !== "preview");
 const showPreview = computed(() => viewMode.value !== "edit");
@@ -1094,6 +1176,9 @@ function handleKeydown(e: KeyboardEvent) {
   } else if (e.key === "o") {
     e.preventDefault();
     void openFileWithConfirm();
+  } else if (e.key === "w" && !e.shiftKey && !showStartPage.value) {
+    e.preventDefault();
+    void closeCurrentDocument();
   } else if (e.key === "[" && canGoBack.value) {
     e.preventDefault();
     void goBackDocument();
@@ -1113,6 +1198,7 @@ const appMenuHandlers: AppMenuHandlers = {
   onOpenRecent: (path) => void openRecentFile(path),
   onSave: () => void saveFile(content.value),
   onSaveAs: () => void saveFileAs(content.value),
+  onClose: () => void closeCurrentDocument(),
   onFormatSpacing: formatChineseEnglishSpacing,
   onExportPdf: () => void handleExportPdf(),
   onCopyWechatHtml: () => void handleCopyWechatHtml(),
@@ -1146,6 +1232,10 @@ onMounted(async () => {
 
   if (hasTauriRuntime()) {
     await refreshAppMenu();
+
+    unlistenWindowFocus = await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) void checkCurrentFileForExternalChanges();
+    });
 
     const pending = await invoke<string[]>("take_opened_files");
     if (pending.length > 0) {
@@ -1189,6 +1279,7 @@ onUnmounted(() => {
   }
   unlistenOpened?.();
   unlistenDragDrop?.();
+  unlistenWindowFocus?.();
 });
 </script>
 
@@ -1211,6 +1302,7 @@ onUnmounted(() => {
       @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @save="saveFile(content)"
+      @close-doc="closeCurrentDocument"
       @reveal-in-folder="revealCurrentFileInFolder"
       @export-pdf="handleExportPdf"
       @toggle-theme="toggleTheme"

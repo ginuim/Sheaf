@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from "vue";
-import { ChevronDown, FilePlus, Folder, FolderOpen, ClipboardClock, ListTree, Save } from "@lucide/vue";
+import { ChevronDown, FilePlus, Folder, FolderOpen, ClipboardClock, ListTree, Save, X } from "@lucide/vue";
 import { useLocale } from "../composables/useLocale";
 
 export type ViewMode = "split" | "edit" | "preview";
@@ -25,6 +25,7 @@ const emit = defineEmits<{
   newDoc: [];
   open: [];
   save: [];
+  closeDoc: [];
   exportPdf: [];
   openExport: [];
   toggleTheme: [];
@@ -116,6 +117,14 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
       <span class="doc-title" :title="fileName">
         {{ fileName }}<span v-if="isDirty" class="dirty"> ·</span>
       </span>
+      <button
+        class="btn btn-icon btn-ghost doc-close"
+        :title="`${t('toolbar.closeDoc')} (⌘W)`"
+        :aria-label="t('toolbar.closeDoc')"
+        @click="emit('closeDoc')"
+      >
+        <X :size="14" aria-hidden="true" />
+      </button>
     </div>
 
     <div class="toolbar-right">
@@ -284,6 +293,13 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClick));
   flex-shrink: 0;
   -webkit-app-region: no-drag;
   color: var(--ink-text-muted);
+}
+
+.doc-close {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  -webkit-app-region: no-drag;
 }
 
 .doc-reveal:hover {
