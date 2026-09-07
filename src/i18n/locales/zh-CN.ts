@@ -415,7 +415,7 @@ console.log(greeting);
     acceptPreview: "接受修改",
     discardPreview: "放弃修改",
     agentPlaceholder: "让 AI 帮你查证、改写或续写这篇稿子...",
-    editPlaceholder: "描述要改的地方，可接着上一轮继续说...",
+    editPlaceholder: "有问题直接问。对话模式不能联网或改文档...",
     charCount: "{count}/{max} 字",
     model: "模型",
     noModelConfigured: "请先在设置中启用服务商并填写 API Key",

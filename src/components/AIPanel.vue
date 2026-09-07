@@ -16,8 +16,9 @@ import {
   Trash2,
   X,
 } from "@lucide/vue";
+import { isTauri } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  explainNoChanges,
   useAI,
   applyChangesToDoc,
   isFullDocChange,
@@ -309,16 +310,6 @@ function finalizeQuickReply(target: AIHistoryItem) {
     target.errorMsg = t("ai.emptyResponse");
     return;
   }
-  if (/\bNO_CHANGES\b/.test(text)) {
-    target.status = "no-changes";
-    target.noChangesHint = t("ai.noChangesDefault");
-    return;
-  }
-  if (text.includes("<<<<<<< SEARCH")) {
-    target.status = "no-changes";
-    target.noChangesHint = explainNoChanges(target.originalDoc, target.rawResponse);
-    return;
-  }
   target.assistantText = text;
   target.noChangesHint = undefined;
   target.status = "no-changes";
@@ -464,6 +455,7 @@ async function submit() {
   const text = instruction.value.trim();
   if (!text || isLoading.value) return;
   const contextForRequest = props.pendingContext ? { ...props.pendingContext } : null;
+  showConversationHistory.value = false;
 
   const id = Math.random().toString(36).slice(2, 9);
   const newItem: AIHistoryItem = {
@@ -554,7 +546,7 @@ async function submit() {
         }
       }
     } else {
-      const changes = await streamEdit(
+      const changes = (await streamEdit(
         newItem.instruction,
         newItem.originalDoc,
         (delta) => {
@@ -571,7 +563,7 @@ async function submit() {
           conversationId: activeConversationId.value,
           mode: "quick",
         }),
-      );
+      )) ?? [];
 
       const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
       if (target) {
@@ -603,6 +595,7 @@ async function submit() {
 
 async function proofread() {
   if (!canProofread.value) return;
+  showConversationHistory.value = false;
 
   const id = Math.random().toString(36).slice(2, 9);
   const newItem: AIHistoryItem = {
@@ -702,7 +695,6 @@ function discardItem(item: AIHistoryItem) {
 }
 
 function toggleConversationHistory() {
-  if (isLoading.value) return;
   showConversationHistory.value = !showConversationHistory.value;
 }
 
@@ -722,11 +714,11 @@ function clearHistory() {
 }
 
 function selectConversation(conversationId: string) {
-  if (isLoading.value) return;
   if (conversationId === activeConversationId.value) {
     showConversationHistory.value = false;
     return;
   }
+  if (isLoading.value) return;
   switchConversation(aiMode.value, conversationId);
   showConversationHistory.value = false;
   expandedDiffId.value = null;
@@ -735,6 +727,32 @@ function selectConversation(conversationId: string) {
 
 function stop() {
   activeAbortController?.abort();
+}
+
+function isHttpHref(href: string) {
+  return /^https?:\/\//i.test(href);
+}
+
+async function openHttpInSystemBrowser(href: string) {
+  if (isTauri()) {
+    await openUrl(href);
+    return;
+  }
+  window.open(href, "_blank", "noopener,noreferrer");
+}
+
+function onHistoryClick(event: MouseEvent) {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const anchor = target.closest("a");
+  if (!anchor) return;
+
+  const href = anchor.getAttribute("href")?.trim();
+  if (!href || href.startsWith("#")) return;
+
+  event.preventDefault();
+  if (!isHttpHref(href)) return;
+  void openHttpInSystemBrowser(href);
 }
 
 function toggleDiff(item: AIHistoryItem) {
@@ -1104,8 +1122,7 @@ onUnmounted(() => {
           type="button"
           class="ai-header-btn"
           :class="{ active: showConversationHistory }"
-          :title="t('ai.openHistory')"
-          :disabled="isLoading"
+          :title="showConversationHistory ? t('ai.closeHistory') : t('ai.openHistory')"
           :aria-pressed="showConversationHistory"
           @click="toggleConversationHistory"
         >
@@ -1133,7 +1150,7 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <div ref="listRef" class="ai-history-list">
+    <div ref="listRef" class="ai-history-list" @click="onHistoryClick">
       <section v-if="!demoMode && showConversationHistory" class="conversation-history-panel">
         <div class="conversation-history-panel-header">
           <div class="conversation-history-panel-title">
@@ -1144,7 +1161,6 @@ onUnmounted(() => {
             type="button"
             class="ai-header-btn"
             :title="t('ai.closeHistory')"
-            :disabled="isLoading"
             @click="showConversationHistory = false"
           >
             <X :size="iconSize" aria-hidden="true" />
@@ -1162,7 +1178,7 @@ onUnmounted(() => {
           type="button"
           class="conversation-history-item"
           :class="{ active: conversation.id === activeConversationId }"
-          :disabled="isLoading"
+          :disabled="isLoading && conversation.id !== activeConversationId"
           @click="selectConversation(conversation.id)"
         >
           <span class="conversation-history-item-row">
@@ -1487,15 +1503,23 @@ onUnmounted(() => {
           {{ t("ai.proofread") }}
         </button>
         <button
+          v-if="isLoading"
+          class="ai-btn ai-btn-stop ai-btn-composer-stop"
+          type="button"
+          @click="stop"
+        >
+          <Square :size="13" aria-hidden="true" />
+          {{ t("ai.stop") }}
+        </button>
+        <button
+          v-else
           class="ai-btn ai-btn-primary"
-          :class="{ 'is-loading': isLoading }"
+          type="button"
           :disabled="!canSubmit"
-          :aria-busy="isLoading"
           @click="submit"
         >
-          <span v-if="isLoading" class="ai-send-spinner" aria-hidden="true" />
-          <Send v-else :size="13" aria-hidden="true" />
-          {{ isLoading ? t("ai.sending") : t("ai.send") }}
+          <Send :size="13" aria-hidden="true" />
+          {{ t("ai.send") }}
         </button>
       </div>
     </div>
@@ -2089,20 +2113,46 @@ onUnmounted(() => {
 }
 
 .agent-markdown :deep(table) {
-  display: block;
-  overflow-x: auto;
-  border-collapse: collapse;
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--ink-border);
 }
 
 .agent-markdown :deep(th),
 .agent-markdown :deep(td) {
   padding: 4px 6px;
-  border: 1px solid var(--ink-border);
+  border: 0;
+  border-right: 1px solid var(--ink-border);
+  border-bottom: 1px solid var(--ink-border);
+  overflow-wrap: anywhere;
+  word-break: normal;
+  word-wrap: break-word;
+  box-sizing: border-box;
+}
+
+.agent-markdown :deep(th:last-child),
+.agent-markdown :deep(td:last-child) {
+  border-right: 0;
+}
+
+.agent-markdown :deep(tr:last-child th),
+.agent-markdown :deep(tr:last-child td) {
+  border-bottom: 0;
 }
 
 .agent-markdown :deep(img) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
   height: auto;
-  border-radius: var(--ai-radius-sm);
+  object-fit: contain;
+  border-radius: 8px;
 }
 
 .ai-diff-box {
@@ -2475,26 +2525,17 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--ink-accent) 88%, #000);
 }
 
-.ai-btn-primary.is-loading:disabled {
-  opacity: 1;
-  cursor: wait;
-}
-
-.ai-send-spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: ai-send-spin 0.8s linear infinite;
-}
-
 .ai-btn-stop {
   align-self: flex-start;
   color: #c53030;
   background: color-mix(in srgb, #e53e3e 9%, transparent);
   border-color: color-mix(in srgb, #e53e3e 18%, transparent);
+}
+
+.ai-btn-composer-stop {
+  align-self: auto;
+  min-width: 76px;
+  padding-inline: 12px;
 }
 
 .ai-btn-stop:hover:not(:disabled) {
@@ -2769,17 +2810,7 @@ onUnmounted(() => {
   font-size: 10px;
 }
 
-@keyframes ai-send-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .ai-send-spinner {
-    animation: none;
-  }
-
   .ai-btn,
   .conversation-history-item {
     transition: none;

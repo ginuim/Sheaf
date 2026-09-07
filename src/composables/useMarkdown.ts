@@ -15,7 +15,7 @@ const md = new MarkdownIt({
   html: true,
   linkify: true,
   typographer: true,
-  breaks: false,
+  breaks: true,
 });
 
 md.use(markdownItKatex, KATEX_OPTIONS);

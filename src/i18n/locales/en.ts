@@ -415,7 +415,7 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     acceptPreview: "Accept Changes",
     discardPreview: "Discard Changes",
     agentPlaceholder: "Ask AI to verify, rewrite, or continue this draft...",
-    editPlaceholder: "Describe the edits. Follow-ups stay in this chat...",
+    editPlaceholder: "Ask a question. Chat mode cannot search the web or edit the document...",
     charCount: "{count}/{max} chars",
     model: "Model",
     noModelConfigured: "Enable a provider and add an API key in Settings first",

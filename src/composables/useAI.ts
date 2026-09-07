@@ -82,21 +82,13 @@ function saveSettings(s: AISettings) {
   saveAiSettings(s);
 }
 
-const SYSTEM_PROMPT = `你是 Markdown 文档助手。
-用户要修改、翻译、润色、续写或起草正文时，只输出修改内容，不要解释、不要前言后记。
-禁止用 \`\`\` 代码块包裹输出。
-
-对于局部修改，必须使用 SEARCH/REPLACE 块（SEARCH 必须是文档里存在的连续原文，一字不差）：
-
-<<<<<<< SEARCH
-原文片段
-=======
-新文本
->>>>>>> REPLACE
-
-若需替换全文或修改幅度极大，请不要使用 SEARCH/REPLACE 块，直接输出修改后的完整新文档。
-若用户只是提问、解释或闲聊，直接用文字回复，不要输出 SEARCH/REPLACE，也不要输出 NO_CHANGES。
-若用户要求修改但文档已符合要求，只输出：NO_CHANGES`;
+const CHAT_SYSTEM_PROMPT = `你是 Sheaf 的对话助手，在用户的本地 Markdown 编辑器中运行。
+当前是对话模式：只能用文字回答，没有任何工具可调用。
+不能使用 web_search、fetch_url、grep、read、edit、write、list_notes、generate_image，也不能执行命令或访问网络。
+不要假装已经搜索过网页、抓取过链接或修改过文档。
+附带的当前文档只是只读上下文，用来理解用户在写什么；不要输出 SEARCH/REPLACE，不要把回复当成要写入编辑器的新文档。
+若用户要求改文档、联网查资料、打开网页或生成图片，直接说明对话模式做不到，请切换到 Agent 模式。
+用用户使用的语言回复，简洁务实。`;
 
 const PROOFREAD_SYSTEM_PROMPT = `你是中文 Markdown 文档校对助手。只检查明确的错别字、别字、重复字、漏字、明显误用词，不做风格润色，不改写句式。
 必须只输出 JSON，不要输出 Markdown、解释、前言或代码块。
@@ -122,84 +114,6 @@ type RawProofreadIssue = {
   line?: unknown;
 };
 
-function cleanDocumentMarkers(text: string): string {
-  let lines = text.split("\n");
-
-  while (lines.length > 0) {
-    const firstLine = lines[0].trim();
-    if (/^[-\u2014\u2013_*~\s]*(文档开始|DOCUMENT_START|START_OF_DOC)\s*[-\u2014\u2013_*~\s]*$/i.test(firstLine)) {
-      lines.shift();
-    } else {
-      break;
-    }
-  }
-
-  while (lines.length > 0) {
-    const lastLine = lines[lines.length - 1].trim();
-    if (/^[-\u2014\u2013_*~\s]*(文档结束|DOCUMENT_END|END_OF_DOC)\s*[-\u2014\u2013_*~\s]*$/i.test(lastLine)) {
-      lines.pop();
-    } else {
-      break;
-    }
-  }
-
-  return lines.join("\n").trim();
-}
-
-function extractResponseBody(text: string): string {
-  let body = text.replace(/\r\n/g, "\n").trim();
-  if (!body || /\bNO_CHANGES\b/.test(body)) return "";
-
-  // 严格剥离最外层包裹的 ```markdown、```md 或 ``` 包裹，不干扰正文内部的代码块
-  const outerFenceMatch = body.match(/^```(?:markdown|md|text)?\n([\s\S]*?)\n```$/i);
-  if (outerFenceMatch) {
-    body = outerFenceMatch[1].trim();
-  }
-
-  return cleanDocumentMarkers(body);
-}
-
-function isDiffFormat(body: string): boolean {
-  return body.includes("<<<<<<< SEARCH") || /\n=======\n/.test(body);
-}
-
-function parseBlocks(text: string): Array<{ search: string; replace: string }> {
-  const body = extractResponseBody(text);
-  if (!body) return [];
-
-  const blocks: Array<{ search: string; replace: string }> = [];
-  const separator = /\n=======\n/;
-
-  if (body.includes("<<<<<<< SEARCH")) {
-    const parts = body.split(/<<<<<<< SEARCH\n/);
-    for (let i = 1; i < parts.length; i++) {
-      const chunk = parts[i];
-      const sep = chunk.search(separator);
-      if (sep === -1) continue;
-      const afterSep = sep + chunk.slice(sep).match(separator)![0].length;
-      const endIdx = chunk.indexOf("\n>>>>>>> REPLACE", afterSep);
-      const search = chunk.slice(0, sep);
-      const replace = endIdx === -1 ? chunk.slice(afterSep) : chunk.slice(afterSep, endIdx);
-      if (search.length > 0) blocks.push({ search, replace });
-    }
-    if (blocks.length > 0) return blocks;
-  }
-
-  const segments = body.split(separator);
-  if (segments.length < 2) return blocks;
-
-  for (let i = 0; i < segments.length - 1; i += 2) {
-    const search = segments[i].replace(/^<<<<<<< SEARCH\n?/, "").replace(/\n$/, "");
-    const replace = segments[i + 1]
-      .replace(/\n>>>>>>> REPLACE$/, "")
-      .replace(/^>>>>>>> REPLACE\n?/, "")
-      .trim();
-    if (search.length > 0) blocks.push({ search, replace });
-  }
-
-  return blocks;
-}
-
 export function formatEditPreview(
   doc: string,
   changes: EditChange[],
@@ -222,58 +136,6 @@ export function formatEditPreview(
       return `${i + 1}. 「${clip(oldText)}」→「${clip(newText)}」`;
     })
     .join("\n");
-}
-
-function findSearchInDoc(doc: string, search: string): { index: number; length: number } | null {
-  const candidates = [search, search.replace(/\r\n/g, "\n"), search.trimEnd(), search.trim()];
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    if (!candidate || seen.has(candidate)) continue;
-    seen.add(candidate);
-    const idx = doc.indexOf(candidate);
-    if (idx !== -1) return { index: idx, length: candidate.length };
-  }
-  return null;
-}
-
-function blocksToChanges(doc: string, blocks: Array<{ search: string; replace: string }>): EditChange[] {
-  const changes: EditChange[] = [];
-  for (const block of blocks) {
-    const found = findSearchInDoc(doc, block.search);
-    if (!found) continue;
-    changes.push({
-      from: found.index,
-      to: found.index + found.length,
-      insert: block.replace,
-    });
-  }
-  changes.sort((a, b) => a.from - b.from);
-  return changes;
-}
-
-function fullDocumentChange(doc: string, body: string): EditChange[] {
-  if (!body || isDiffFormat(body)) return [];
-  if (body.trimEnd() === doc.trimEnd()) return [];
-  if (!shouldTreatAsFullDocument(doc, body)) return [];
-  const insert = doc.endsWith("\n") && !body.endsWith("\n") ? `${body}\n` : body;
-  return [{ from: 0, to: doc.length, insert }];
-}
-
-function shouldTreatAsFullDocument(doc: string, body: string): boolean {
-  const docLen = doc.trim().length;
-  const bodyLen = body.trim().length;
-  if (bodyLen === 0) return false;
-  if (docLen < 80) return true;
-  return bodyLen >= 200 && bodyLen >= docLen * 0.5;
-}
-
-function resolveChanges(doc: string, accumulated: string): EditChange[] {
-  if (/\bNO_CHANGES\b/.test(accumulated)) return [];
-
-  const blockChanges = blocksToChanges(doc, parseBlocks(accumulated));
-  if (blockChanges.length > 0) return blockChanges;
-
-  return fullDocumentChange(doc, extractResponseBody(accumulated));
 }
 
 function formatInlineContext(context: AgentContextSnippet | null | undefined): string {
@@ -418,16 +280,6 @@ function normalizeProofreadIssues(doc: string, rawResponse: string): ProofreadIs
   });
 
   return issues.sort((left, right) => left.from - right.from);
-}
-
-export function explainNoChanges(doc: string, accumulated: string): string {
-  const body = extractResponseBody(accumulated);
-  if (!body.trim()) return "AI 未返回可解析的内容，请重试";
-  if (body.trimEnd() === doc.trimEnd()) return "AI 返回的正文与原文相同";
-  if (parseBlocks(accumulated).length > 0) {
-    return "未能匹配原文片段，请重试或改用更具体的修改描述";
-  }
-  return "无法解析 AI 返回格式，请重试";
 }
 
 export function applyChangesToDoc(doc: string, changes: EditChange[]): string {
@@ -965,7 +817,7 @@ export function buildComposerHistoryFromItems(
     const assistantParts: string[] = [];
     const assistantText = (item.assistantText ?? item.rawResponse).trim();
     if (assistantText) assistantParts.push(assistantText);
-    if (item.changes.length > 0) {
+    if ((item.changes?.length ?? 0) > 0) {
       assistantParts.push(formatAgentHistoryEditSummary(item.changes));
     }
 
@@ -1091,22 +943,23 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
   ): Promise<EditChange[]> {
     const result = streamText({
       model: createAgentLanguageModel(settings),
-      system: SYSTEM_PROMPT,
+      system: CHAT_SYSTEM_PROMPT,
       messages: [
         ...buildAgentHistoryMessages(history),
         {
           role: "user",
           content: [
-            `---文档开始---\n${doc}\n---文档结束---`,
+            doc.trim()
+              ? `当前文档（只读参考，不是要修改的稿件）:\n---文档开始---\n${doc}\n---文档结束---`
+              : "",
             formatInlineContext(context),
-            `用户请求:\n${instruction}`,
+            `用户消息:\n${instruction}`,
           ].filter(Boolean).join("\n\n"),
         },
       ],
       abortSignal: signal,
       providerOptions: createReasoningProviderOptions(settings),
     });
-    let accumulated = "";
 
     for await (const part of result.fullStream) {
       if (part.type === "abort") {
@@ -1116,13 +969,11 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
         throwUserFacingError(part.error);
       }
       if (part.type === "text-delta") {
-        accumulated += part.text;
         onChunk(part.text);
       }
     }
     throwIfAborted(signal);
-
-    return resolveChanges(doc, accumulated);
+    return [];
   }
 
   async function proofreadDocument(
