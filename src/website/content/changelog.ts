@@ -9,6 +9,16 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.30",
+    date: "2026-09",
+    title: "对话模式与 Agent 执行体验",
+    items: [
+      "对话模式改为纯聊天，不调用搜索、抓网页或改文档；这些能力请用 Agent",
+      "Agent 执行过程展示思考与工具调用，执行中可随时停止，历史列表也能回到当前对话",
+      "对话消息中的表格和图片铺满宽度并使用圆角；http 链接用系统浏览器打开",
+    ],
+  },
+  {
     version: "0.2.29",
     date: "2026-09",
     title: "多文档工作流与图片裁剪",
@@ -297,6 +307,16 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.30",
+    date: "2026-09",
+    title: "Chat mode and Agent activity",
+    items: [
+      "Chat mode is text-only: no web search, page fetch, or document edits; use Agent for those",
+      "Agent runs show thinking and tool calls; stop anytime, and leave history to return to the current thread",
+      "Chat tables and images fill the message width with rounded corners; http links open in the system browser",
+    ],
+  },
   {
     version: "0.2.29",
     date: "2026-09",
