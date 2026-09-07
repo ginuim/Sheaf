@@ -13,6 +13,8 @@
     "allow-allow-dropped-paths",
     "allow-export-pdf-file",
     "allow-fetch-url",
+    "allow-http-fetch",
+    "allow-stream-fetch-url",
     "opener:default",
     "dialog:default",
     "fs:default",

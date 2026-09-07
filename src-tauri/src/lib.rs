@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use pdf_export::export_pdf_file;
-use web_fetch::fetch_url;
+use web_fetch::{fetch_url, http_fetch, stream_fetch_url};
 use tauri::{AppHandle, Emitter, Manager};
 
 struct PendingFiles(Mutex<Vec<String>>);
@@ -159,7 +159,9 @@ pub fn run() {
             open_dropped_files,
             allow_dropped_paths,
             export_pdf_file,
-            fetch_url
+            fetch_url,
+            http_fetch,
+            stream_fetch_url
         ])
         .setup(|app| {
             #[cfg(any(windows, target_os = "linux"))]

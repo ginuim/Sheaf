@@ -1,4 +1,4 @@
-const maxDocChars = 12_000;
+const maxFullDocChars = 10_000;
 const maxOutlineHeadings = 40;
 
 export function buildDocumentOutline(doc: string): string {
@@ -19,26 +19,25 @@ export function buildDocumentOutline(doc: string): string {
   return headings.join("\n");
 }
 
-export function truncateDocument(doc: string, maxChars = maxDocChars): { text: string; truncated: boolean } {
-  if (doc.length <= maxChars) {
-    return { text: doc, truncated: false };
-  }
-  return {
-    text: `${doc.slice(0, maxChars)}\n\n[正文已截断，共 ${doc.length} 字符]`,
-    truncated: true,
-  };
-}
-
 export function buildEditorContextText(doc: string, documentPath: string | null): string {
-  const { text, truncated } = truncateDocument(doc);
-  return [
+  const lineCount = doc.split("\n").length;
+  const includeBody = doc.length <= maxFullDocChars;
+  const header = [
     `路径: ${documentPath ?? "未保存"}`,
-    `字数: ${doc.length}`,
-    truncated ? "状态: 正文已截断供模型阅读" : "状态: 完整正文",
+    `字符数: ${doc.length}`,
+    `行数: ${lineCount}`,
+    includeBody ? "状态: 完整正文已附带" : "状态: 正文未附带（文档较长）",
     "标题大纲:",
     buildDocumentOutline(doc),
+  ];
+
+  if (includeBody) {
+    return [...header, "", "正文:", doc].join("\n");
+  }
+
+  return [
+    ...header,
     "",
-    "正文:",
-    text,
+    "正文未附带。用 grep 搜索关键词或标题，再用 read 按行读取（offset 从 1 计）。",
   ].join("\n");
 }

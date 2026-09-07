@@ -1,4 +1,5 @@
 import { errorMessage } from "./errors";
+import { createHttpFetch, readFinalUrl } from "./http-fetch";
 import { assertPublicHttpUrl, isDuckDuckGoSearchUrl } from "./url-policy";
 
 export type WebFetchMode = "tauri" | "browser";
@@ -36,16 +37,15 @@ function isLikelyCorsError(error: unknown): boolean {
 }
 
 async function fetchViaTauri(request: WebResourceRequest): Promise<FetchUrlResult> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  let response: {
-    body: string;
-    status: number;
-    finalUrl: string;
-    contentType?: string | null;
-  };
-
+  const method = request.method ?? "GET";
+  const headers = { ...defaultHeaders, ...request.headers };
+  let response: Response;
   try {
-    response = await invoke("fetch_url", { request });
+    response = await createHttpFetch({ timeoutSecs: 25 })(request.url, {
+      method,
+      headers,
+      body: method === "POST" ? request.body : undefined,
+    });
   } catch (error) {
     throw new Error(errorMessage(error));
   }
@@ -54,11 +54,16 @@ async function fetchViaTauri(request: WebResourceRequest): Promise<FetchUrlResul
     throw new Error(`HTTP ${response.status}`);
   }
 
+  const body = await response.text();
+  if (body.length > 2 * 1024 * 1024) {
+    throw new Error("响应过大");
+  }
+
   return {
-    body: response.body,
+    body,
     status: response.status,
-    finalUrl: response.finalUrl,
-    contentType: response.contentType ?? null,
+    finalUrl: readFinalUrl(response, request.url),
+    contentType: response.headers.get("content-type"),
   };
 }
 

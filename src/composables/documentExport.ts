@@ -201,6 +201,7 @@ body {
 
 .markdown-export table {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   font-size: 0.95em;
 }
@@ -210,6 +211,8 @@ body {
   border: 1px solid rgba(42, 37, 32, 0.14);
   padding: 0.5em 0.75em;
   text-align: left;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .markdown-export th {

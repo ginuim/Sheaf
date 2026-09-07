@@ -4,7 +4,7 @@ import katex from "katex";
 import { applyChineseEnglishSpacingToMarkdownTokens } from "../lib/cjkSpacing";
 import { loadExportTypographySettings } from "../lib/exportTypographySettings";
 import { resolveMediaPath, resolveMediaSrc } from "./resolveMediaSrc";
-import { buildHeadingIds } from "./useOutline";
+import { buildHeadingIds, normalizeMarkdownSource } from "./useOutline";
 
 const KATEX_OPTIONS = {
   throwOnError: false,
@@ -180,10 +180,11 @@ export function renderMarkdown(
   docFilePath: string | null = null,
   options: RenderMarkdownOptions = {},
 ): string {
-  const items = buildHeadingIds(source);
+  const normalizedSource = normalizeMarkdownSource(source);
+  const items = buildHeadingIds(normalizedSource);
   const chineseEnglishSpacing =
     options.chineseEnglishSpacing ?? loadExportTypographySettings().chineseEnglishSpacing;
-  return md.render(source, {
+  return md.render(normalizedSource, {
     headingIds: items.map((item) => item.id),
     docFilePath,
     resolveMedia: options.resolveMedia,

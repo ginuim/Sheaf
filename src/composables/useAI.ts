@@ -1,7 +1,13 @@
 import { reactive, watch, ref, computed } from "vue";
-import { createAiFetch } from "../agent/ai-transport";
+import { streamText } from "ai";
+import {
+  createAgentLanguageModel,
+  createReasoningProviderOptions,
+  selectedModelSupportsReasoning,
+} from "../agent/model";
 import { runSheafAgent } from "../agent/run-agent";
 import type { AgentActivity, AgentContextSnippet, AgentHistoryMessage } from "../agent/types";
+import { throwIfAborted } from "../agent/errors";
 import { resolveAgentModel } from "../ai-providers/resolve";
 import {
   loadAiSettings,
@@ -38,13 +44,14 @@ export function isBlankToAiEdit(item: { originalDoc: string; changes: EditChange
   return isBlankDocument(item.originalDoc) && item.changes.length > 0;
 }
 
-export type AIHistoryMode = "quick" | "agent";
+export type AIComposerMode = "quick" | "agent";
+export type AIHistoryMode = AIComposerMode | "proofread";
 
 export interface AIHistoryItem {
   id: string;
   timestamp: number;
   instruction: string;
-  status: "loading" | "done" | "no-changes" | "error" | "applied" | "discarded" | "proofread";
+  status: "loading" | "done" | "no-changes" | "error" | "applied" | "discarded" | "cancelled" | "proofread";
   mode?: AIHistoryMode;
   conversationId?: string;
   errorMsg?: string;
@@ -715,6 +722,7 @@ function normalizeStoredHistoryItem(value: unknown): AIHistoryItem | null {
     item.status !== "error" &&
     item.status !== "applied" &&
     item.status !== "discarded" &&
+    item.status !== "cancelled" &&
     item.status !== "proofread"
   ) {
     return null;
@@ -760,7 +768,9 @@ function normalizeStoredHistoryItem(value: unknown): AIHistoryItem | null {
           }))
       : undefined,
     rawResponse: item.rawResponse,
-    mode: item.mode === "agent" || item.mode === "quick" ? item.mode : undefined,
+    mode: item.mode === "agent" || item.mode === "quick" || item.mode === "proofread"
+      ? item.mode
+      : undefined,
     conversationId: typeof item.conversationId === "string" ? item.conversationId : undefined,
     assistantText: typeof item.assistantText === "string" ? item.assistantText : undefined,
     agentActivities: Array.isArray(item.agentActivities)
@@ -774,6 +784,7 @@ function normalizeStoredHistoryItem(value: unknown): AIHistoryItem | null {
           )
           .map((activity) => ({
             ...activity,
+            kind: activity.kind === "thinking" ? "thinking" : "tool",
             detail: typeof activity.detail === "string" ? activity.detail : undefined,
           }))
       : undefined,
@@ -852,7 +863,7 @@ export function buildAgentHistoryFromItems(
     if (item.id === excludeId) continue;
     if (conversationId && resolveConversationId(item) !== conversationId) continue;
     if (item.mode !== "agent") continue;
-    if (item.status === "loading") continue;
+    if (item.status === "loading" || item.status === "cancelled") continue;
 
     const instruction = item.instruction.trim();
     if (instruction) {
@@ -953,68 +964,23 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     signal: AbortSignal,
     context?: AgentContextSnippet | null,
   ): Promise<EditChange[]> {
-    const resolved = resolveAgentModel(settings);
-    if (!resolved) throw new Error("请先在设置中启用服务商并填写 API Key");
-
-    const url = `${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`;
-    const res = await createAiFetch()(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resolved.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: resolved.model,
-        stream: true,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: [
-              `---文档开始---\n${doc}\n---文档结束---`,
-              formatInlineContext(context),
-              `修改指令: ${instruction}`,
-            ].filter(Boolean).join("\n\n"),
-          },
-        ],
-      }),
-      signal,
+    const result = streamText({
+      model: createAgentLanguageModel(settings),
+      system: SYSTEM_PROMPT,
+      prompt: [
+        `---文档开始---\n${doc}\n---文档结束---`,
+        formatInlineContext(context),
+        `修改指令: ${instruction}`,
+      ].filter(Boolean).join("\n\n"),
+      abortSignal: signal,
     });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`API 错误 ${res.status}: ${errText}`);
-    }
-
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
     let accumulated = "";
-    let buffer = "";
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const data = line.slice(6).trim();
-        if (data === "[DONE]") continue;
-        try {
-          const parsed = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> };
-          const delta = parsed.choices?.[0]?.delta?.content;
-          if (delta) {
-            accumulated += delta;
-            onChunk(delta);
-          }
-        } catch {
-          // 忽略不完整的 JSON chunk
-        }
-      }
+    for await (const delta of result.textStream) {
+      accumulated += delta;
+      onChunk(delta);
     }
+    throwIfAborted(signal);
 
     return resolveChanges(doc, accumulated);
   }
@@ -1022,40 +988,96 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
   async function proofreadDocument(
     doc: string,
     signal: AbortSignal,
+    onActivity?: (activity: AgentActivity) => void,
   ): Promise<ProofreadResult> {
-    const resolved = resolveAgentModel(settings);
-    if (!resolved) throw new Error("请先在设置中启用服务商并填写 API Key");
-
-    const url = `${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`;
-    const res = await createAiFetch()(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resolved.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: resolved.model,
-        temperature: 0,
-        messages: [
-          { role: "system", content: PROOFREAD_SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: `---文档开始---\n${doc}\n---文档结束---\n\n请检查这篇 Markdown 文档中的明确错别字，并按指定 JSON 格式返回。`,
-          },
-        ],
-      }),
-      signal,
+    const result = streamText({
+      model: createAgentLanguageModel(settings),
+      system: PROOFREAD_SYSTEM_PROMPT,
+      prompt: `---文档开始---\n${doc}\n---文档结束---\n\n请检查这篇 Markdown 文档中的明确错别字，并按指定 JSON 格式返回。`,
+      temperature: 0,
+      abortSignal: signal,
+      providerOptions: createReasoningProviderOptions(settings),
     });
+    const reasoning = new Map<string, AgentActivity>();
+    let timelineSeq = 0;
+    let rawResponse = "";
+    const reasoningId = "proofread-thinking";
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`API 错误 ${res.status}: ${errText}`);
+    const publish = (activity: AgentActivity) => {
+      reasoning.set(activity.id, activity);
+      onActivity?.({ ...activity });
+    };
+
+    if (selectedModelSupportsReasoning(settings)) {
+      publish({
+        id: reasoningId,
+        kind: "thinking",
+        tool: "thinking",
+        status: "running",
+        detail: "",
+        contentOffset: 0,
+        timelineSeq: ++timelineSeq,
+      });
     }
 
-    const payload = await res.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const rawResponse = payload.choices?.[0]?.message?.content?.trim() ?? "";
+    try {
+      for await (const part of result.fullStream) {
+        if (part.type === "abort") {
+          throw new DOMException("Aborted", "AbortError");
+        }
+        if (part.type === "text-delta") {
+          rawResponse += part.text;
+          continue;
+        }
+
+        if (part.type === "reasoning-start") {
+          if (!reasoning.has(reasoningId)) {
+            publish({
+              id: reasoningId,
+              kind: "thinking",
+              tool: "thinking",
+              status: "running",
+              detail: "",
+              contentOffset: 0,
+              timelineSeq: ++timelineSeq,
+            });
+          }
+          continue;
+        }
+
+        if (part.type === "reasoning-delta") {
+          const existing = reasoning.get(reasoningId);
+          publish({
+            id: reasoningId,
+            kind: "thinking",
+            tool: "thinking",
+            status: "running",
+            detail: `${existing?.detail ?? ""}${part.text}`,
+            contentOffset: existing?.contentOffset ?? 0,
+            timelineSeq: existing?.timelineSeq ?? ++timelineSeq,
+          });
+          continue;
+        }
+
+        if (part.type === "reasoning-end") {
+          const existing = reasoning.get(reasoningId);
+          if (existing) {
+            publish({
+              ...existing,
+              status: "done",
+              summary: existing.detail?.replace(/\s+/g, " ").trim().slice(0, 80),
+            });
+          }
+        }
+      }
+    } finally {
+      for (const activity of reasoning.values()) {
+        if (activity.status === "running") publish({ ...activity, status: "done" });
+      }
+    }
+    throwIfAborted(signal);
+
+    rawResponse = rawResponse.trim();
     return {
       issues: normalizeProofreadIssues(doc, rawResponse),
       rawResponse,

@@ -7,6 +7,8 @@ fn main() {
                 "allow_dropped_paths",
                 "export_pdf_file",
                 "fetch_url",
+                "http_fetch",
+                "stream_fetch_url",
             ]),
         ),
     )

@@ -324,6 +324,7 @@ button {
 
 .preview-content table {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   font-size: 0.95em;
 }
@@ -333,6 +334,8 @@ button {
   border: 1px solid var(--ink-border-strong);
   padding: 0.5em 0.75em;
   text-align: left;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .preview-content th {
