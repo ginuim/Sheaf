@@ -8,6 +8,7 @@ import {
   GitCompare,
   History,
   LocateFixed,
+  MessageSquare,
   Plus,
   Send,
   SpellCheck,
@@ -24,7 +25,8 @@ import {
   compressDiff,
   summarizeItemDiff,
   isBlankToAiEdit,
-  buildAgentHistoryFromItems,
+  buildComposerHistoryFromItems,
+  isHistoryItemInThread,
   type AgentActivity,
   type AgentContextSnippet,
   type AIComposerMode,
@@ -95,15 +97,17 @@ const {
   proofreadDocument,
   runAgent,
   historyList,
-  activeConversationId,
-  conversationSummaries,
+  getActiveConversationId,
+  listConversationSummaries,
   startNewConversation,
   switchConversation,
-  clearAllConversations,
+  clearConversations,
 } = useAI(() => resolvedDocumentKey.value);
 const documentVersions = useDocumentVersions(() => resolvedDocumentKey.value);
 
 const aiMode = ref<AIComposerMode>("agent");
+const activeConversationId = computed(() => getActiveConversationId(aiMode.value));
+const conversationSummaries = computed(() => listConversationSummaries(aiMode.value));
 const instruction = ref("");
 const listRef = ref<HTMLElement | null>(null);
 const expandedDiffId = ref<string | null>(null);
@@ -122,7 +126,13 @@ let previousBodyUserSelect = "";
 let motionMedia: ReturnType<typeof gsap.matchMedia> | null = null;
 let overflowMeasureFrame = 0;
 
-const isLoading = computed(() => historyList.value.some((item: AIHistoryItem) => item.status === "loading"));
+const isLoading = computed(() =>
+  historyList.value.some(
+    (item: AIHistoryItem) =>
+      item.status === "loading" &&
+      isHistoryItemInThread(item, aiMode.value, activeConversationId.value),
+  ),
+);
 const instructionCharCount = computed(() => instruction.value.length);
 const pendingContextPreview = computed(() => {
   const text = props.pendingContext?.text.trim() ?? "";
@@ -210,7 +220,7 @@ const panelStyle = computed(() => ({
 const visibleHistoryList = computed(() =>
   historyList.value.filter(
     (item) =>
-      (item.conversationId ?? "legacy") === activeConversationId.value &&
+      isHistoryItemInThread(item, aiMode.value, activeConversationId.value) &&
       !shouldHideHistoryItem(item),
   ),
 );
@@ -221,6 +231,12 @@ const hasConversationHistory = computed(() =>
       conversation.id !== activeConversationId.value || conversation.turnCount > 0,
   ),
 );
+
+watch(aiMode, () => {
+  showConversationHistory.value = false;
+  expandedDiffId.value = null;
+  nextTick(scrollToBottom);
+});
 
 watch(
   () => [props.currentProofreadItemId, props.proofreadIssues] as const,
@@ -284,6 +300,28 @@ function finalizeSuccessfulEdit(target: AIHistoryItem) {
   }
   target.status = "done";
   expandedDiffId.value = target.id;
+}
+
+function finalizeQuickReply(target: AIHistoryItem) {
+  const text = target.rawResponse.trim();
+  if (!text) {
+    target.status = "error";
+    target.errorMsg = t("ai.emptyResponse");
+    return;
+  }
+  if (/\bNO_CHANGES\b/.test(text)) {
+    target.status = "no-changes";
+    target.noChangesHint = t("ai.noChangesDefault");
+    return;
+  }
+  if (text.includes("<<<<<<< SEARCH")) {
+    target.status = "no-changes";
+    target.noChangesHint = explainNoChanges(target.originalDoc, target.rawResponse);
+    return;
+  }
+  target.assistantText = text;
+  target.noChangesHint = undefined;
+  target.status = "no-changes";
 }
 
 function scrollToBottom() {
@@ -462,7 +500,11 @@ async function submit() {
         documentPath: props.documentPath ?? props.documentKey ?? null,
         workspacePaths: props.workspacePaths ?? [],
         readWorkspaceFile,
-        history: buildAgentHistoryFromItems(historyList.value, id, activeConversationId.value),
+        history: buildComposerHistoryFromItems(historyList.value, {
+          excludeId: id,
+          conversationId: activeConversationId.value,
+          mode: "agent",
+        }),
         context: contextForRequest,
         signal: activeAbortController.signal,
         onTextDelta: (assistantText) => {
@@ -524,17 +566,21 @@ async function submit() {
         },
         activeAbortController.signal,
         contextForRequest,
+        buildComposerHistoryFromItems(historyList.value, {
+          excludeId: id,
+          conversationId: activeConversationId.value,
+          mode: "quick",
+        }),
       );
 
       const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
       if (target) {
-        if (changes.length === 0) {
-          target.noChangesHint = explainNoChanges(target.originalDoc, target.rawResponse);
-          target.status = "no-changes";
-        } else {
+        if (changes.length > 0) {
           target.changes = changes;
           target.resultDoc = applyChangesToDoc(target.originalDoc, changes);
           finalizeSuccessfulEdit(target);
+        } else {
+          finalizeQuickReply(target);
         }
       }
     }
@@ -662,7 +708,7 @@ function toggleConversationHistory() {
 
 function handleStartNewConversation() {
   if (isLoading.value) return;
-  startNewConversation();
+  startNewConversation(aiMode.value);
   showConversationHistory.value = false;
   expandedDiffId.value = null;
   expandedLongMessageIds.value = new Set();
@@ -670,8 +716,7 @@ function handleStartNewConversation() {
 
 function clearHistory() {
   if (isLoading.value) return;
-  clearAllConversations();
-  documentVersions.clearSnapshots();
+  clearConversations(aiMode.value);
   expandedDiffId.value = null;
   expandedLongMessageIds.value = new Set();
 }
@@ -682,7 +727,7 @@ function selectConversation(conversationId: string) {
     showConversationHistory.value = false;
     return;
   }
-  switchConversation(conversationId);
+  switchConversation(aiMode.value, conversationId);
   showConversationHistory.value = false;
   expandedDiffId.value = null;
   nextTick(scrollToBottom);
@@ -730,12 +775,20 @@ function renderAgentMarkdown(source: string | undefined) {
 }
 
 function assistantBodySource(item: AIHistoryItem) {
-  const agentText = item.assistantText || (item.mode === "agent" ? item.rawResponse : "");
-  if (agentText.trim()) return agentText;
-  if (item.status === "loading") return item.rawResponse;
-  if (item.status === "no-changes") {
-    return (item.noChangesHint || t("ai.noChangesDefault")).trim();
+  if (item.status === "no-changes" && item.noChangesHint?.trim()) {
+    return item.noChangesHint.trim();
   }
+
+  const text = (
+    item.assistantText
+    || (item.mode === "agent" || item.mode === "quick" || item.status === "loading"
+      ? item.rawResponse
+      : "")
+  ).trim();
+  if (text && !/\bNO_CHANGES\b/.test(text)) return text;
+
+  if (item.status === "loading") return "";
+  if (item.status === "no-changes") return t("ai.noChangesDefault");
   if (item.mode === "proofread") return "";
   return item.rawResponse.trim();
 }
@@ -818,7 +871,7 @@ function pendingStatusText(item: AIHistoryItem) {
   if (item.agentActivities?.some((activity) => activity.kind === "thinking" && activity.status === "running")) {
     return t("ai.thinkingRunning");
   }
-  return item.mode === "agent" ? t("ai.waitingModel") : t("ai.generating");
+  return t("ai.waitingModel");
 }
 
 function getFullDocDiff(item: AIHistoryItem) {
@@ -960,7 +1013,7 @@ function onResizeKeydown(event: KeyboardEvent) {
 
 function resetDemoState() {
   instruction.value = "";
-  clearAllConversations();
+  clearConversations();
   documentVersions.clearSnapshots();
   expandedDiffId.value = null;
   expandedLongMessageIds.value = new Set();
@@ -1042,7 +1095,7 @@ onUnmounted(() => {
           :disabled="isLoading"
           @click="aiMode = 'quick'"
         >
-          <GitCompare :size="12" aria-hidden="true" />
+          <MessageSquare :size="12" aria-hidden="true" />
           {{ t("ai.quick") }}
         </button>
       </div>

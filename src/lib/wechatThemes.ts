@@ -12,6 +12,12 @@ const FONT_SANS =
 const FONT_SERIF = '"Songti SC", "STSong", "SimSun", Georgia, serif';
 const FONT_MONO = '"Menlo", "Consolas", "IBM Plex Mono", monospace';
 
+// 对齐主界面 .preview-content table：锁住栏宽，单元格按字符换行，避免长 URL / 代码把表撑出公众号栏。
+const TABLE_LAYOUT =
+  "width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; box-sizing: border-box;";
+const TABLE_CELL_WRAP =
+  "overflow-wrap: anywhere; word-break: normal; word-wrap: break-word; box-sizing: border-box;";
+
 export const WECHAT_THEMES: WechatTheme[] = [
   {
     id: "classic",
@@ -36,9 +42,9 @@ export const WECHAT_THEMES: WechatTheme[] = [
       pre: `font-family: ${FONT_MONO}; font-size: 14px; background-color: rgba(42, 37, 32, 0.06); padding: 16px 20px; border-radius: 8px; margin: 0 0 20px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; overflow-x: auto;`,
       hr: `border: none; border-top: 1px solid rgba(42, 37, 32, 0.14); margin: 32px 0; height: 0;`,
       img: `max-width: 100%; height: auto; display: block; margin: 16px auto; border-radius: 6px;`,
-      table: `width: 100%; border-collapse: collapse; margin: 0 0 20px; font-size: 15px;`,
-      th: `border: 1px solid rgba(42, 37, 32, 0.14); padding: 8px 12px; text-align: left; background-color: rgba(42, 37, 32, 0.05); font-weight: 500;`,
-      td: `border: 1px solid rgba(42, 37, 32, 0.14); padding: 8px 12px; text-align: left;`,
+      table: `${TABLE_LAYOUT} margin: 0 0 20px; font-size: 15px;`,
+      th: `border: 1px solid rgba(42, 37, 32, 0.14); padding: 8px 12px; text-align: left; background-color: rgba(42, 37, 32, 0.05); font-weight: 500; ${TABLE_CELL_WRAP}`,
+      td: `border: 1px solid rgba(42, 37, 32, 0.14); padding: 8px 12px; text-align: left; ${TABLE_CELL_WRAP}`,
     },
   },
   {
@@ -64,9 +70,9 @@ export const WECHAT_THEMES: WechatTheme[] = [
       pre: `font-family: ${FONT_MONO}; font-size: 14px; background-color: rgba(26, 24, 22, 0.06); padding: 16px 20px; border-radius: 4px; margin: 0 0 20px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; overflow-x: auto;`,
       hr: `border: none; border-top: 2px solid #2a2520; margin: 36px auto; width: 60px; height: 0;`,
       img: `max-width: 100%; height: auto; display: block; margin: 20px auto;`,
-      table: `width: 100%; border-collapse: collapse; margin: 0 0 20px; font-size: 15px;`,
-      th: `border: 1px solid rgba(26, 24, 22, 0.2); padding: 8px 12px; text-align: left; background-color: rgba(26, 24, 22, 0.06); font-weight: 600;`,
-      td: `border: 1px solid rgba(26, 24, 22, 0.2); padding: 8px 12px; text-align: left;`,
+      table: `${TABLE_LAYOUT} margin: 0 0 20px; font-size: 15px;`,
+      th: `border: 1px solid rgba(26, 24, 22, 0.2); padding: 8px 12px; text-align: left; background-color: rgba(26, 24, 22, 0.06); font-weight: 600; ${TABLE_CELL_WRAP}`,
+      td: `border: 1px solid rgba(26, 24, 22, 0.2); padding: 8px 12px; text-align: left; ${TABLE_CELL_WRAP}`,
     },
   },
   {
@@ -92,9 +98,9 @@ export const WECHAT_THEMES: WechatTheme[] = [
       pre: `font-family: ${FONT_MONO}; font-size: 14px; background-color: #f5f5f5; padding: 16px; border-radius: 4px; margin: 0 0 24px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; overflow-x: auto; color: #333333;`,
       hr: `border: none; border-top: 1px solid #eeeeee; margin: 40px 0; height: 0;`,
       img: `max-width: 100%; height: auto; display: block; margin: 24px auto;`,
-      table: `width: 100%; border-collapse: collapse; margin: 0 0 24px; font-size: 15px;`,
-      th: `border: 1px solid #eeeeee; padding: 8px 12px; text-align: left; background-color: #fafafa; font-weight: 500; color: #111111;`,
-      td: `border: 1px solid #eeeeee; padding: 8px 12px; text-align: left; color: #333333;`,
+      table: `${TABLE_LAYOUT} margin: 0 0 24px; font-size: 15px;`,
+      th: `border: 1px solid #eeeeee; padding: 8px 12px; text-align: left; background-color: #fafafa; font-weight: 500; color: #111111; ${TABLE_CELL_WRAP}`,
+      td: `border: 1px solid #eeeeee; padding: 8px 12px; text-align: left; color: #333333; ${TABLE_CELL_WRAP}`,
     },
   },
 ];

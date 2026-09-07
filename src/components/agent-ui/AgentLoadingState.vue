@@ -36,7 +36,7 @@ const PATTERNS: Record<LoadingVariant, { delays: (number | null)[]; dur: number;
 };
 
 const pattern = computed(() => PATTERNS[props.variant] ?? PATTERNS.Drive);
-const displayLabel = computed(() => props.label || t("ai.generating"));
+const displayLabel = computed(() => props.label || t("ai.waitingModel"));
 const elapsedText = ref("0.0s");
 const reduceMotion = ref(false);
 let timer: ReturnType<typeof setInterval> | null = null;

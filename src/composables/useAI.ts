@@ -1,4 +1,4 @@
-import { reactive, watch, ref, computed } from "vue";
+import { reactive, watch, ref } from "vue";
 import { streamText } from "ai";
 import {
   createAgentLanguageModel,
@@ -7,7 +7,8 @@ import {
 } from "../agent/model";
 import { runSheafAgent } from "../agent/run-agent";
 import type { AgentActivity, AgentContextSnippet, AgentHistoryMessage } from "../agent/types";
-import { throwIfAborted } from "../agent/errors";
+import { throwIfAborted, throwUserFacingError } from "../agent/errors";
+import { buildAgentHistoryMessages } from "../agent/messages";
 import { resolveAgentModel } from "../ai-providers/resolve";
 import {
   loadAiSettings,
@@ -46,6 +47,7 @@ export function isBlankToAiEdit(item: { originalDoc: string; changes: EditChange
 
 export type AIComposerMode = "quick" | "agent";
 export type AIHistoryMode = AIComposerMode | "proofread";
+export type ActiveConversationMap = Record<AIComposerMode, string>;
 
 export interface AIHistoryItem {
   id: string;
@@ -80,7 +82,8 @@ function saveSettings(s: AISettings) {
   saveAiSettings(s);
 }
 
-const SYSTEM_PROMPT = `你是 Markdown 文档编辑助手。根据用户指令修改文档，只输出修改内容，不要解释、不要前言后记。
+const SYSTEM_PROMPT = `你是 Markdown 文档助手。
+用户要修改、翻译、润色、续写或起草正文时，只输出修改内容，不要解释、不要前言后记。
 禁止用 \`\`\` 代码块包裹输出。
 
 对于局部修改，必须使用 SEARCH/REPLACE 块（SEARCH 必须是文档里存在的连续原文，一字不差）：
@@ -92,7 +95,8 @@ const SYSTEM_PROMPT = `你是 Markdown 文档编辑助手。根据用户指令�
 >>>>>>> REPLACE
 
 若需替换全文或修改幅度极大，请不要使用 SEARCH/REPLACE 块，直接输出修改后的完整新文档。
-若确实无需改动，只输出：NO_CHANGES`;
+若用户只是提问、解释或闲聊，直接用文字回复，不要输出 SEARCH/REPLACE，也不要输出 NO_CHANGES。
+若用户要求修改但文档已符合要求，只输出：NO_CHANGES`;
 
 const PROOFREAD_SYSTEM_PROMPT = `你是中文 Markdown 文档校对助手。只检查明确的错别字、别字、重复字、漏字、明显误用词，不做风格润色，不改写句式。
 必须只输出 JSON，不要输出 Markdown、解释、前言或代码块。
@@ -250,8 +254,17 @@ function blocksToChanges(doc: string, blocks: Array<{ search: string; replace: s
 function fullDocumentChange(doc: string, body: string): EditChange[] {
   if (!body || isDiffFormat(body)) return [];
   if (body.trimEnd() === doc.trimEnd()) return [];
+  if (!shouldTreatAsFullDocument(doc, body)) return [];
   const insert = doc.endsWith("\n") && !body.endsWith("\n") ? `${body}\n` : body;
   return [{ from: 0, to: doc.length, insert }];
+}
+
+function shouldTreatAsFullDocument(doc: string, body: string): boolean {
+  const docLen = doc.trim().length;
+  const bodyLen = body.trim().length;
+  if (bodyLen === 0) return false;
+  if (docLen < 80) return true;
+  return bodyLen >= 200 && bodyLen >= docLen * 0.5;
 }
 
 function resolveChanges(doc: string, accumulated: string): EditChange[] {
@@ -550,6 +563,13 @@ function createConversationId() {
   return Math.random().toString(36).slice(2, 11);
 }
 
+function createActiveConversations(): ActiveConversationMap {
+  return {
+    agent: createConversationId(),
+    quick: createConversationId(),
+  };
+}
+
 function truncateConversationTitle(text: string, max = 28) {
   const line = text.split("\n").map((part) => part.trim()).find((part) => part.length > 0) ?? "";
   if (!line) return "新对话";
@@ -561,6 +581,23 @@ function resolveConversationId(item: AIHistoryItem) {
   return item.conversationId?.trim() || LEGACY_CONVERSATION_ID;
 }
 
+export function resolveHistoryMode(item: AIHistoryItem): AIHistoryMode {
+  if (item.mode === "agent" || item.mode === "quick" || item.mode === "proofread") {
+    return item.mode;
+  }
+  return "agent";
+}
+
+export function isHistoryItemInThread(
+  item: AIHistoryItem,
+  mode: AIComposerMode,
+  conversationId: string,
+) {
+  if (resolveConversationId(item) !== conversationId) return false;
+  const itemMode = resolveHistoryMode(item);
+  return itemMode === mode || itemMode === "proofread";
+}
+
 function normalizeHistoryConversationIds(items: AIHistoryItem[]) {
   return items.map((item) => ({
     ...item,
@@ -568,59 +605,111 @@ function normalizeHistoryConversationIds(items: AIHistoryItem[]) {
   }));
 }
 
-function conversationIdsInHistory(items: AIHistoryItem[]) {
-  return new Set(items.map(resolveConversationId));
+function conversationIdsInHistory(items: AIHistoryItem[], mode: AIComposerMode) {
+  return new Set(
+    items
+      .filter((item) => resolveHistoryMode(item) === mode)
+      .map(resolveConversationId),
+  );
 }
 
-function latestConversationId(items: AIHistoryItem[]) {
-  const latestByConversation = new Map<string, number>();
-  for (const item of items) {
-    const conversationId = resolveConversationId(item);
-    const current = latestByConversation.get(conversationId) ?? 0;
-    if (item.timestamp >= current) {
-      latestByConversation.set(conversationId, item.timestamp);
-    }
-  }
-
-  let latestId = LEGACY_CONVERSATION_ID;
+function latestConversationId(items: AIHistoryItem[], mode: AIComposerMode) {
+  let latestId: string | null = null;
   let latestTimestamp = 0;
-  for (const [conversationId, timestamp] of latestByConversation) {
-    if (timestamp >= latestTimestamp) {
-      latestTimestamp = timestamp;
-      latestId = conversationId;
+  for (const item of items) {
+    if (resolveHistoryMode(item) !== mode) continue;
+    if (item.timestamp >= latestTimestamp) {
+      latestTimestamp = item.timestamp;
+      latestId = resolveConversationId(item);
     }
   }
   return latestId;
 }
 
-function loadActiveConversationId(documentKey: string, items: AIHistoryItem[]) {
-  try {
-    const stored = localStorage.getItem(activeConversationStorageKey(documentKey))?.trim();
-    if (stored) {
-      if (items.length === 0 || conversationIdsInHistory(items).has(stored)) {
-        return stored;
-      }
-    }
-  } catch {
-    // ignore invalid storage
-  }
-
-  if (items.length === 0) return createConversationId();
-  return latestConversationId(items);
+function otherComposerMode(mode: AIComposerMode): AIComposerMode {
+  return mode === "agent" ? "quick" : "agent";
 }
 
-function saveActiveConversationId(documentKey: string, conversationId: string) {
-  safeSetLocalStorageItem(activeConversationStorageKey(documentKey), conversationId);
+function pickActiveConversationId(
+  stored: string | undefined,
+  items: AIHistoryItem[],
+  mode: AIComposerMode,
+) {
+  const ids = conversationIdsInHistory(items, mode);
+  if (stored) {
+    if (ids.has(stored)) return stored;
+    if (ids.size === 0 && !conversationIdsInHistory(items, otherComposerMode(mode)).has(stored)) {
+      return stored;
+    }
+  }
+  return latestConversationId(items, mode) ?? createConversationId();
+}
+
+function parseStoredActiveConversations(raw: string | null): Partial<ActiveConversationMap> | string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") return null;
+      return {
+        agent: typeof parsed.agent === "string" ? parsed.agent.trim() : undefined,
+        quick: typeof parsed.quick === "string" ? parsed.quick.trim() : undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+  return trimmed;
+}
+
+function loadActiveConversations(documentKey: string, items: AIHistoryItem[]): ActiveConversationMap {
+  let stored: Partial<ActiveConversationMap> | string | null = null;
+  try {
+    stored = parseStoredActiveConversations(
+      localStorage.getItem(activeConversationStorageKey(documentKey)),
+    );
+  } catch {
+    stored = null;
+  }
+
+  if (typeof stored === "string") {
+    return {
+      agent: pickActiveConversationId(stored, items, "agent"),
+      quick: pickActiveConversationId(stored, items, "quick"),
+    };
+  }
+
+  return {
+    agent: pickActiveConversationId(stored?.agent, items, "agent"),
+    quick: pickActiveConversationId(stored?.quick, items, "quick"),
+  };
+}
+
+function saveActiveConversations(documentKey: string, conversations: ActiveConversationMap) {
+  safeSetLocalStorageItem(
+    activeConversationStorageKey(documentKey),
+    JSON.stringify(conversations),
+  );
 }
 
 function buildConversationSummaries(
   items: AIHistoryItem[],
   activeConversationId: string,
+  mode: AIComposerMode,
 ): AIConversationSummary[] {
+  const modeConversationIds = conversationIdsInHistory(items, mode);
+  modeConversationIds.add(activeConversationId);
   const groups = new Map<string, AIConversationSummary>();
 
   for (const item of items) {
+    const itemMode = resolveHistoryMode(item);
     const conversationId = resolveConversationId(item);
+    const include =
+      itemMode === mode ||
+      (itemMode === "proofread" && modeConversationIds.has(conversationId));
+    if (!include) continue;
+
     const existing = groups.get(conversationId);
     if (!existing) {
       groups.set(conversationId, {
@@ -852,17 +941,20 @@ function formatAgentHistoryEditSummary(changes: EditChange[]): string {
     .join("\n");
 }
 
-export function buildAgentHistoryFromItems(
+export function buildComposerHistoryFromItems(
   items: AIHistoryItem[],
-  excludeId?: string,
-  conversationId?: string,
+  options: {
+    excludeId?: string;
+    conversationId?: string;
+    mode: AIComposerMode;
+  },
 ): AgentHistoryMessage[] {
   const messages: AgentHistoryMessage[] = [];
 
   for (const item of items) {
-    if (item.id === excludeId) continue;
-    if (conversationId && resolveConversationId(item) !== conversationId) continue;
-    if (item.mode !== "agent") continue;
+    if (item.id === options.excludeId) continue;
+    if (options.conversationId && resolveConversationId(item) !== options.conversationId) continue;
+    if (resolveHistoryMode(item) !== options.mode) continue;
     if (item.status === "loading" || item.status === "cancelled") continue;
 
     const instruction = item.instruction.trim();
@@ -912,11 +1004,8 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
   const historyList = ref<AIHistoryItem[]>(
     normalizeHistoryConversationIds(loadHistoryList(getDocumentKey())),
   );
-  const activeConversationId = ref(
-    loadActiveConversationId(getDocumentKey(), historyList.value),
-  );
-  const conversationSummaries = computed(() =>
-    buildConversationSummaries(historyList.value, activeConversationId.value),
+  const activeConversations = ref<ActiveConversationMap>(
+    loadActiveConversations(getDocumentKey(), historyList.value),
   );
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -924,13 +1013,17 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     () => getDocumentKey(),
     (documentKey) => {
       historyList.value = normalizeHistoryConversationIds(loadHistoryList(documentKey));
-      activeConversationId.value = loadActiveConversationId(documentKey, historyList.value);
+      activeConversations.value = loadActiveConversations(documentKey, historyList.value);
     },
   );
 
-  watch(activeConversationId, (conversationId) => {
-    saveActiveConversationId(getDocumentKey(), conversationId);
-  });
+  watch(
+    activeConversations,
+    (conversations) => {
+      saveActiveConversations(getDocumentKey(), conversations);
+    },
+    { deep: true },
+  );
 
   watch(
     historyList,
@@ -943,18 +1036,49 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     { deep: true },
   );
 
-  function startNewConversation() {
-    activeConversationId.value = createConversationId();
+  function getActiveConversationId(mode: AIComposerMode) {
+    return activeConversations.value[mode];
   }
 
-  function switchConversation(conversationId: string) {
+  function listConversationSummaries(mode: AIComposerMode) {
+    return buildConversationSummaries(
+      historyList.value,
+      activeConversations.value[mode],
+      mode,
+    );
+  }
+
+  function startNewConversation(mode: AIComposerMode) {
+    activeConversations.value = {
+      ...activeConversations.value,
+      [mode]: createConversationId(),
+    };
+  }
+
+  function switchConversation(mode: AIComposerMode, conversationId: string) {
     if (!conversationId.trim()) return;
-    activeConversationId.value = conversationId;
+    activeConversations.value = {
+      ...activeConversations.value,
+      [mode]: conversationId,
+    };
   }
 
-  function clearAllConversations() {
-    historyList.value = [];
-    activeConversationId.value = createConversationId();
+  function clearConversations(mode?: AIComposerMode) {
+    if (!mode) {
+      historyList.value = [];
+      activeConversations.value = createActiveConversations();
+      return;
+    }
+
+    const ids = conversationIdsInHistory(historyList.value, mode);
+    ids.add(activeConversations.value[mode]);
+    historyList.value = historyList.value.filter((item) => {
+      const itemMode = resolveHistoryMode(item);
+      if (itemMode === mode) return false;
+      if (itemMode === "proofread") return !ids.has(resolveConversationId(item));
+      return true;
+    });
+    startNewConversation(mode);
   }
 
   async function streamEdit(
@@ -963,22 +1087,38 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     onChunk: (delta: string) => void,
     signal: AbortSignal,
     context?: AgentContextSnippet | null,
+    history: AgentHistoryMessage[] = [],
   ): Promise<EditChange[]> {
     const result = streamText({
       model: createAgentLanguageModel(settings),
       system: SYSTEM_PROMPT,
-      prompt: [
-        `---文档开始---\n${doc}\n---文档结束---`,
-        formatInlineContext(context),
-        `修改指令: ${instruction}`,
-      ].filter(Boolean).join("\n\n"),
+      messages: [
+        ...buildAgentHistoryMessages(history),
+        {
+          role: "user",
+          content: [
+            `---文档开始---\n${doc}\n---文档结束---`,
+            formatInlineContext(context),
+            `用户请求:\n${instruction}`,
+          ].filter(Boolean).join("\n\n"),
+        },
+      ],
       abortSignal: signal,
+      providerOptions: createReasoningProviderOptions(settings),
     });
     let accumulated = "";
 
-    for await (const delta of result.textStream) {
-      accumulated += delta;
-      onChunk(delta);
+    for await (const part of result.fullStream) {
+      if (part.type === "abort") {
+        throw new DOMException("Aborted", "AbortError");
+      }
+      if (part.type === "error") {
+        throwUserFacingError(part.error);
+      }
+      if (part.type === "text-delta") {
+        accumulated += part.text;
+        onChunk(part.text);
+      }
     }
     throwIfAborted(signal);
 
@@ -1127,10 +1267,10 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     proofreadDocument,
     runAgent,
     historyList,
-    activeConversationId,
-    conversationSummaries,
+    getActiveConversationId,
+    listConversationSummaries,
     startNewConversation,
     switchConversation,
-    clearAllConversations,
+    clearConversations,
   };
 }

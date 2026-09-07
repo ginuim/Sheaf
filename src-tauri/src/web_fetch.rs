@@ -1,3 +1,6 @@
+//! 通用 HTTP 传输。只负责发请求、跟重定向、把字节流回给前端。
+//! 接口调用、SSE/JSON 解析、HTML 抽取都在前端完成。
+
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::net::IpAddr;
@@ -10,9 +13,7 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 
 const MAX_REDIRECTS: usize = 5;
-const DEFAULT_TIMEOUT_SECS: u64 = 25;
 const MAX_TIMEOUT_SECS: u64 = 120;
-const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 const CONNECT_TIMEOUT_SECS: u64 = 20;
 const MAX_STREAM_BODY_BYTES: usize = 32 * 1024 * 1024;
 
@@ -28,15 +29,6 @@ pub struct HttpRequest {
     body: Option<String>,
     #[serde(default)]
     timeout_secs: Option<u64>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FetchUrlResponse {
-    body: String,
-    content_type: Option<String>,
-    final_url: String,
-    status: u16,
 }
 
 #[derive(Clone, Serialize)]
@@ -59,64 +51,20 @@ pub enum StreamFetchEvent {
 }
 
 #[tauri::command]
-pub async fn fetch_url(request: HttpRequest) -> Result<FetchUrlResponse, String> {
-    let timeout = Duration::from_secs(resolve_timeout_secs(request.timeout_secs));
-    let client = build_client(Some(timeout))?;
-    let method = parse_method(request.method.as_deref())?;
-    let headers = merge_headers(&request.headers, true)?;
-    let response = send_following_redirects(
-        &client,
-        method,
-        validate_fetch_url(&request.url)?,
-        headers,
-        request.body.as_deref(),
-    )
-    .await?;
-
-    let status = response.status().as_u16();
-    let final_url = response.url().to_string();
-    let content_type = header_to_string(response.headers().get(reqwest::header::CONTENT_TYPE));
-    let bytes = read_body_bytes(response, MAX_BODY_BYTES).await?;
-    let body = String::from_utf8_lossy(&bytes).into_owned();
-
-    Ok(FetchUrlResponse {
-        body,
-        content_type,
-        final_url,
-        status,
-    })
-}
-
-#[tauri::command]
 pub async fn http_fetch(
-    request: HttpRequest,
-    on_event: Channel<StreamFetchEvent>,
-) -> Result<(), String> {
-    stream_http(request, on_event).await
-}
-
-#[tauri::command]
-pub async fn stream_fetch_url(
-    request: HttpRequest,
-    on_event: Channel<StreamFetchEvent>,
-) -> Result<(), String> {
-    stream_http(request, on_event).await
-}
-
-async fn stream_http(
     request: HttpRequest,
     on_event: Channel<StreamFetchEvent>,
 ) -> Result<(), String> {
     let timeout = request
         .timeout_secs
-        .map(|secs| Duration::from_secs(resolve_timeout_secs(Some(secs))));
+        .map(|secs| Duration::from_secs(clamp_timeout_secs(secs)));
     let client = build_client(timeout)?;
     let method = parse_method(request.method.as_deref())?;
-    let headers = merge_headers(&request.headers, false)?;
+    let headers = merge_headers(&request.headers)?;
     let response = send_following_redirects(
         &client,
         method,
-        validate_fetch_url(&request.url)?,
+        validate_http_url(&request.url)?,
         headers,
         request.body.as_deref(),
     )
@@ -238,33 +186,7 @@ fn next_redirect_url(current: &Url, response: &reqwest::Response) -> Result<Url,
         current.join(location)
     }
     .map_err(|e| e.to_string())?;
-    validate_fetch_url(next.as_str())
-}
-
-async fn read_body_bytes(
-    mut response: reqwest::Response,
-    max_bytes: usize,
-) -> Result<Vec<u8>, String> {
-    let mut out = Vec::new();
-    loop {
-        let chunk = match response.chunk().await {
-            Ok(chunk) => chunk,
-            Err(error) if is_tls_close_without_notify(&error) => break,
-            Err(error) => return Err(format_error_chain("读取响应失败", &error)),
-        };
-        let Some(bytes) = chunk else {
-            break;
-        };
-        out.extend_from_slice(&bytes);
-        if out.len() > max_bytes {
-            return Err(format!(
-                "响应过大（{} 字节），上限 {} 字节",
-                out.len(),
-                max_bytes
-            ));
-        }
-    }
-    Ok(out)
+    validate_http_url(next.as_str())
 }
 
 fn parse_method(raw: Option<&str>) -> Result<Method, String> {
@@ -288,10 +210,8 @@ fn method_allows_body(method: &Method) -> bool {
     !matches!(*method, Method::GET | Method::HEAD)
 }
 
-fn resolve_timeout_secs(timeout_secs: Option<u64>) -> u64 {
-    timeout_secs
-        .unwrap_or(DEFAULT_TIMEOUT_SECS)
-        .clamp(1, MAX_TIMEOUT_SECS)
+fn clamp_timeout_secs(timeout_secs: u64) -> u64 {
+    timeout_secs.clamp(1, MAX_TIMEOUT_SECS)
 }
 
 fn format_error_chain(context: &str, error: &dyn StdError) -> String {
@@ -317,25 +237,8 @@ fn is_tls_close_without_notify(error: &dyn StdError) -> bool {
     false
 }
 
-fn merge_headers(
-    custom: &HashMap<String, String>,
-    inject_html_accept: bool,
-) -> Result<HeaderMap, String> {
+fn merge_headers(custom: &HashMap<String, String>) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
-    headers.insert(
-        HeaderName::from_static("user-agent"),
-        HeaderValue::from_static(
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        ),
-    );
-    if inject_html_accept {
-        headers.insert(
-            HeaderName::from_static("accept"),
-            HeaderValue::from_static(
-                "text/html,application/xhtml+xml,application/xml;q=0.9,application/json,text/plain;q=0.8,*/*;q=0.5",
-            ),
-        );
-    }
     for (name, value) in custom {
         let name = HeaderName::from_bytes(name.as_bytes()).map_err(|e| e.to_string())?;
         let value = HeaderValue::from_str(value).map_err(|e| e.to_string())?;
@@ -357,11 +260,7 @@ fn response_headers(headers: &HeaderMap) -> HashMap<String, String> {
     map
 }
 
-fn header_to_string(value: Option<&HeaderValue>) -> Option<String> {
-    value.and_then(|v| v.to_str().ok()).map(str::to_string)
-}
-
-fn validate_fetch_url(raw: &str) -> Result<Url, String> {
+fn validate_http_url(raw: &str) -> Result<Url, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err("URL 不能为空".to_string());
@@ -434,21 +333,20 @@ mod tests {
 
     #[test]
     fn rejects_localhost() {
-        assert!(validate_fetch_url("http://localhost/test").is_err());
-        assert!(validate_fetch_url("http://127.0.0.1/test").is_err());
+        assert!(validate_http_url("http://localhost/test").is_err());
+        assert!(validate_http_url("http://127.0.0.1/test").is_err());
     }
 
     #[test]
     fn accepts_https() {
-        assert!(validate_fetch_url("https://example.com/a").is_ok());
+        assert!(validate_http_url("https://example.com/a").is_ok());
     }
 
     #[test]
     fn clamps_timeout() {
-        assert_eq!(resolve_timeout_secs(None), DEFAULT_TIMEOUT_SECS);
-        assert_eq!(resolve_timeout_secs(Some(0)), 1);
-        assert_eq!(resolve_timeout_secs(Some(90)), 90);
-        assert_eq!(resolve_timeout_secs(Some(999)), MAX_TIMEOUT_SECS);
+        assert_eq!(clamp_timeout_secs(0), 1);
+        assert_eq!(clamp_timeout_secs(90), 90);
+        assert_eq!(clamp_timeout_secs(999), MAX_TIMEOUT_SECS);
     }
 
     #[test]
