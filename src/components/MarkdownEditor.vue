@@ -1211,21 +1211,23 @@ defineExpose({
       @format-spacing="emit('format-spacing')"
       @open-settings="emit('open-format-settings')"
     />
-    <EditorSearchReplace
-      v-if="searchOpen"
-      ref="searchReplaceRef"
-      v-model:search-text="searchText"
-      v-model:replace-text="replaceText"
-      v-model:case-sensitive="caseSensitive"
-      v-model:replace-open="replaceOpen"
-      :search-count-text="searchCountText"
-      :has-matches="matchTotal > 0"
-      @find-next="runFindNext"
-      @find-previous="runFindPrevious"
-      @replace-next="runReplaceNext"
-      @replace-all="runReplaceAll"
-      @close="closeSearch"
-    />
+    <div v-if="searchOpen" class="editor-chrome">
+      <EditorSearchReplace
+        ref="searchReplaceRef"
+        v-model:search-text="searchText"
+        v-model:replace-text="replaceText"
+        v-model:case-sensitive="caseSensitive"
+        v-model:replace-open="replaceOpen"
+        embedded
+        :search-count-text="searchCountText"
+        :has-matches="matchTotal > 0"
+        @find-next="runFindNext"
+        @find-previous="runFindPrevious"
+        @replace-next="runReplaceNext"
+        @replace-all="runReplaceAll"
+        @close="closeSearch"
+      />
+    </div>
     <div v-show="!props.previewDiffItem" ref="container" class="editor-container" />
 
     <div v-if="props.previewDiffItem" class="diff-preview-container">
@@ -1318,7 +1320,24 @@ defineExpose({
   height: 100%;
 }
 
-.editor-root.has-format-bar :deep(.search-bar) {
+.editor-chrome {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 12;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.editor-chrome > * {
+  pointer-events: auto;
+}
+
+.editor-root.has-format-bar .editor-chrome {
   top: 54px;
 }
 

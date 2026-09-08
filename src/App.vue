@@ -11,6 +11,8 @@ import AIPanel from "./components/AIPanel.vue";
 import AIVersionViewer from "./components/AIVersionViewer.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
 import MarkdownPreview from "./components/MarkdownPreview.vue";
+import EditorSearchReplace from "./components/EditorSearchReplace.vue";
+import PaneZenButton from "./components/PaneZenButton.vue";
 import DocumentSwitcher from "./components/DocumentSwitcher.vue";
 import ExportStudio from "./components/ExportStudio.vue";
 import OutlinePanel from "./components/OutlinePanel.vue";
@@ -78,11 +80,19 @@ const needsFormatSpacing = computed(() =>
   needsChineseEnglishSpacingFormatting(content.value),
 );
 const viewMode = ref<ViewMode>("split");
+const zenMode = ref(false);
+const zenRestoreViewMode = ref<ViewMode | null>(null);
 const showOutline = ref(parseOutline(DEFAULT_CONTENT).length > 0);
 const showExport = ref(false);
 const editorRef = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 const previewRef = ref<InstanceType<typeof MarkdownPreview> | null>(null);
 const previewPaneRef = ref<HTMLElement | null>(null);
+const previewSearchReplaceRef = ref<InstanceType<typeof EditorSearchReplace> | null>(null);
+const previewSearchOpen = ref(false);
+const previewSearchText = ref("");
+const previewSearchCaseSensitive = ref(false);
+const previewMatchTotal = ref(0);
+const previewMatchCurrent = ref(0);
 const previewMediaEpoch = ref(0);
 const imageCropOpen = ref(false);
 const imageCropTarget = ref<PreviewImageCropPayload | null>(null);
@@ -735,9 +745,83 @@ const showPreview = computed(() => viewMode.value !== "edit");
 const showEditorFormatBar = computed(
   () =>
     showEditor.value &&
+    !zenMode.value &&
     appPreferences.markdownFormatBarEnabled &&
     !previewingDiffItem.value,
 );
+const previewSearchCountText = computed(() => {
+  if (previewMatchTotal.value === 0) return t("search.noMatch");
+  const current = previewMatchCurrent.value > 0 ? previewMatchCurrent.value : 0;
+  return t("search.matchCount", { current, total: previewMatchTotal.value });
+});
+
+function onPreviewSearchStats(stats: { current: number; total: number }) {
+  previewMatchCurrent.value = stats.current;
+  previewMatchTotal.value = stats.total;
+}
+
+function selectedSearchSeed() {
+  const selected = window.getSelection()?.toString() ?? "";
+  if (selected && !/[\n\r]/.test(selected) && selected.length <= 200) {
+    return selected;
+  }
+  return "";
+}
+
+function closePreviewSearch() {
+  previewSearchOpen.value = false;
+  previewSearchText.value = "";
+  previewMatchTotal.value = 0;
+  previewMatchCurrent.value = 0;
+}
+
+function openPreviewSearch() {
+  const alreadyOpen = previewSearchOpen.value;
+  previewSearchOpen.value = true;
+  if (!alreadyOpen) {
+    const seed = selectedSearchSeed();
+    if (seed) previewSearchText.value = seed;
+  }
+
+  void nextTick(() => {
+    previewSearchReplaceRef.value?.focusSearch();
+    if (!previewSearchText.value) return;
+    if (alreadyOpen) previewRef.value?.findNextSearchMatch();
+  });
+}
+
+function enterZen(target: "edit" | "preview") {
+  if (!zenMode.value) {
+    zenRestoreViewMode.value = viewMode.value;
+  }
+  zenMode.value = true;
+  viewMode.value = target;
+}
+
+function exitZen() {
+  if (!zenMode.value) return;
+  zenMode.value = false;
+  if (zenRestoreViewMode.value) {
+    viewMode.value = zenRestoreViewMode.value;
+  }
+  zenRestoreViewMode.value = null;
+}
+
+function toggleZen(target: "edit" | "preview") {
+  if (zenMode.value && viewMode.value === target) {
+    exitZen();
+    return;
+  }
+  enterZen(target);
+}
+
+watch(viewMode, (mode) => {
+  if (mode === "preview") {
+    editorRef.value?.closeSearch();
+    return;
+  }
+  closePreviewSearch();
+});
 
 function isScrollAtStart(ratio: number) {
   return ratio <= 0.001;
@@ -1132,8 +1216,16 @@ function handleKeydown(e: KeyboardEvent) {
       closeImageCropDialog();
       return;
     }
+    if (!showStartPage.value && previewSearchOpen.value) {
+      closePreviewSearch();
+      return;
+    }
     if (!showStartPage.value && editorRef.value?.isSearchOpen()) {
       editorRef.value.closeSearch();
+      return;
+    }
+    if (zenMode.value) {
+      exitZen();
       return;
     }
     if (showSettings.value) {
@@ -1152,14 +1244,16 @@ function handleKeydown(e: KeyboardEvent) {
   if (e.key === "f" && !e.shiftKey && !showStartPage.value) {
     e.preventDefault();
     e.stopImmediatePropagation();
-    editorRef.value?.openSearch();
+    if (viewMode.value === "preview") openPreviewSearch();
+    else editorRef.value?.openSearch();
     return;
   }
 
   if (e.key === "h" && !e.shiftKey && !showStartPage.value) {
     e.preventDefault();
     e.stopImmediatePropagation();
-    editorRef.value?.openReplace();
+    if (viewMode.value === "preview") openPreviewSearch();
+    else editorRef.value?.openReplace();
     return;
   }
 
@@ -1286,7 +1380,7 @@ onUnmounted(() => {
 <template>
   <div class="app">
     <Toolbar
-      v-if="!showStartPage"
+      v-if="!showStartPage && !zenMode"
       class="editor-enter"
       :file-name="fileName"
       :file-path="filePath"
@@ -1360,19 +1454,20 @@ onUnmounted(() => {
         {
           'is-split-resizing': isSplitResizing,
           'has-editor-format-bar': showEditorFormatBar,
+          'is-zen': zenMode,
         },
       ]"
       :style="splitLayoutStyle"
     >
       <DocumentSwitcher
-        v-if="workspaceDocuments.length > 1"
+        v-if="workspaceDocuments.length > 1 && !zenMode"
         :paths="workspaceDocuments"
         :active-path="filePath"
         @select="switchWorkspaceDocument"
       />
 
       <button
-        v-if="canGoBack"
+        v-if="canGoBack && !zenMode"
         class="doc-back"
         :title="t('app.backToPreviousDocTitle')"
         @click="goBackDocument"
@@ -1382,6 +1477,12 @@ onUnmounted(() => {
       </button>
 
       <section v-show="showEditor" class="pane pane-editor">
+        <div class="pane-chrome pane-chrome--editor">
+          <PaneZenButton
+            :active="zenMode && viewMode === 'edit'"
+            @toggle="toggleZen('edit')"
+          />
+        </div>
         <MarkdownEditor
           ref="editorRef"
           v-model="content"
@@ -1390,7 +1491,7 @@ onUnmounted(() => {
           :proofread-issues="proofreadIssues"
           :active-proofread-issue-id="activeProofreadIssueId"
           :preview-diff-item="previewingDiffItem"
-          :format-bar-enabled="appPreferences.markdownFormatBarEnabled"
+          :format-bar-enabled="appPreferences.markdownFormatBarEnabled && !zenMode"
           :format-bar-tools="appPreferences.markdownFormatBarTools"
           :format-bar-tool-order="appPreferences.markdownFormatBarToolOrder"
           :image-hosting="appPreferences.imageHosting"
@@ -1424,23 +1525,52 @@ onUnmounted(() => {
 
       <section
         v-show="showPreview"
-        ref="previewPaneRef"
         class="pane pane-preview"
-        @scroll="onPreviewScroll"
       >
-        <MarkdownPreview
-          ref="previewRef"
-          :source="content"
-          :doc-file-path="filePath"
-          :media-epoch="previewMediaEpoch"
-          @open-link="handleOpenLink"
-          @crop-image="handleCropImageRequest"
-          @layout-change="handlePreviewLayoutChange"
-        />
+        <div class="pane-chrome">
+          <EditorSearchReplace
+            v-if="previewSearchOpen"
+            ref="previewSearchReplaceRef"
+            v-model:search-text="previewSearchText"
+            replace-text=""
+            v-model:case-sensitive="previewSearchCaseSensitive"
+            :replace-open="false"
+            embedded
+            :allow-replace="false"
+            :search-count-text="previewSearchCountText"
+            :has-matches="previewMatchTotal > 0"
+            @find-next="previewRef?.findNextSearchMatch()"
+            @find-previous="previewRef?.findPreviousSearchMatch()"
+            @close="closePreviewSearch"
+          />
+          <PaneZenButton
+            :active="zenMode && viewMode === 'preview'"
+            @toggle="toggleZen('preview')"
+          />
+        </div>
+        <div
+          ref="previewPaneRef"
+          class="pane-preview-scroll"
+          @scroll="onPreviewScroll"
+        >
+          <MarkdownPreview
+            ref="previewRef"
+            :source="content"
+            :doc-file-path="filePath"
+            :media-epoch="previewMediaEpoch"
+            :search-open="previewSearchOpen"
+            :search-text="previewSearchText"
+            :search-case-sensitive="previewSearchCaseSensitive"
+            @open-link="handleOpenLink"
+            @crop-image="handleCropImageRequest"
+            @layout-change="handlePreviewLayoutChange"
+            @search-stats="onPreviewSearchStats"
+          />
+        </div>
       </section>
 
       <AIPanel
-        v-if="showAI"
+        v-if="showAI && !zenMode"
         :doc="content"
         :document-key="aiDocumentKey"
         :document-path="filePath"
@@ -1462,7 +1592,7 @@ onUnmounted(() => {
       />
 
       <OutlinePanel
-        v-if="showOutline"
+        v-if="showOutline && !zenMode"
         :items="outlineItems"
         @navigate="navigateToHeading"
       />
@@ -1574,6 +1704,7 @@ onUnmounted(() => {
 }
 
 .pane {
+  position: relative;
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1593,7 +1724,6 @@ onUnmounted(() => {
 
 .mode-preview .pane-preview {
   flex: 1;
-  overflow: auto;
 }
 
 .divider {
@@ -1637,7 +1767,41 @@ onUnmounted(() => {
 }
 
 .pane-preview {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane-preview-scroll {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
+}
+
+.pane-chrome {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 12;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.pane-chrome > * {
+  pointer-events: auto;
+}
+
+.workspace.has-editor-format-bar .pane-chrome--editor {
+  top: 54px;
+}
+
+.pane-editor :deep(.editor-chrome) {
+  right: 56px;
+  max-width: calc(100% - 4.5rem);
 }
 
 @media (prefers-reduced-motion: reduce) {

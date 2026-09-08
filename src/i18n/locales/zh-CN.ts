@@ -263,6 +263,8 @@ console.log(greeting);
       imageAlt: "图片描述",
       imagePath: "path/to/image.png",
     },
+    zenEnter: "进入沉浸模式",
+    zenExit: "退出沉浸模式",
   },
   search: {
     ariaLabel: "在文档中搜索",

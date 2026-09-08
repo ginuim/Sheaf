@@ -343,6 +343,18 @@ button {
   font-weight: 500;
 }
 
+.preview-content mark.preview-search-hit {
+  color: inherit;
+  background: color-mix(in srgb, var(--ink-accent) 20%, transparent);
+  border-radius: 2px;
+  padding: 0;
+}
+
+.preview-content mark.preview-search-hit-active {
+  background: color-mix(in srgb, #c45c26 38%, var(--ink-bg-preview));
+  outline: 1px solid color-mix(in srgb, #c45c26 70%, transparent);
+}
+
 .pdf-export-content {
   position: fixed;
   top: 0;

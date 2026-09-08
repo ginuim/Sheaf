@@ -4,6 +4,11 @@ import { renderMermaidIn } from "../composables/useMermaid";
 import { renderMarkdown } from "../composables/useMarkdown";
 import { resolveMediaSrc } from "../composables/resolveMediaSrc";
 import { useExportTypography } from "../composables/useExportTypography";
+import {
+  applySearchHits,
+  clearSearchHits,
+  setActiveSearchHit,
+} from "../lib/domTextSearch";
 
 export type PreviewImageCropPayload = {
   previewSrc: string;
@@ -12,21 +17,108 @@ export type PreviewImageCropPayload = {
   sourceLine: number;
 };
 
-const props = defineProps<{
-  source: string;
-  docFilePath?: string | null;
-  mediaEpoch?: number;
-}>();
+const props = withDefaults(
+  defineProps<{
+    source: string;
+    docFilePath?: string | null;
+    mediaEpoch?: number;
+    searchOpen?: boolean;
+    searchText?: string;
+    searchCaseSensitive?: boolean;
+  }>(),
+  {
+    searchOpen: false,
+    searchText: "",
+    searchCaseSensitive: false,
+  },
+);
 
 const emit = defineEmits<{
   "open-link": [href: string];
   "layout-change": [];
   "crop-image": [payload: PreviewImageCropPayload];
+  "search-stats": [stats: { current: number; total: number }];
 }>();
 
 const articleRef = ref<HTMLElement | null>(null);
 const { settings: exportTypographySettings } = useExportTypography();
 let layoutFrame = 0;
+let searchGroups: HTMLElement[][] = [];
+const searchActiveIndex = ref(0);
+
+function getPreviewContentRoot() {
+  return articleRef.value?.querySelector<HTMLElement>(".preview-content") ?? null;
+}
+
+function emitSearchStats(current: number, total: number) {
+  emit("search-stats", { current, total });
+}
+
+function revealSearchMatch(index: number) {
+  if (searchGroups.length === 0) {
+    searchActiveIndex.value = 0;
+    emitSearchStats(0, 0);
+    return;
+  }
+
+  const nextIndex = ((index % searchGroups.length) + searchGroups.length) % searchGroups.length;
+  searchActiveIndex.value = nextIndex;
+  setActiveSearchHit(searchGroups, nextIndex);
+  searchGroups[nextIndex]![0]?.scrollIntoView({
+    block: "center",
+    inline: "nearest",
+  });
+  emitSearchStats(nextIndex + 1, searchGroups.length);
+}
+
+function applyPreviewSearch(scrollToActive: boolean) {
+  const root = getPreviewContentRoot();
+  if (!root) {
+    searchGroups = [];
+    searchActiveIndex.value = 0;
+    emitSearchStats(0, 0);
+    return;
+  }
+
+  if (!props.searchOpen || !props.searchText) {
+    clearSearchHits(root);
+    searchGroups = [];
+    searchActiveIndex.value = 0;
+    emitSearchStats(0, 0);
+    return;
+  }
+
+  searchGroups = applySearchHits(root, props.searchText, props.searchCaseSensitive);
+  if (searchGroups.length === 0) {
+    searchActiveIndex.value = 0;
+    emitSearchStats(0, 0);
+    return;
+  }
+
+  const nextIndex = Math.min(searchActiveIndex.value, searchGroups.length - 1);
+  if (scrollToActive) revealSearchMatch(nextIndex);
+  else {
+    searchActiveIndex.value = nextIndex;
+    setActiveSearchHit(searchGroups, nextIndex);
+    emitSearchStats(nextIndex + 1, searchGroups.length);
+  }
+}
+
+function findNextSearchMatch() {
+  if (searchGroups.length === 0) {
+    applyPreviewSearch(true);
+    return;
+  }
+  revealSearchMatch(searchActiveIndex.value + 1);
+}
+
+function findPreviousSearchMatch() {
+  if (searchGroups.length === 0) {
+    applyPreviewSearch(true);
+    return;
+  }
+  revealSearchMatch(searchActiveIndex.value - 1);
+}
 
 type ScrollAnchor = {
   line: number;
@@ -49,6 +141,7 @@ const html = computed(() =>
 async function renderDynamicBlocks() {
   await nextTick();
   if (articleRef.value) await renderMermaidIn(articleRef.value);
+  applyPreviewSearch(false);
   scheduleLayoutChange();
 }
 
@@ -63,6 +156,14 @@ onUnmounted(() => {
 watch(html, () => {
   void renderDynamicBlocks();
 });
+
+watch(
+  () => [props.searchOpen, props.searchText, props.searchCaseSensitive] as const,
+  () => {
+    searchActiveIndex.value = 0;
+    applyPreviewSearch(true);
+  },
+);
 
 function getSourceBlocks() {
   const article = articleRef.value;
@@ -184,6 +285,8 @@ defineExpose({
   articleEl: articleRef,
   getScrollAnchor,
   scrollToSourceAnchor,
+  findNextSearchMatch,
+  findPreviousSearchMatch,
 });
 </script>
 

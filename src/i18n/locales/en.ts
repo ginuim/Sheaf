@@ -263,6 +263,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
       imageAlt: "Image description",
       imagePath: "path/to/image.png",
     },
+    zenEnter: "Enter zen mode",
+    zenExit: "Exit zen mode",
   },
   search: {
     ariaLabel: "Search in document",
