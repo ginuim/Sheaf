@@ -9,6 +9,17 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.31",
+    date: "2026-09",
+    title: "专注模式、预览搜索与对话贴底",
+    items: [
+      "新增专注模式：只保留编辑或预览，隐藏工具栏、文档栏、侧栏和 AI 面板",
+      "预览区支持搜索，可高亮匹配、区分大小写、跳转上一项/下一项，并从当前选区带入关键词",
+      "大纲随编辑/预览位置高亮当前标题",
+      "AI 执行时自动滚到最新消息；向上翻看时不再被流式输出拽回底部",
+    ],
+  },
+  {
     version: "0.2.30",
     date: "2026-09",
     title: "对话模式与 Agent 执行体验",
@@ -307,6 +318,17 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.31",
+    date: "2026-09",
+    title: "Zen mode, preview search, and chat stick-to-bottom",
+    items: [
+      "Add zen mode: keep only the editor or preview, hiding the toolbar, document bar, side panels, and AI panel",
+      "Search in the preview pane with highlighting, case-sensitive matching, next/previous, and a query from the current selection",
+      "Outline highlights the heading at the current editor or preview position",
+      "AI chat follows the latest message while running, and stops following when you scroll up",
+    ],
+  },
   {
     version: "0.2.30",
     date: "2026-09",
