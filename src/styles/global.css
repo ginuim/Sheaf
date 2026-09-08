@@ -365,24 +365,32 @@ button {
 .preview-content .preview-ai-changed {
   position: relative;
   overflow: visible;
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, #38a169 16%, transparent) 0,
-    color-mix(in srgb, #38a169 16%, transparent) 1.55em,
-    transparent 1.55em
-  );
+  background: color-mix(in srgb, #38a169 12%, transparent);
 }
 
 .preview-content .preview-ai-changed::before {
   content: "";
   position: absolute;
-  top: 0.28em;
+  top: 0.2em;
+  bottom: 0.2em;
   left: -0.75em;
   width: 3px;
-  height: 1.2em;
   border-radius: 2px;
   background: #2f855a;
   pointer-events: none;
+}
+
+.preview-content pre.preview-ai-changed {
+  background: linear-gradient(
+      color-mix(in srgb, #38a169 16%, transparent),
+      color-mix(in srgb, #38a169 16%, transparent)
+    ),
+    var(--ink-code-bg);
+  box-shadow: inset 3px 0 0 #2f855a;
+}
+
+.preview-content pre.preview-ai-changed::before {
+  display: none;
 }
 
 .preview-content .preview-ai-removed {

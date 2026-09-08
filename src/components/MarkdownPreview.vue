@@ -213,11 +213,31 @@ const PREVIEW_MARK_SKIP_TAGS = new Set([
   "SVG",
 ]);
 
+type PreviewSourceBlock = { element: HTMLElement; line: number; lineEnd: number };
+
+function isFenceCode(el: HTMLElement) {
+  return el.tagName === "CODE" && el.parentElement?.tagName === "PRE";
+}
+
 function isPreviewMarkTarget(el: HTMLElement) {
+  if (isFenceCode(el)) return true;
   return !PREVIEW_MARK_SKIP_TAGS.has(el.tagName);
 }
 
-type PreviewSourceBlock = { element: HTMLElement; line: number; lineEnd: number };
+function markHost(el: HTMLElement) {
+  if (isFenceCode(el) && el.parentElement) return el.parentElement;
+  return el;
+}
+
+function blockStartsInAdded(block: PreviewSourceBlock, added: Set<number>) {
+  if (isFenceCode(block.element) || block.element.tagName === "PRE") {
+    for (let line = block.line; line <= block.lineEnd; line++) {
+      if (added.has(line)) return true;
+    }
+    return false;
+  }
+  return added.has(block.line);
+}
 
 function findStartBlock(blocks: PreviewSourceBlock[], startLine: number) {
   const containing = blocks.filter(
@@ -249,10 +269,13 @@ function applyAiChangeMarks() {
   const marked: HTMLElement[] = [];
 
   for (const block of blocks) {
-    // markdown-it 的 source-line-end 常会吃到后面空行/下一块，按起始行判断才和编辑区一致
-    if (!added.has(block.line)) continue;
-    block.element.classList.add(AI_CHANGED_CLASS);
-    marked.push(block.element);
+    // 普通块只看起始行，避免 li/p 的 source-line-end 吃到后面的新增。
+    // fence 的 data-source-line 在内层 code 上，且 ``` 行可能没变，所以按区间命中后标到外层 pre。
+    if (!blockStartsInAdded(block, added)) continue;
+    const host = markHost(block.element);
+    if (marked.includes(host)) continue;
+    host.classList.add(AI_CHANGED_CLASS);
+    marked.push(host);
   }
 
   for (const el of marked) {
