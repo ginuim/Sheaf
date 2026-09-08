@@ -1133,21 +1133,36 @@ function setEditorScrollRatio(ratio: number) {
   scroller.scrollTop = padding.top + scrollable * ratio;
 }
 
-function getScrollAnchor(): ScrollAnchor | null {
+const OUTLINE_VIEWPORT_OFFSET = 80;
+
+function getLineAtViewportOffset(offsetY = 0): number | null {
   if (!view) return null;
 
   const scroller = view.scrollDOM;
   const viewportTop = scroller.getBoundingClientRect().top;
-  const documentHeightAtTop = Math.max(0, viewportTop - view.documentTop + 1);
-  const block = view.lineBlockAtHeight(documentHeightAtTop);
-  const line = view.state.doc.lineAt(block.from);
+  const y = Math.max(0, viewportTop + offsetY - view.documentTop + 1);
+  const block = view.lineBlockAtHeight(y);
+  return view.state.doc.lineAt(block.from).number - 1;
+}
+
+function getScrollAnchor(): ScrollAnchor | null {
+  const line = getLineAtViewportOffset(0);
+  if (line == null) return null;
 
   return {
-    line: line.number - 1,
-    lineEnd: line.number - 1,
+    line,
+    lineEnd: line,
     offsetRatio: 0,
     absoluteRatio: getEditorScrollRatio(),
   };
+}
+
+function isCursorNearViewportTop(band = OUTLINE_VIEWPORT_OFFSET + 40) {
+  if (!view) return false;
+  const coords = view.coordsAtPos(view.state.selection.main.head);
+  if (!coords) return false;
+  const top = view.scrollDOM.getBoundingClientRect().top;
+  return coords.top >= top - 4 && coords.top <= top + band;
 }
 
 function scrollToSourceAnchor(anchor: ScrollAnchor) {
@@ -1180,6 +1195,10 @@ defineExpose({
     if (!view) return null;
     return view.state.doc.lineAt(view.state.selection.main.head).number - 1;
   },
+  getOutlineLine() {
+    return getLineAtViewportOffset(OUTLINE_VIEWPORT_OFFSET);
+  },
+  isCursorNearViewportTop,
   scrollToSourceAnchor,
   scrollRatio(ratio: number) {
     setEditorScrollRatio(ratio);
@@ -1191,7 +1210,11 @@ defineExpose({
     if (!view) return;
     const docLine = view.state.doc.line(Math.min(line + 1, view.state.doc.lines));
     view.dispatch({
-      effects: EditorView.scrollIntoView(docLine.from, { y: "start", yMargin: 80 }),
+      selection: EditorSelection.cursor(docLine.from),
+      effects: EditorView.scrollIntoView(docLine.from, {
+        y: "start",
+        yMargin: OUTLINE_VIEWPORT_OFFSET,
+      }),
     });
   },
   applyChanges(changes: Array<{ from: number; to: number; insert: string }>) {

@@ -203,17 +203,19 @@ function setOutlineSourceLine(line: number | null | undefined) {
 }
 
 function syncOutlineFromEditor(preferCursor: boolean) {
-  if (preferCursor) {
+  if (preferCursor || editorRef.value?.isCursorNearViewportTop()) {
     setOutlineSourceLine(editorRef.value?.getCursorLine());
     return;
   }
-  setOutlineSourceLine(editorRef.value?.getScrollAnchor()?.line);
+  setOutlineSourceLine(
+    editorRef.value?.getOutlineLine() ?? editorRef.value?.getScrollAnchor()?.line,
+  );
 }
 
 function syncOutlineFromPreview(pane?: HTMLElement | null) {
   const el = pane ?? previewPaneRef.value;
   if (!el) return;
-  setOutlineSourceLine(previewRef.value?.getScrollAnchor(el)?.line);
+  setOutlineSourceLine(previewRef.value?.getScrollAnchor(el, 32)?.line);
 }
 
 function onEditorPositionChange() {
@@ -889,7 +891,7 @@ function releaseScrollSyncLock() {
 }
 
 function onEditorScroll() {
-  if (showOutline.value) syncOutlineFromEditor(false);
+  if (showOutline.value && !scrollSyncing) syncOutlineFromEditor(false);
   if (scrollSyncing || viewMode.value !== "split") return;
   lastScrollSource = "editor";
   const anchor = editorRef.value?.getScrollAnchor();
@@ -910,7 +912,7 @@ function onEditorScroll() {
 }
 
 function onPreviewScroll(e: Event) {
-  if (showOutline.value) syncOutlineFromPreview(e.target as HTMLElement);
+  if (showOutline.value && !scrollSyncing) syncOutlineFromPreview(e.target as HTMLElement);
   if (scrollSyncing || viewMode.value !== "split") return;
   lastScrollSource = "preview";
   const el = e.target as HTMLElement;
@@ -1245,7 +1247,7 @@ function navigateToHeading(item: OutlineItem) {
         pane.getBoundingClientRect().top +
         pane.scrollTop -
         24;
-      pane.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+        pane.scrollTo({ top: Math.max(0, top) });
     }
   }
 

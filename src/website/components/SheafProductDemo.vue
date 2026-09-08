@@ -51,6 +51,7 @@ const fakeCursor = ref<DemoPoint>({ x: 64, y: 18 });
 const fakeCursorVisible = ref(false);
 const fakeCursorClicking = ref(false);
 const isDemoAnimating = ref(false);
+const isPointerInside = ref(false);
 const demoCaption = ref("");
 const demoHighlight = ref("");
 
@@ -307,6 +308,7 @@ function stopDemoAnimation() {
   animationRunId += 1;
   isDemoAnimating.value = false;
   fakeCursorClicking.value = false;
+  fakeCursorVisible.value = isPointerInside.value;
   clearActiveTimer(false);
 }
 
@@ -428,6 +430,7 @@ async function playSteps(steps: DemoStep[], runId: number) {
 
   if (isRunActive(runId)) {
     isDemoAnimating.value = false;
+    fakeCursorVisible.value = isPointerInside.value;
   }
 }
 
@@ -461,6 +464,43 @@ async function runThemeToggle() {
   );
 }
 
+function pointerToLocal(event: PointerEvent): DemoPoint | null {
+  const rect = demoRoot.value?.getBoundingClientRect();
+  if (!rect) return null;
+  const scale = getDemoScale(rect);
+  const width = rect.width / scale;
+  const height = rect.height / scale;
+  return {
+    x: Math.min(width, Math.max(0, (event.clientX - rect.left) / scale)),
+    y: Math.min(height, Math.max(0, (event.clientY - rect.top) / scale)),
+  };
+}
+
+function followPointer(event: PointerEvent) {
+  if (isDemoAnimating.value) return;
+  const point = pointerToLocal(event);
+  if (!point) return;
+  fakeCursor.value = point;
+  fakeCursorVisible.value = true;
+}
+
+function onDemoPointerEnter(event: PointerEvent) {
+  isPointerInside.value = true;
+  followPointer(event);
+}
+
+function onDemoPointerMove(event: PointerEvent) {
+  if (!isPointerInside.value) return;
+  followPointer(event);
+}
+
+function onDemoPointerLeave() {
+  isPointerInside.value = false;
+  if (!isDemoAnimating.value) {
+    fakeCursorVisible.value = false;
+  }
+}
+
 onUnmounted(() => {
   stopDemoAnimation();
 });
@@ -477,6 +517,9 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
       'is-demo-animating': isDemoAnimating,
     }"
     :data-theme="isDark ? 'dark' : undefined"
+    @pointerenter="onDemoPointerEnter"
+    @pointermove="onDemoPointerMove"
+    @pointerleave="onDemoPointerLeave"
   >
     <div class="demo-chrome">
       <span class="chrome-dot" />
@@ -545,6 +588,7 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
       :class="{
         visible: fakeCursorVisible,
         clicking: fakeCursorClicking,
+        'user-led': fakeCursorVisible && !isDemoAnimating,
       }"
       :style="{ left: `${fakeCursor.x}px`, top: `${fakeCursor.y}px` }"
       aria-hidden="true"
@@ -579,6 +623,11 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
     0 24px 48px var(--ink-shadow),
     0 0 0 1px rgba(42, 37, 32, 0.04);
   background: var(--ink-bg);
+}
+
+.sheaf-demo,
+.sheaf-demo * {
+  cursor: none !important;
 }
 
 .demo-chrome {
@@ -721,6 +770,10 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
 
 .demo-fake-cursor.visible {
   opacity: 1;
+}
+
+.demo-fake-cursor.user-led {
+  transition: opacity 0.16s ease;
 }
 
 .demo-fake-cursor-shape {

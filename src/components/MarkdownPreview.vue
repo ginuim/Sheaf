@@ -196,12 +196,12 @@ function getElementTopInPane(element: HTMLElement, pane: HTMLElement) {
   );
 }
 
-function getScrollAnchor(pane: HTMLElement): ScrollAnchor | null {
+function getScrollAnchor(pane: HTMLElement, topInset = 0): ScrollAnchor | null {
   const blocks = getSourceBlocks();
   if (!blocks.length) return null;
 
   const max = pane.scrollHeight - pane.clientHeight;
-  const viewportTop = pane.scrollTop + 1;
+  const viewportTop = pane.scrollTop + Math.max(topInset, 0) + 1;
   let active = blocks[0]!;
 
   for (const block of blocks) {
