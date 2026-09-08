@@ -9,6 +9,15 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.32",
+    date: "2026-09",
+    title: "大纲定位更准",
+    items: [
+      "大纲高亮跟随视口内实际标题，不再被分屏同步滚动带偏",
+      "点击大纲标题会把光标落到对应行，并与预览定位使用同一套偏移",
+    ],
+  },
+  {
     version: "0.2.31",
     date: "2026-09",
     title: "专注模式、预览搜索与对话贴底",
@@ -318,6 +327,15 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.32",
+    date: "2026-09",
+    title: "More accurate outline tracking",
+    items: [
+      "Outline highlight follows the heading in view and no longer drifts during split-pane scroll sync",
+      "Clicking an outline heading moves the caret to that line and uses the same offset as preview jump",
+    ],
+  },
   {
     version: "0.2.31",
     date: "2026-09",
