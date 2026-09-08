@@ -2269,6 +2269,7 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   padding: 1em;
   text-align: left;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   background: var(--wechat-article-code-bg);
   border-radius: 8px;
 }
@@ -2658,6 +2659,8 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   border-radius: 8px;
   overflow-x: auto;
   margin: 0 0 1em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .theme-dark .card-main-content :deep(pre) {
@@ -2667,6 +2670,8 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 .card-main-content :deep(pre code) {
   background: none;
   padding: 0;
+  white-space: inherit;
+  overflow-wrap: anywhere;
 }
 
 .card-main-content :deep(table) {

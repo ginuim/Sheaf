@@ -1382,16 +1382,6 @@ onUnmounted(() => {
           </div>
 
           <button
-            v-if="item.status === 'loading'"
-            class="ai-btn ai-btn-stop"
-            type="button"
-            @click="stop"
-          >
-            <Square :size="12" aria-hidden="true" />
-            {{ t("ai.stop") }}
-          </button>
-
-          <button
             v-if="shouldShowLongMessageToggle(item)"
             type="button"
             class="message-expand-toggle"
@@ -2132,6 +2122,8 @@ onUnmounted(() => {
   border: 1px solid var(--ink-border);
   border-radius: var(--ai-radius-sm);
   background: color-mix(in srgb, var(--ink-bg) 76%, var(--ink-surface));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .agent-markdown :deep(pre code) {
@@ -2139,7 +2131,8 @@ onUnmounted(() => {
   padding: 0;
   border: 0;
   background: transparent;
-  white-space: pre;
+  white-space: inherit;
+  overflow-wrap: anywhere;
 }
 
 .agent-markdown :deep(blockquote) {

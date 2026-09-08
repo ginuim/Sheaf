@@ -255,6 +255,12 @@ function toggle() {
   font-size: 0.95em;
 }
 
+.agent-thinking-md :deep(pre),
+.agent-thinking-md :deep(pre code) {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .agent-thinking-empty {
   color: var(--ink-text-muted);
 }

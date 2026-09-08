@@ -771,6 +771,12 @@ let unlistenWindowFocus: UnlistenFn | null = null;
 
 const showEditor = computed(() => viewMode.value !== "preview");
 const showPreview = computed(() => viewMode.value !== "edit");
+const previewSource = computed(() => {
+  const item = previewingDiffItem.value;
+  if (!item) return content.value;
+  if (typeof item.resultDoc === "string") return item.resultDoc;
+  return applyChangesToDoc(item.originalDoc, item.changes);
+});
 const showEditorFormatBar = computed(
   () =>
     showEditor.value &&
@@ -1605,7 +1611,7 @@ onUnmounted(() => {
         >
           <MarkdownPreview
             ref="previewRef"
-            :source="content"
+            :source="previewSource"
             :doc-file-path="filePath"
             :media-epoch="previewMediaEpoch"
             :search-open="previewSearchOpen"

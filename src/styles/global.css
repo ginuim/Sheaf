@@ -159,6 +159,7 @@ button {
   line-height: 1.85;
   color: var(--ink-text);
   letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
 }
 
 .preview-content > * + * {
@@ -258,12 +259,16 @@ button {
   padding: 1.25em 1.5em;
   overflow-x: auto;
   line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .preview-content pre code {
   background: none;
   padding: 0;
   font-size: 0.85em;
+  white-space: inherit;
+  overflow-wrap: anywhere;
 }
 
 .preview-content hr {
@@ -294,6 +299,7 @@ button {
   overflow-x: auto;
   line-height: 1.6;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   background: var(--ink-code-bg);
   border-radius: 8px;
 }
@@ -318,6 +324,7 @@ button {
   padding: 1em;
   text-align: left;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   background: var(--ink-code-bg);
   border-radius: 8px;
 }

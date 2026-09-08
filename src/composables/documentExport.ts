@@ -156,6 +156,7 @@ body {
   padding: 1.25em 1.5em;
   line-height: 1.6;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
   overflow-x: auto;
 }
@@ -164,6 +165,8 @@ body {
   background: none;
   padding: 0;
   font-size: 0.85em;
+  white-space: inherit;
+  overflow-wrap: anywhere;
 }
 
 .markdown-export hr {
