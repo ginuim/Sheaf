@@ -50,7 +50,6 @@ const aiPanelRef = ref<InstanceType<typeof AIPanel> | null>(null);
 const fakeCursor = ref<DemoPoint>({ x: 64, y: 18 });
 const fakeCursorVisible = ref(false);
 const fakeCursorClicking = ref(false);
-const isDemoHovered = ref(false);
 const isDemoAnimating = ref(false);
 const demoCaption = ref("");
 const demoHighlight = ref("");
@@ -295,13 +294,13 @@ function waitFor(ms: number, runId: number) {
     activeTimer = setTimeout(() => {
       activeTimer = null;
       resolveActiveTimer = null;
-      resolve(animationRunId === runId && !isDemoHovered.value);
+      resolve(animationRunId === runId);
     }, ms);
   });
 }
 
 function isRunActive(runId: number) {
-  return animationRunId === runId && !isDemoHovered.value;
+  return animationRunId === runId;
 }
 
 function stopDemoAnimation() {
@@ -462,40 +461,6 @@ async function runThemeToggle() {
   );
 }
 
-function updateCursorFromPointer(event: PointerEvent) {
-  const rect = demoRoot.value?.getBoundingClientRect();
-  if (!rect) {
-    return;
-  }
-  const scale = getDemoScale(rect);
-  const width = rect.width / scale;
-  const height = rect.height / scale;
-
-  fakeCursor.value = {
-    x: Math.min(width, Math.max(0, (event.clientX - rect.left) / scale)),
-    y: Math.min(height, Math.max(0, (event.clientY - rect.top) / scale)),
-  };
-}
-
-function onDemoPointerEnter(event: PointerEvent) {
-  isDemoHovered.value = true;
-  fakeCursorVisible.value = true;
-  stopDemoAnimation();
-  updateCursorFromPointer(event);
-}
-
-function onDemoPointerMove(event: PointerEvent) {
-  if (!isDemoHovered.value) {
-    return;
-  }
-  updateCursorFromPointer(event);
-}
-
-function onDemoPointerLeave() {
-  isDemoHovered.value = false;
-  fakeCursorClicking.value = false;
-}
-
 onUnmounted(() => {
   stopDemoAnimation();
 });
@@ -509,13 +474,9 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
     class="sheaf-demo"
     :class="{
       'is-dark': isDark,
-      'is-demo-hovered': isDemoHovered,
       'is-demo-animating': isDemoAnimating,
     }"
     :data-theme="isDark ? 'dark' : undefined"
-    @pointerenter="onDemoPointerEnter"
-    @pointermove="onDemoPointerMove"
-    @pointerleave="onDemoPointerLeave"
   >
     <div class="demo-chrome">
       <span class="chrome-dot" />
@@ -584,7 +545,6 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
       :class="{
         visible: fakeCursorVisible,
         clicking: fakeCursorClicking,
-        'user-led': isDemoHovered,
       }"
       :style="{ left: `${fakeCursor.x}px`, top: `${fakeCursor.y}px` }"
       aria-hidden="true"
@@ -690,11 +650,6 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
   pointer-events: none;
 }
 
-.is-demo-hovered,
-.is-demo-hovered * {
-  cursor: none !important;
-}
-
 .demo-workspace {
   display: flex;
   flex: 1;
@@ -766,12 +721,6 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
 
 .demo-fake-cursor.visible {
   opacity: 1;
-}
-
-.demo-fake-cursor.user-led {
-  transition:
-    opacity 0.16s ease,
-    transform 0.12s ease;
 }
 
 .demo-fake-cursor-shape {

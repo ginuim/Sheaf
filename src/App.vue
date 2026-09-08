@@ -34,7 +34,7 @@ import { useAutoUpdater } from "./composables/useAutoUpdater";
 import { buildWechatHtmlForCopy, copyWechatHtml } from "./composables/useWechatExport";
 import { resolveLinkHref } from "./composables/resolveMediaSrc";
 import { useFile } from "./composables/useFile";
-import { parseOutline, type OutlineItem } from "./composables/useOutline";
+import { findActiveOutlineItem, parseOutline, type OutlineItem } from "./composables/useOutline";
 import {
   addRecent,
   clearRecent,
@@ -192,6 +192,33 @@ function setSplitEditorPercent(value: number, persist = true) {
 const draftSessionId = ref(createDraftSessionId());
 
 const outlineItems = computed(() => parseOutline(content.value));
+const outlineSourceLine = ref(0);
+const activeOutlineId = computed(
+  () => findActiveOutlineItem(outlineItems.value, outlineSourceLine.value)?.id ?? null,
+);
+
+function setOutlineSourceLine(line: number | null | undefined) {
+  if (typeof line !== "number" || !Number.isFinite(line)) return;
+  outlineSourceLine.value = Math.max(0, line);
+}
+
+function syncOutlineFromEditor(preferCursor: boolean) {
+  if (preferCursor) {
+    setOutlineSourceLine(editorRef.value?.getCursorLine());
+    return;
+  }
+  setOutlineSourceLine(editorRef.value?.getScrollAnchor()?.line);
+}
+
+function syncOutlineFromPreview(pane?: HTMLElement | null) {
+  const el = pane ?? previewPaneRef.value;
+  if (!el) return;
+  setOutlineSourceLine(previewRef.value?.getScrollAnchor(el)?.line);
+}
+
+function onEditorPositionChange() {
+  if (showOutline.value) syncOutlineFromEditor(true);
+}
 
 const { theme, toggleTheme } = useTheme();
 const isDark = computed(() => theme.value === "dark");
@@ -823,6 +850,22 @@ watch(viewMode, (mode) => {
   closePreviewSearch();
 });
 
+watch(
+  [showOutline, viewMode],
+  () => {
+    if (!showOutline.value) return;
+    void nextTick(() => {
+      if (showEditor.value) syncOutlineFromEditor(true);
+      else syncOutlineFromPreview();
+    });
+  },
+  { immediate: true },
+);
+
+watch(aiDocumentKey, () => {
+  outlineSourceLine.value = 0;
+});
+
 function isScrollAtStart(ratio: number) {
   return ratio <= 0.001;
 }
@@ -846,6 +889,7 @@ function releaseScrollSyncLock() {
 }
 
 function onEditorScroll() {
+  if (showOutline.value) syncOutlineFromEditor(false);
   if (scrollSyncing || viewMode.value !== "split") return;
   lastScrollSource = "editor";
   const anchor = editorRef.value?.getScrollAnchor();
@@ -866,6 +910,7 @@ function onEditorScroll() {
 }
 
 function onPreviewScroll(e: Event) {
+  if (showOutline.value) syncOutlineFromPreview(e.target as HTMLElement);
   if (scrollSyncing || viewMode.value !== "split") return;
   lastScrollSource = "preview";
   const el = e.target as HTMLElement;
@@ -1183,6 +1228,7 @@ function restoreDocumentVersion(versionContent: string) {
 }
 
 function navigateToHeading(item: OutlineItem) {
+  setOutlineSourceLine(item.line);
   scrollSyncing = true;
 
   if (showEditor.value) {
@@ -1477,7 +1523,7 @@ onUnmounted(() => {
       </button>
 
       <section v-show="showEditor" class="pane pane-editor">
-        <div class="pane-chrome pane-chrome--editor">
+        <div v-if="viewMode !== 'split'" class="pane-chrome pane-chrome--editor">
           <PaneZenButton
             :active="zenMode && viewMode === 'edit'"
             @toggle="toggleZen('edit')"
@@ -1497,6 +1543,7 @@ onUnmounted(() => {
           :image-hosting="appPreferences.imageHosting"
           :needs-format-spacing="needsFormatSpacing"
           @scroll="onEditorScroll"
+          @position-change="onEditorPositionChange"
           @add-selection-context="handleAddSelectionContext"
           @format-spacing="formatChineseEnglishSpacing"
           @open-format-settings="openFormatBarSettings"
@@ -1544,6 +1591,7 @@ onUnmounted(() => {
             @close="closePreviewSearch"
           />
           <PaneZenButton
+            v-if="viewMode !== 'split'"
             :active="zenMode && viewMode === 'preview'"
             @toggle="toggleZen('preview')"
           />
@@ -1594,6 +1642,7 @@ onUnmounted(() => {
       <OutlinePanel
         v-if="showOutline && !zenMode"
         :items="outlineItems"
+        :active-id="activeOutlineId"
         @navigate="navigateToHeading"
       />
 
@@ -1799,7 +1848,7 @@ onUnmounted(() => {
   top: 54px;
 }
 
-.pane-editor :deep(.editor-chrome) {
+.mode-edit .pane-editor :deep(.editor-chrome) {
   right: 56px;
   max-width: calc(100% - 4.5rem);
 }

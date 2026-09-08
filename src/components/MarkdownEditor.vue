@@ -69,6 +69,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   "update:modelValue": [value: string];
   scroll: [];
+  "position-change": [];
   "add-selection-context": [context: { text: string; from: number; to: number }];
   "proofread-select": [issueId: string];
   "proofread-apply": [issueId: string];
@@ -952,6 +953,9 @@ onMounted(() => {
           if (update.docChanged || update.selectionSet) {
             closeSelectionContextMenu();
           }
+          if (update.selectionSet) {
+            emit("position-change");
+          }
         }),
       ],
     }),
@@ -1172,6 +1176,10 @@ defineExpose({
   isSearchOpen: () => searchOpen.value,
   insertDroppedImagePaths,
   getScrollAnchor,
+  getCursorLine() {
+    if (!view) return null;
+    return view.state.doc.lineAt(view.state.selection.main.head).number - 1;
+  },
   scrollToSourceAnchor,
   scrollRatio(ratio: number) {
     setEditorScrollRatio(ratio);

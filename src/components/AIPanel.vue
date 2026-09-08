@@ -45,6 +45,7 @@ import {
 } from "../ai-providers/catalog";
 import { useLocale } from "../composables/useLocale";
 import { renderMarkdown } from "../composables/useMarkdown";
+import { useStickToBottom } from "../composables/useStickToBottom";
 import {
   getDemoAiData,
 } from "../shared/demoAiData";
@@ -110,7 +111,7 @@ const aiMode = ref<AIComposerMode>("agent");
 const activeConversationId = computed(() => getActiveConversationId(aiMode.value));
 const conversationSummaries = computed(() => listConversationSummaries(aiMode.value));
 const instruction = ref("");
-const listRef = ref<HTMLElement | null>(null);
+const { scroller, content: listContent, stuck, pinToBottom } = useStickToBottom();
 const expandedDiffId = ref<string | null>(null);
 const expandedLongMessageIds = ref(new Set<string>());
 const overflowingMessageIds = ref(new Set<string>());
@@ -236,7 +237,7 @@ const hasConversationHistory = computed(() =>
 watch(aiMode, () => {
   showConversationHistory.value = false;
   expandedDiffId.value = null;
-  nextTick(scrollToBottom);
+  nextTick(pinToBottom);
 });
 
 watch(
@@ -315,14 +316,8 @@ function finalizeQuickReply(target: AIHistoryItem) {
   target.status = "no-changes";
 }
 
-function scrollToBottom() {
-  if (listRef.value) {
-    listRef.value.scrollTop = listRef.value.scrollHeight;
-  }
-}
-
 function getHistoryCardElement(itemId: string) {
-  const list = listRef.value;
+  const list = scroller.value;
   if (!list) return null;
   return Array.from(list.querySelectorAll<HTMLElement>(".chat-turn"))
     .find((card) => card.dataset.historyId === itemId) ?? null;
@@ -444,8 +439,6 @@ async function runDemoQuickEdit(
     }
     target.rawResponse += char;
     await new Promise((resolve) => setTimeout(resolve, charDelayMs));
-    await nextTick();
-    scrollToBottom();
   }
 
   return changes;
@@ -477,7 +470,7 @@ async function submit() {
   activeAbortController = new AbortController();
 
   await nextTick();
-  scrollToBottom();
+  pinToBottom();
   animateHistoryCard(id);
 
   try {
@@ -504,13 +497,11 @@ async function submit() {
           if (!target) return;
           target.rawResponse = assistantText;
           target.assistantText = assistantText;
-          nextTick(scrollToBottom);
         },
         onActivity: (activity) => {
           const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
           if (!target) return;
           upsertAgentActivity(target, activity);
-          nextTick(scrollToBottom);
         },
       });
 
@@ -551,10 +542,7 @@ async function submit() {
         newItem.originalDoc,
         (delta) => {
           const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
-          if (target) {
-            target.rawResponse += delta;
-            nextTick(scrollToBottom);
-          }
+          if (target) target.rawResponse += delta;
         },
         activeAbortController.signal,
         contextForRequest,
@@ -588,8 +576,6 @@ async function submit() {
     }
   } finally {
     activeAbortController = null;
-    await nextTick();
-    scrollToBottom();
   }
 }
 
@@ -615,7 +601,7 @@ async function proofread() {
   activeAbortController = new AbortController();
 
   await nextTick();
-  scrollToBottom();
+  pinToBottom();
   animateHistoryCard(id);
 
   try {
@@ -626,7 +612,6 @@ async function proofread() {
         const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
         if (!target) return;
         upsertAgentActivity(target, activity);
-        nextTick(scrollToBottom);
       },
     );
     const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
@@ -656,8 +641,6 @@ async function proofread() {
     }
   } finally {
     activeAbortController = null;
-    await nextTick();
-    scrollToBottom();
   }
 }
 
@@ -722,7 +705,7 @@ function selectConversation(conversationId: string) {
   switchConversation(aiMode.value, conversationId);
   showConversationHistory.value = false;
   expandedDiffId.value = null;
-  nextTick(scrollToBottom);
+  nextTick(pinToBottom);
 }
 
 function stop() {
@@ -1057,7 +1040,7 @@ onMounted(() => {
       reduceMotion.value = Boolean(context.conditions?.reduceMotion);
     },
   );
-  scrollToBottom();
+  pinToBottom();
   nextTick(scheduleLongMessageOverflowMeasure);
 });
 
@@ -1150,7 +1133,13 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <div ref="listRef" class="ai-history-list" @click="onHistoryClick">
+    <div class="ai-history-wrap">
+      <div ref="scroller" class="ai-history-list" @click="onHistoryClick">
+        <div
+          ref="listContent"
+          class="ai-history-content"
+          :class="{ 'ai-history-content--stuck': stuck }"
+        >
       <section v-if="!demoMode && showConversationHistory" class="conversation-history-panel">
         <div class="conversation-history-panel-header">
           <div class="conversation-history-panel-title">
@@ -1434,6 +1423,18 @@ onUnmounted(() => {
         </div>
       </div>
       </template>
+        </div>
+      </div>
+      <button
+        v-if="!stuck && !showConversationHistory && visibleHistoryList.length > 0"
+        type="button"
+        class="ai-scroll-bottom"
+        :title="t('ai.scrollToBottom')"
+        :aria-label="t('ai.scrollToBottom')"
+        @click="pinToBottom"
+      >
+        <ChevronDown :size="14" aria-hidden="true" />
+      </button>
     </div>
 
     <div class="ai-input-area">
@@ -1707,15 +1708,55 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
-.ai-history-list {
+.ai-history-wrap {
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 12px;
+  min-height: 0;
+}
+
+.ai-history-list {
+  flex: 1;
   min-height: 0;
   padding: 12px;
   overflow-y: auto;
   scrollbar-gutter: stable;
+}
+
+.ai-history-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 100%;
+}
+
+.ai-history-content--stuck {
+  overflow-anchor: none;
+}
+
+.ai-scroll-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--ink-text);
+  border: 1px solid var(--ink-border);
+  border-radius: 9999px;
+  background: var(--ink-surface);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ink-shadow) 42%, transparent);
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+
+.ai-scroll-bottom:hover {
+  background: color-mix(in srgb, var(--ink-text) 5%, var(--ink-surface));
 }
 
 .ai-empty {

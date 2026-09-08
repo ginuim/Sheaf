@@ -425,6 +425,7 @@ console.log(greeting);
     send: "发送",
     resize: "调整 AI 面板宽度",
     resizeTitle: "拖拽调整 AI 面板宽度",
+    scrollToBottom: "回到底部",
     statusApplied: "已应用",
     statusDone: "待应用",
     statusProofread: "待校对",

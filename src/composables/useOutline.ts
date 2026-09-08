@@ -69,3 +69,13 @@ export function buildHeadingIds(source: string): OutlineItem[] {
 export function parseOutline(source: string): OutlineItem[] {
   return buildHeadingIds(source);
 }
+
+/** Last heading at or above `line` (0-based). Items are document order. */
+export function findActiveOutlineItem(items: OutlineItem[], line: number): OutlineItem | null {
+  let active: OutlineItem | null = null;
+  for (const item of items) {
+    if (item.line > line) break;
+    active = item;
+  }
+  return active;
+}

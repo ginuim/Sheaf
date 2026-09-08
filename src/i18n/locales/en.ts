@@ -425,6 +425,7 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     send: "Send",
     resize: "Resize AI panel",
     resizeTitle: "Drag to resize AI panel",
+    scrollToBottom: "Scroll to latest",
     statusApplied: "Applied",
     statusDone: "Ready to apply",
     statusProofread: "Review",
