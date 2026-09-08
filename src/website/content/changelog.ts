@@ -9,6 +9,16 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.33",
+    date: "2026-09",
+    title: "AI 修改同步到预览",
+    items: [
+      "预览 AI 建议时，预览区显示改后正文，新增块浅绿底、删除处显示摘要",
+      "代码块会软换行，长行不再被裁掉",
+      "停止生成只保留在输入框，消息下方不再重复按钮",
+    ],
+  },
+  {
     version: "0.2.32",
     date: "2026-09",
     title: "大纲定位更准",
@@ -327,6 +337,16 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.33",
+    date: "2026-09",
+    title: "AI edits in the preview pane",
+    items: [
+      "Previewing an AI suggestion shows the proposed document, with added blocks and compact deleted snippets",
+      "Code blocks wrap long lines instead of clipping",
+      "Stop generation from the composer only; the extra button under messages is gone",
+    ],
+  },
   {
     version: "0.2.32",
     date: "2026-09",
