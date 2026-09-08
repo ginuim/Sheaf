@@ -24,7 +24,7 @@ import StartPage from "./components/StartPage.vue";
 import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
 import type { AgentContextSnippet, EditChange, AIHistoryItem } from "./composables/useAI";
-import { migrateAiHistoryKey, applyChangesToDoc } from "./composables/useAI";
+import { applyChangesToDoc, buildPreviewAiMarks, migrateAiHistoryKey } from "./composables/useAI";
 import type { ProofreadIssue } from "./types/proofreading";
 import { migrateDocumentVersionsKey, useDocumentVersions } from "./composables/useDocumentVersions";
 import { refreshRecentMenu, setupAppMenu, type AppMenuHandlers } from "./composables/useAppMenu";
@@ -776,6 +776,11 @@ const previewSource = computed(() => {
   if (!item) return content.value;
   if (typeof item.resultDoc === "string") return item.resultDoc;
   return applyChangesToDoc(item.originalDoc, item.changes);
+});
+const previewAiMarks = computed(() => {
+  const item = previewingDiffItem.value;
+  if (!item) return null;
+  return buildPreviewAiMarks(item.originalDoc, previewSource.value);
 });
 const showEditorFormatBar = computed(
   () =>
@@ -1617,6 +1622,9 @@ onUnmounted(() => {
             :search-open="previewSearchOpen"
             :search-text="previewSearchText"
             :search-case-sensitive="previewSearchCaseSensitive"
+            :ai-marks="previewAiMarks"
+            :ai-added-label="t('ai.previewAiAdded')"
+            :ai-removed-label="t('ai.previewAiRemoved')"
             @open-link="handleOpenLink"
             @crop-image="handleCropImageRequest"
             @layout-change="handlePreviewLayoutChange"

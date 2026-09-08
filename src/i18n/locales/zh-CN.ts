@@ -414,6 +414,8 @@ console.log(greeting);
     applied: "已应用",
     preview: "预览修改",
     previewingDiff: "正在预览 AI 修改建议",
+    previewAiAdded: "新增或改写",
+    previewAiRemoved: "已删除",
     acceptPreview: "接受修改",
     discardPreview: "放弃修改",
     agentPlaceholder: "让 AI 帮你查证、改写或续写这篇稿子...",

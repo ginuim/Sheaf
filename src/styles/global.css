@@ -362,6 +362,58 @@ button {
   outline: 1px solid color-mix(in srgb, #c45c26 70%, transparent);
 }
 
+.preview-content .preview-ai-changed {
+  position: relative;
+  overflow: visible;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, #38a169 16%, transparent) 0,
+    color-mix(in srgb, #38a169 16%, transparent) 1.55em,
+    transparent 1.55em
+  );
+}
+
+.preview-content .preview-ai-changed::before {
+  content: "";
+  position: absolute;
+  top: 0.28em;
+  left: -0.75em;
+  width: 3px;
+  height: 1.2em;
+  border-radius: 2px;
+  background: #2f855a;
+  pointer-events: none;
+}
+
+.preview-content .preview-ai-removed {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 0.28em 0 0.28em 0.2em;
+  color: #c53030;
+}
+
+.preview-content .preview-ai-removed-label {
+  flex: none;
+  font-family: var(--font-ui);
+  font-size: 0.72em;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.preview-content .preview-ai-removed-body {
+  min-width: 0;
+  font-family: var(--font-editor);
+  font-size: 0.88em;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: line-through;
+  opacity: 0.88;
+}
+
 .pdf-export-content {
   position: fixed;
   top: 0;

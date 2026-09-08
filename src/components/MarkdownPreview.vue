@@ -9,6 +9,7 @@ import {
   clearSearchHits,
   setActiveSearchHit,
 } from "../lib/domTextSearch";
+import type { PreviewAiMarks } from "../composables/useAI";
 
 export type PreviewImageCropPayload = {
   previewSrc: string;
@@ -25,11 +26,17 @@ const props = withDefaults(
     searchOpen?: boolean;
     searchText?: string;
     searchCaseSensitive?: boolean;
+    aiMarks?: PreviewAiMarks | null;
+    aiAddedLabel?: string;
+    aiRemovedLabel?: string;
   }>(),
   {
     searchOpen: false,
     searchText: "",
     searchCaseSensitive: false,
+    aiMarks: null,
+    aiAddedLabel: "",
+    aiRemovedLabel: "",
   },
 );
 
@@ -45,6 +52,15 @@ const { settings: exportTypographySettings } = useExportTypography();
 let layoutFrame = 0;
 let searchGroups: HTMLElement[][] = [];
 const searchActiveIndex = ref(0);
+
+const AI_CHANGED_CLASS = "preview-ai-changed";
+const AI_REMOVED_CLASS = "preview-ai-removed";
+
+const hasAiMarks = computed(() => {
+  const marks = props.aiMarks;
+  return Boolean(marks && (marks.addedLines.length > 0 || marks.removedHunks.length > 0));
+});
+const hasRemovedMarks = computed(() => (props.aiMarks?.removedHunks.length ?? 0) > 0);
 
 function getPreviewContentRoot() {
   return articleRef.value?.querySelector<HTMLElement>(".preview-content") ?? null;
@@ -141,6 +157,7 @@ const html = computed(() =>
 async function renderDynamicBlocks() {
   await nextTick();
   if (articleRef.value) await renderMermaidIn(articleRef.value);
+  applyAiChangeMarks();
   applyPreviewSearch(false);
   scheduleLayoutChange();
 }
@@ -164,6 +181,107 @@ watch(
     applyPreviewSearch(true);
   },
 );
+
+watch(
+  () => props.aiMarks,
+  () => {
+    void nextTick().then(() => {
+      applyAiChangeMarks();
+      scheduleLayoutChange();
+    });
+  },
+);
+
+function clearAiChangeMarks(root: HTMLElement) {
+  root.querySelectorAll(`.${AI_CHANGED_CLASS}`).forEach((el) => {
+    el.classList.remove(AI_CHANGED_CLASS);
+  });
+  root.querySelectorAll(`.${AI_REMOVED_CLASS}`).forEach((el) => {
+    el.remove();
+  });
+}
+
+const PREVIEW_MARK_SKIP_TAGS = new Set([
+  "A",
+  "BR",
+  "CODE",
+  "EM",
+  "IMG",
+  "MARK",
+  "SPAN",
+  "STRONG",
+  "SVG",
+]);
+
+function isPreviewMarkTarget(el: HTMLElement) {
+  return !PREVIEW_MARK_SKIP_TAGS.has(el.tagName);
+}
+
+type PreviewSourceBlock = { element: HTMLElement; line: number; lineEnd: number };
+
+function findStartBlock(blocks: PreviewSourceBlock[], startLine: number) {
+  const containing = blocks.filter(
+    (block) => block.line <= startLine && startLine <= block.lineEnd,
+  );
+  if (containing.length > 0) {
+    containing.sort((left, right) => {
+      const spanDiff = left.lineEnd - left.line - (right.lineEnd - right.line);
+      if (spanDiff !== 0) return spanDiff;
+      if (left.element.contains(right.element)) return 1;
+      if (right.element.contains(left.element)) return -1;
+      return 0;
+    });
+    return containing[0] ?? null;
+  }
+  return blocks.find((block) => block.line >= startLine) ?? null;
+}
+
+function applyAiChangeMarks() {
+  const root = getPreviewContentRoot();
+  if (!root) return;
+
+  clearAiChangeMarks(root);
+  const marks = props.aiMarks;
+  if (!marks) return;
+
+  const added = new Set<number>(marks.addedLines);
+  const blocks = getSourceBlocks().filter((block) => isPreviewMarkTarget(block.element));
+  const marked: HTMLElement[] = [];
+
+  for (const block of blocks) {
+    // markdown-it 的 source-line-end 常会吃到后面空行/下一块，按起始行判断才和编辑区一致
+    if (!added.has(block.line)) continue;
+    block.element.classList.add(AI_CHANGED_CLASS);
+    marked.push(block.element);
+  }
+
+  for (const el of marked) {
+    if (el.querySelector(`.${AI_CHANGED_CLASS}`)) {
+      el.classList.remove(AI_CHANGED_CLASS);
+    }
+  }
+
+  for (const hunk of marks.removedHunks) {
+    const marker = document.createElement("aside");
+    marker.className = AI_REMOVED_CLASS;
+
+    const label = document.createElement("div");
+    label.className = "preview-ai-removed-label";
+    label.textContent = props.aiRemovedLabel;
+
+    const body = document.createElement("div");
+    body.className = "preview-ai-removed-body";
+    body.textContent = hunk.preview;
+
+    marker.append(label, body);
+
+    const next =
+      findStartBlock(blocks, hunk.beforeNewLine) ??
+      blocks.find((block) => block.line >= hunk.beforeNewLine);
+    if (next) next.element.before(marker);
+    else root.append(marker);
+  }
+}
 
 function getSourceBlocks() {
   const article = articleRef.value;
@@ -294,9 +412,20 @@ defineExpose({
   <article
     ref="articleRef"
     class="preview-article"
+    :class="{ 'has-ai-marks': hasAiMarks }"
     @click="onPreviewClick"
     @load.capture="scheduleLayoutChange"
   >
+    <div v-if="hasAiMarks" class="preview-ai-legend">
+      <span class="preview-ai-legend-item added">
+        <span class="preview-ai-legend-swatch" aria-hidden="true" />
+        {{ aiAddedLabel }}
+      </span>
+      <span v-if="hasRemovedMarks" class="preview-ai-legend-item removed">
+        <span class="preview-ai-legend-swatch" aria-hidden="true" />
+        {{ aiRemovedLabel }}
+      </span>
+    </div>
     <div class="preview-content" v-html="html" />
   </article>
 </template>
@@ -304,6 +433,46 @@ defineExpose({
 <style scoped>
 .preview-article {
   min-height: 100%;
+}
+
+.preview-ai-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 2.5rem 2rem 0;
+  color: var(--ink-text-muted);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.preview-ai-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.preview-ai-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.preview-ai-legend-item.added .preview-ai-legend-swatch {
+  background: color-mix(in srgb, #38a169 42%, transparent);
+  box-shadow: inset 2px 0 0 #2f855a;
+}
+
+.preview-ai-legend-item.removed .preview-ai-legend-swatch {
+  background: color-mix(in srgb, #e53e3e 32%, transparent);
+  box-shadow: inset 2px 0 0 #c53030;
+}
+
+.preview-article.has-ai-marks .preview-content {
+  padding-top: 1rem;
 }
 
 .preview-content {

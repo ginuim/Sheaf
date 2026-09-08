@@ -414,6 +414,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     applied: "Applied",
     preview: "Preview changes",
     previewingDiff: "Previewing AI changes",
+    previewAiAdded: "Added or rewritten",
+    previewAiRemoved: "Deleted",
     acceptPreview: "Accept Changes",
     discardPreview: "Discard Changes",
     agentPlaceholder: "Ask AI to verify, rewrite, or continue this draft...",

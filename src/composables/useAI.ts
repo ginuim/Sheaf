@@ -352,6 +352,61 @@ export function lineDiff(oldStr: string, newStr: string): DiffLine[] {
   return result;
 }
 
+export type PreviewAiRemovedHunk = {
+  beforeNewLine: number;
+  preview: string;
+};
+
+export type PreviewAiMarks = {
+  addedLines: number[];
+  removedHunks: PreviewAiRemovedHunk[];
+};
+
+function firstPreviewLine(lines: string[]) {
+  const line = lines.find((item) => item.trim().length > 0) ?? lines[0] ?? "";
+  const text = line.trim();
+  return text.length > 72 ? `${text.slice(0, 72)}…` : text;
+}
+
+/** 记下所有新增行，以及每段删除的起始摘要。预览里按区块开头标记，不铺满整段。 */
+export function buildPreviewAiMarks(oldStr: string, newStr: string): PreviewAiMarks | null {
+  const addedLines: number[] = [];
+  const removedHunks: PreviewAiRemovedHunk[] = [];
+  let newLine = 0;
+  let pendingRemoved: string[] = [];
+  let firstAddedLine: number | null = null;
+
+  const flushHunk = () => {
+    if (pendingRemoved.length > 0) {
+      removedHunks.push({
+        beforeNewLine: firstAddedLine ?? newLine,
+        preview: firstPreviewLine(pendingRemoved),
+      });
+    }
+    pendingRemoved = [];
+    firstAddedLine = null;
+  };
+
+  for (const line of lineDiff(oldStr, newStr)) {
+    if (line.type === "removed") {
+      pendingRemoved.push(line.text);
+      continue;
+    }
+    if (line.type === "added") {
+      if (firstAddedLine === null) firstAddedLine = newLine;
+      addedLines.push(newLine);
+      newLine += 1;
+      continue;
+    }
+    flushHunk();
+    newLine += 1;
+  }
+  flushHunk();
+
+  if (addedLines.length === 0 && removedHunks.length === 0) return null;
+  return { addedLines, removedHunks };
+}
+
 export function compressDiff(lines: DiffLine[], contextLines = 2): CompressedDiffLine[] {
   const result: CompressedDiffLine[] = [];
   const n = lines.length;
