@@ -9,6 +9,15 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.34",
+    date: "2026-09",
+    title: "编辑区文字缩放",
+    items: [
+      "⌘+ / ⌘- 缩放编辑区和预览文字，⌘0 恢复 100%；档位与 Chrome 相同，范围 25%–500%",
+      "缩放时内容区右上角短暂显示当前比例，随后自动消失",
+    ],
+  },
+  {
     version: "0.2.33",
     date: "2026-09",
     title: "AI 修改同步到预览",
@@ -337,6 +346,15 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.34",
+    date: "2026-09",
+    title: "Zoom editor and preview text",
+    items: [
+      "Zoom editor and preview text with ⌘+ / ⌘-, reset with ⌘0; Chrome-style steps from 25% to 500%",
+      "A zoom percentage briefly appears at the top-right of the content area, then fades away",
+    ],
+  },
   {
     version: "0.2.33",
     date: "2026-09",
