@@ -1189,6 +1189,9 @@ defineExpose({
   openReplace,
   closeSearch,
   isSearchOpen: () => searchOpen.value,
+  remeasure() {
+    view?.requestMeasure();
+  },
   insertDroppedImagePaths,
   getScrollAnchor,
   getCursorLine() {

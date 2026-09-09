@@ -44,6 +44,8 @@ import {
 import { useTheme } from "./composables/useTheme";
 import { translate, useLocale } from "./composables/useLocale";
 import { useAppPreferences } from "./composables/useAppPreferences";
+import { useContentZoom } from "./composables/useContentZoom";
+import { contentZoomActionFromKeyboard } from "./lib/contentZoom";
 import {
   applyChineseEnglishSpacingToMarkdownSource,
   needsChineseEnglishSpacingFormatting,
@@ -151,9 +153,19 @@ const docHistory = ref<DocHistoryEntry[]>([]);
 const canGoBack = computed(() => docHistory.value.length > 0);
 const splitEditorPercent = shallowRef(loadSplitEditorPercent());
 const isSplitResizing = shallowRef(false);
+const {
+  percent: contentZoomPercent,
+  cssZoom: contentCssZoom,
+  hudVisible: contentZoomHudVisible,
+  zoomIn: zoomContentIn,
+  zoomOut: zoomContentOut,
+  resetZoom: resetContentZoom,
+  zoomByWheel: zoomContentByWheel,
+} = useContentZoom();
 const splitLayoutStyle = computed(() => ({
   "--editor-pane-grow": String(splitEditorPercent.value),
   "--preview-pane-grow": String(100 - splitEditorPercent.value),
+  "--content-text-zoom": String(contentCssZoom.value),
 }));
 
 function createDraftSessionId() {
@@ -1300,6 +1312,17 @@ function handleKeydown(e: KeyboardEvent) {
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
 
+  const zoomAction = contentZoomActionFromKeyboard(e);
+  if (zoomAction) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (showStartPage.value) return;
+    if (zoomAction === "in") zoomContentIn();
+    else if (zoomAction === "out") zoomContentOut();
+    else resetContentZoom();
+    return;
+  }
+
   if (e.key === "f" && !e.shiftKey && !showStartPage.value) {
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -1380,8 +1403,20 @@ watch(locale, () => {
   void refreshAppMenu();
 });
 
+watch(contentZoomPercent, async () => {
+  await nextTick();
+  editorRef.value?.remeasure();
+});
+
+function handleZoomWheel(e: WheelEvent) {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey || showStartPage.value) return;
+  e.preventDefault();
+  zoomContentByWheel(e.deltaY);
+}
+
 onMounted(async () => {
   window.addEventListener("keydown", handleKeydown, true);
+  window.addEventListener("wheel", handleZoomWheel, { capture: true, passive: false });
 
   if (hasTauriRuntime()) {
     await refreshAppMenu();
@@ -1424,6 +1459,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown, true);
+  window.removeEventListener("wheel", handleZoomWheel, true);
   window.removeEventListener("pointermove", handleSplitResize);
   window.removeEventListener("pointerup", stopSplitResize);
   if (isSplitResizing.value) {
@@ -1534,6 +1570,18 @@ onUnmounted(() => {
         <span class="doc-back-arrow">←</span>
         <span>{{ t("app.backToPreviousDoc") }}</span>
       </button>
+
+      <Transition name="content-zoom-badge">
+        <div
+          v-if="contentZoomHudVisible"
+          class="content-zoom-badge"
+          role="status"
+          aria-live="polite"
+          :aria-label="t('editor.zoomAria', { percent: contentZoomPercent })"
+        >
+          {{ t("editor.zoomPercent", { percent: contentZoomPercent }) }}
+        </div>
+      </Transition>
 
       <section v-show="showEditor" class="pane pane-editor">
         <div v-if="viewMode !== 'split'" class="pane-chrome pane-chrome--editor">
@@ -1764,6 +1812,50 @@ onUnmounted(() => {
   top: 56px;
 }
 
+.content-zoom-badge {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 11;
+  padding: 6px 10px;
+  color: var(--ink-text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  background: color-mix(in srgb, var(--ink-surface) 88%, transparent);
+  border: 1px solid var(--ink-border);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px var(--ink-shadow);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.content-zoom-badge-enter-active,
+.content-zoom-badge-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.content-zoom-badge-enter-from,
+.content-zoom-badge-leave-to {
+  opacity: 0;
+}
+
+.mode-edit .content-zoom-badge,
+.mode-preview .content-zoom-badge {
+  right: 56px;
+}
+
+.workspace.has-editor-format-bar.mode-edit .content-zoom-badge {
+  top: 54px;
+}
+
+.pane-editor :deep(.editor-container),
+.pane-editor :deep(.diff-preview-body),
+.pane-preview :deep(.preview-article) {
+  zoom: var(--content-text-zoom, 1);
+}
+
 .doc-back-arrow {
   color: var(--ink-text-muted);
 }
@@ -1872,6 +1964,11 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) {
   .editor-enter {
     animation: none;
+  }
+
+  .content-zoom-badge-enter-active,
+  .content-zoom-badge-leave-active {
+    transition: none;
   }
 
   .export-pdf-spinner {

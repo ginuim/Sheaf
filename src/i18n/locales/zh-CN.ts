@@ -265,6 +265,8 @@ console.log(greeting);
     },
     zenEnter: "进入沉浸模式",
     zenExit: "退出沉浸模式",
+    zoomPercent: "{percent}%",
+    zoomAria: "文字缩放 {percent}%",
   },
   search: {
     ariaLabel: "在文档中搜索",

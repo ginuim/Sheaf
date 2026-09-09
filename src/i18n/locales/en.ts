@@ -265,6 +265,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     },
     zenEnter: "Enter zen mode",
     zenExit: "Exit zen mode",
+    zoomPercent: "{percent}%",
+    zoomAria: "Text zoom {percent}%",
   },
   search: {
     ariaLabel: "Search in document",
