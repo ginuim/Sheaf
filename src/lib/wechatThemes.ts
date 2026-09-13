@@ -112,7 +112,7 @@ export const WECHAT_THEMES: WechatTheme[] = [
     styles: {
       section: `font-family: ${FONT_SANS}; font-size: 16px; line-height: 1.75; color: #1c1c1e; letter-spacing: 0.01em; word-wrap: break-word;`,
       h1: `font-size: 22px; font-weight: 600; line-height: 1.3; letter-spacing: -0.03em; color: #1c1c1e; margin: 0 0 20px; padding-bottom: 10px; border-bottom: 1px solid rgba(60, 60, 67, 0.16);`,
-      h2: `font-size: 17px; font-weight: 600; line-height: 1.35; color: #1c1c1e; margin: 32px 0 14px; padding-left: 10px; border-left: 3px solid #007aff;`,
+      h2: `font-size: 17px; font-weight: 600; line-height: 1.35; color: #1c1c1e; margin: 32px 0 14px;`,
       h3: `font-size: 16px; font-weight: 600; line-height: 1.4; color: #1c1c1e; margin: 24px 0 10px;`,
       h4: `font-size: 15px; font-weight: 600; line-height: 1.4; color: #1c1c1e; margin: 20px 0 8px;`,
       p: `margin: 0 0 16px; text-align: left; line-height: 1.75; color: #1c1c1e;`,
