@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Undo2, Eye, EyeOff } from "@lucide/vue";
-import { WECHAT_THEMES } from "../lib/wechatThemes";
+import { WECHAT_THEMES, type WechatThemeId } from "../lib/wechatThemes";
 import {
   buildWechatHtml,
   buildWechatHtmlForCopy,
@@ -81,7 +81,7 @@ const savedCardSettings = loadExportCardSettings();
 // 导出配置状态
 const config = ref({
   type: "wechat" as "wechat" | "xiaohongshu" | "long-image",
-  wechatTheme: "classic" as "classic" | "editorial" | "minimal",
+  wechatTheme: "classic" as WechatThemeId,
   cardTheme: "classic" as "classic" | "modern" | "dark",
   author: savedCardSettings.author,
   authorDesc: savedCardSettings.authorDesc,
@@ -2194,6 +2194,10 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
   font-size: inherit !important;
 }
 
+.wechat-content :deep([data-sheaf-code-body]) {
+  font-size: 13px !important;
+}
+
 .export-studio-overlay.is-dark .wechat-content :deep(section),
 .export-studio-overlay.is-dark .wechat-content :deep(h1),
 .export-studio-overlay.is-dark .wechat-content :deep(h2),
@@ -2235,6 +2239,28 @@ const displayAuthorDesc = computed(() => config.value.authorDesc || t("export.de
 
 .export-studio-overlay.is-dark .wechat-content :deep(pre code) {
   background: none !important;
+}
+
+.export-studio-overlay.is-dark .wechat-content :deep([data-sheaf-code-frame]) {
+  background-color: #1c1c1e !important;
+  color: #e8e8ed !important;
+}
+
+.export-studio-overlay.is-dark .wechat-content :deep([data-sheaf-code-frame] pre),
+.export-studio-overlay.is-dark .wechat-content :deep([data-sheaf-code-frame] code) {
+  color: #e8e8ed !important;
+  background-color: transparent !important;
+}
+
+.export-studio-overlay.is-dark .wechat-content :deep([data-sheaf-code-body]) {
+  color: #e8e8ed !important;
+  background-color: #1c1c1e !important;
+}
+
+.export-studio-overlay.is-dark .wechat-content :deep([data-sheaf-code-frame] td) {
+  color: #8e8e93 !important;
+  background: transparent !important;
+  border: 0 !important;
 }
 
 .wechat-content :deep(.math-block),

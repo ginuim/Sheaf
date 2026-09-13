@@ -537,6 +537,8 @@ console.log(greeting);
       editorialDesc: "衬线标题 + 左侧装饰线，杂志感",
       minimal: "极简留白",
       minimalDesc: "黑白灰、大留白，干净克制",
+      terminal: "Mac 终端",
+      terminalDesc: "冷色技术排版，代码块做成 macOS 窗口",
     },
     themes: {
       classic: "极简米白",

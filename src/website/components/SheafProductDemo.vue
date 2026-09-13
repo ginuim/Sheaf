@@ -222,10 +222,15 @@ const demoScenarios = computed<Record<DemoScenarioId, DemoScenario>>(() => ({
         },
       },
       {
-        target: ".theme-card:nth-child(3)",
+        target: ".theme-card:nth-child(4)",
         click: true,
         caption: t("landing.demo.steps.export.wechatTheme2"),
-        action: () => clickTarget(".theme-card:nth-child(3)"),
+        action: async (runId) => {
+          if (!(await waitForSelector(".theme-card:nth-child(4)", runId))) {
+            return;
+          }
+          clickTarget(".theme-card:nth-child(4)");
+        },
       },
       {
         target: ".type-btn:nth-child(2)",

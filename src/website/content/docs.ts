@@ -53,7 +53,7 @@ const DOC_SECTIONS_ZH: DocSection[] = [
       "工具栏「导出」菜单提供多种输出方式，均基于当前预览排版生成。",
     ],
     list: [
-      "导出到社交媒体：生成微信公众号 HTML、小红书分享卡片或长图，样式已内联可直接粘贴或保存",
+      "导出到社交媒体：生成微信公众号 HTML、小红书分享卡片或长图，样式已内联可直接粘贴或保存。公众号新增 Mac 终端主题，代码块为 macOS 窗口",
       "导出 PDF：打开系统打印对话框，选择「存储为 PDF」",
       "复制公众号 HTML：「文件」菜单中也可一键复制",
     ],
@@ -132,7 +132,7 @@ const DOC_SECTIONS_EN: DocSection[] = [
       "The Export menu offers several outputs, all based on the current preview layout.",
     ],
     list: [
-      "Social export: rich HTML for blogs and newsletters, social share cards, or long images with inlined styles",
+      "Social export: rich HTML for blogs and newsletters, social share cards, or long images with inlined styles. Article layouts include a Mac Terminal theme with macOS-style code windows",
       "Export PDF: opens the system print dialog — choose Save as PDF",
       "Copy rich HTML: also available in the File menu",
     ],

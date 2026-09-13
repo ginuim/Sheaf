@@ -537,6 +537,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
       editorialDesc: "Serif headings with left accent line, magazine feel",
       minimal: "Minimal whitespace",
       minimalDesc: "Black, white, and gray with generous whitespace",
+      terminal: "Mac Terminal",
+      terminalDesc: "Cool-toned tech layout, code blocks as macOS windows",
     },
     themes: {
       classic: "Warm minimal",
