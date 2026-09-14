@@ -560,7 +560,7 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
         </section>
         <div v-if="viewMode === 'split'" class="divider" aria-hidden="true" />
         <section v-show="viewMode !== 'edit'" class="pane pane-preview">
-          <MarkdownPreview :source="content" />
+          <MarkdownPreview :source="content" :enable-crop="false" />
         </section>
         <AIPanel
           v-if="showAI"

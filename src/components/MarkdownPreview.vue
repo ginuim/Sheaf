@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import ImageLightbox from "./ImageLightbox.vue";
 import { renderMermaidIn } from "../composables/useMermaid";
 import { renderMarkdown } from "../composables/useMarkdown";
 import { resolveMediaSrc } from "../composables/resolveMediaSrc";
@@ -29,6 +30,7 @@ const props = withDefaults(
     aiMarks?: PreviewAiMarks | null;
     aiAddedLabel?: string;
     aiRemovedLabel?: string;
+    enableCrop?: boolean;
   }>(),
   {
     searchOpen: false,
@@ -37,6 +39,7 @@ const props = withDefaults(
     aiMarks: null,
     aiAddedLabel: "",
     aiRemovedLabel: "",
+    enableCrop: true,
   },
 );
 
@@ -47,7 +50,15 @@ const emit = defineEmits<{
   "search-stats": [stats: { current: number; total: number }];
 }>();
 
+type LightboxTarget = {
+  src: string;
+  alt: string;
+  svgHtml: string;
+  crop: PreviewImageCropPayload | null;
+};
+
 const articleRef = ref<HTMLElement | null>(null);
+const lightboxTarget = ref<LightboxTarget | null>(null);
 const { settings: exportTypographySettings } = useExportTypography();
 let layoutFrame = 0;
 let searchGroups: HTMLElement[][] = [];
@@ -395,20 +406,101 @@ function scheduleLayoutChange() {
   });
 }
 
-function onPreviewClick(e: MouseEvent) {
-  const image = (e.target as HTMLElement).closest("img.preview-image");
-  if (image instanceof HTMLImageElement) {
-    const markdownSrc = image.dataset.sheafMdSrc;
-    if (!markdownSrc) return;
+function isSvgCropSource(markdownSrc: string, localPath: string | null) {
+  return /\.svg(?:$|[?#])/i.test(markdownSrc) || /\.svg$/i.test(localPath ?? "");
+}
 
-    const sourceLine = Number(image.dataset.sourceLine);
+function mermaidNaturalSize(svg: SVGSVGElement): { width: number; height: number } {
+  const viewBox = svg.viewBox.baseVal;
+  if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
+    return { width: viewBox.width, height: viewBox.height };
+  }
+  const rect = svg.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    return { width: rect.width, height: rect.height };
+  }
+  return { width: 800, height: 450 };
+}
+
+function cloneSvgMarkup(svg: SVGSVGElement): string {
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  const { width, height } = mermaidNaturalSize(svg);
+  clone.removeAttribute("style");
+  clone.setAttribute("width", String(width));
+  clone.setAttribute("height", String(height));
+  const rootId = svg.id;
+  let markup = clone.outerHTML;
+  if (rootId) markup = markup.split(rootId).join(`${rootId}-lightbox`);
+  return markup;
+}
+
+const lightboxCropEnabled = computed(() => {
+  const target = lightboxTarget.value;
+  if (!props.enableCrop || !target?.crop) return false;
+  return !isSvgCropSource(target.crop.markdownSrc, target.crop.localPath);
+});
+
+function openImageLightbox(image: HTMLImageElement) {
+  const markdownSrc = image.dataset.sheafMdSrc ?? "";
+  const sourceLine = Number(image.dataset.sourceLine);
+  lightboxTarget.value = {
+    src: image.currentSrc || image.src,
+    alt: image.alt,
+    svgHtml: "",
+    crop: markdownSrc
+      ? {
+          previewSrc: image.currentSrc || image.src,
+          markdownSrc,
+          localPath: image.dataset.sheafLocalSrc ?? null,
+          sourceLine: Number.isFinite(sourceLine) ? sourceLine : 0,
+        }
+      : null,
+  };
+}
+
+function openMermaidLightbox(svg: SVGSVGElement) {
+  lightboxTarget.value = {
+    src: "",
+    alt: "",
+    svgHtml: cloneSvgMarkup(svg),
+    crop: null,
+  };
+}
+
+function closeImageLightbox() {
+  if (!lightboxTarget.value) return false;
+  lightboxTarget.value = null;
+  return true;
+}
+
+function onLightboxCrop() {
+  const crop = lightboxTarget.value?.crop;
+  if (!crop) return;
+  lightboxTarget.value = null;
+  emit("crop-image", crop);
+}
+
+function onPreviewClick(e: MouseEvent) {
+  const mermaid = (e.target as HTMLElement).closest(".mermaid");
+  if (
+    mermaid instanceof HTMLElement &&
+    articleRef.value?.contains(mermaid) &&
+    !mermaid.classList.contains("mermaid-error")
+  ) {
+    const svg = mermaid.querySelector("svg");
+    if (svg instanceof SVGSVGElement) {
+      e.preventDefault();
+      e.stopPropagation();
+      openMermaidLightbox(svg);
+      return;
+    }
+  }
+
+  const image = (e.target as HTMLElement).closest("img");
+  if (image instanceof HTMLImageElement && articleRef.value?.contains(image)) {
     e.preventDefault();
-    emit("crop-image", {
-      previewSrc: image.currentSrc || image.src,
-      markdownSrc,
-      localPath: image.dataset.sheafLocalSrc ?? null,
-      sourceLine: Number.isFinite(sourceLine) ? sourceLine : 0,
-    });
+    e.stopPropagation();
+    openImageLightbox(image);
     return;
   }
 
@@ -428,6 +520,7 @@ defineExpose({
   scrollToSourceAnchor,
   findNextSearchMatch,
   findPreviousSearchMatch,
+  closeImageLightbox,
 });
 </script>
 
@@ -436,7 +529,7 @@ defineExpose({
     ref="articleRef"
     class="preview-article"
     :class="{ 'has-ai-marks': hasAiMarks }"
-    @click="onPreviewClick"
+    @click.capture="onPreviewClick"
     @load.capture="scheduleLayoutChange"
   >
     <div v-if="hasAiMarks" class="preview-ai-legend">
@@ -450,6 +543,15 @@ defineExpose({
       </span>
     </div>
     <div class="preview-content" v-html="html" />
+    <ImageLightbox
+      :open="Boolean(lightboxTarget)"
+      :src="lightboxTarget?.src"
+      :svg-html="lightboxTarget?.svgHtml"
+      :alt="lightboxTarget?.alt"
+      :crop-enabled="lightboxCropEnabled"
+      @close="closeImageLightbox"
+      @crop="onLightboxCrop"
+    />
   </article>
 </template>
 
@@ -504,7 +606,9 @@ defineExpose({
   padding: 2.5rem 2rem 4rem;
 }
 
-.preview-content :deep(img.preview-image) {
-  cursor: pointer;
+.preview-content :deep(img.preview-image),
+.preview-content :deep(.mermaid:not(.mermaid-error)),
+.preview-content :deep(.mermaid:not(.mermaid-error) svg) {
+  cursor: zoom-in;
 }
 </style>

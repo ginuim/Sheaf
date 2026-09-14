@@ -1287,6 +1287,10 @@ function handleKeydown(e: KeyboardEvent) {
       closeImageCropDialog();
       return;
     }
+    if (previewRef.value?.closeImageLightbox()) {
+      e.preventDefault();
+      return;
+    }
     if (!showStartPage.value && previewSearchOpen.value) {
       closePreviewSearch();
       return;
