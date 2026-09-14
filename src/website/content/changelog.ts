@@ -9,6 +9,16 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.35",
+    date: "2026-09",
+    title: "预览图片与 Mermaid 大图",
+    items: [
+      "点击预览中的图片或 Mermaid 图可全屏查看并缩放拖动",
+      "图片裁剪改到大图工具栏，不再一点击就进入裁剪",
+      "大图里可把 Mermaid 复制为 PNG，快捷键 ⌘C",
+    ],
+  },
+  {
     version: "0.2.34",
     date: "2026-09",
     title: "编辑区文字缩放",
@@ -346,6 +356,16 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.35",
+    date: "2026-09",
+    title: "Preview image and Mermaid lightbox",
+    items: [
+      "Click preview images or Mermaid diagrams to view them full-screen, zoom, and pan",
+      "Image crop is in the lightbox toolbar instead of opening on click",
+      "Copy a Mermaid diagram as PNG from the lightbox, shortcut ⌘C",
+    ],
+  },
   {
     version: "0.2.34",
     date: "2026-09",
