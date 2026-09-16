@@ -1,26 +1,44 @@
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
+import dotenv from "dotenv";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
+// 仅官网构建（build:website）走 R2 CDN；Tauri 的 pnpm build 保持 base=/
+// @ts-expect-error process is a nodejs global
+const isWebsiteBuild = process.env.WEBSITE_BUILD === "1";
+if (isWebsiteBuild) {
+  dotenv.config({ path: join(__dirname, ".env") });
+}
+
+// @ts-expect-error process is a nodejs global
+const r2PublicBase = isWebsiteBuild
+  ? process.env.R2_PUBLIC_BASE?.trim().replace(/\/+$/, "")
+  : "";
+
+const websiteInputs = {
+  website: resolve(__dirname, "website.html"),
+  websiteArticles: resolve(__dirname, "articles.html"),
+  websiteDownload: resolve(__dirname, "download.html"),
+  websiteDocs: resolve(__dirname, "docs.html"),
+  websiteWechat: resolve(__dirname, "markdown-to-wechat.html"),
+  websiteLocalFirst: resolve(__dirname, "local-first-ai-markdown-editor.html"),
+  websiteCompare: resolve(__dirname, "sheaf-vs-typora-obsidian.html"),
+};
+
 // https://vite.dev/config/
 export default defineConfig(async () => ({
+  base: r2PublicBase ? `${r2PublicBase}/` : "/",
   plugins: [vue()],
 
   build: {
     rollupOptions: {
-      input: {
-        app: resolve(__dirname, "index.html"),
-        website: resolve(__dirname, "website.html"),
-        websiteArticles: resolve(__dirname, "articles.html"),
-        websiteDownload: resolve(__dirname, "download.html"),
-        websiteDocs: resolve(__dirname, "docs.html"),
-        websiteWechat: resolve(__dirname, "markdown-to-wechat.html"),
-        websiteLocalFirst: resolve(__dirname, "local-first-ai-markdown-editor.html"),
-        websiteCompare: resolve(__dirname, "sheaf-vs-typora-obsidian.html"),
-      },
+      // 官网部署不打包 Tauri 应用，避免编辑器依赖被 hoist 进首屏 shared chunk
+      input: isWebsiteBuild
+        ? websiteInputs
+        : { app: resolve(__dirname, "index.html"), ...websiteInputs },
     },
   },
 

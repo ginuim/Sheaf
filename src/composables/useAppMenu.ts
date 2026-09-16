@@ -7,6 +7,7 @@ export type AppMenuHandlers = {
   onOpenRecent: (path: string) => void;
   onSave: () => void;
   onSaveAs: () => void;
+  onClose: () => void;
   onFormatSpacing: () => void;
   onExportPdf: () => void;
   onCopyWechatHtml: () => void;
@@ -101,6 +102,12 @@ export async function setupAppMenu(menuHandlers: AppMenuHandlers) {
         text: translate("menu.saveAs"),
         accelerator: "CmdOrCtrl+Shift+S",
         action: () => handlers!.onSaveAs(),
+      }),
+      await MenuItem.new({
+        id: "file-close",
+        text: translate("menu.close"),
+        accelerator: "CmdOrCtrl+W",
+        action: () => handlers!.onClose(),
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({

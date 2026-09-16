@@ -12,7 +12,7 @@
     "allow-open-dropped-files",
     "allow-allow-dropped-paths",
     "allow-export-pdf-file",
-    "allow-fetch-url",
+    "allow-http-fetch",
     "opener:default",
     "dialog:default",
     "fs:default",
@@ -27,6 +27,7 @@
     },
     "clipboard-manager:allow-write-html",
     "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-write-image",
     "updater:default",
     "process:allow-restart"
   ]

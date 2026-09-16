@@ -156,6 +156,7 @@ body {
   padding: 1.25em 1.5em;
   line-height: 1.6;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
   overflow-x: auto;
 }
@@ -164,6 +165,8 @@ body {
   background: none;
   padding: 0;
   font-size: 0.85em;
+  white-space: inherit;
+  overflow-wrap: anywhere;
 }
 
 .markdown-export hr {
@@ -201,6 +204,7 @@ body {
 
 .markdown-export table {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   font-size: 0.95em;
 }
@@ -210,6 +214,8 @@ body {
   border: 1px solid rgba(42, 37, 32, 0.14);
   padding: 0.5em 0.75em;
   text-align: left;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .markdown-export th {

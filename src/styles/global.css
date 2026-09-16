@@ -41,6 +41,11 @@
   --font-editor: "IBM Plex Mono", ui-monospace, monospace;
   --font-preview: "Source Serif 4", "Songti SC", "SimSun", serif;
 
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: color-mix(in srgb, var(--ink-text-muted) 38%, transparent);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--ink-text-muted) 56%, transparent);
+  --scrollbar-thumb-active: color-mix(in srgb, var(--ink-accent) 42%, transparent);
+
   --space-xs: 0.5rem;
   --space-sm: 0.75rem;
   --space-md: 1.25rem;
@@ -99,6 +104,44 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+* {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track-piece,
+*::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 40px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: var(--scrollbar-thumb);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-active);
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 button {
   font-family: inherit;
   cursor: pointer;
@@ -116,6 +159,7 @@ button {
   line-height: 1.85;
   color: var(--ink-text);
   letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
 }
 
 .preview-content > * + * {
@@ -215,12 +259,16 @@ button {
   padding: 1.25em 1.5em;
   overflow-x: auto;
   line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .preview-content pre code {
   background: none;
   padding: 0;
   font-size: 0.85em;
+  white-space: inherit;
+  overflow-wrap: anywhere;
 }
 
 .preview-content hr {
@@ -251,6 +299,7 @@ button {
   overflow-x: auto;
   line-height: 1.6;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   background: var(--ink-code-bg);
   border-radius: 8px;
 }
@@ -275,12 +324,14 @@ button {
   padding: 1em;
   text-align: left;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   background: var(--ink-code-bg);
   border-radius: 8px;
 }
 
 .preview-content table {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   font-size: 0.95em;
 }
@@ -290,11 +341,85 @@ button {
   border: 1px solid var(--ink-border-strong);
   padding: 0.5em 0.75em;
   text-align: left;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .preview-content th {
   background: var(--ink-code-bg);
   font-weight: 500;
+}
+
+.preview-content mark.preview-search-hit {
+  color: inherit;
+  background: color-mix(in srgb, var(--ink-accent) 20%, transparent);
+  border-radius: 2px;
+  padding: 0;
+}
+
+.preview-content mark.preview-search-hit-active {
+  background: color-mix(in srgb, #c45c26 38%, var(--ink-bg-preview));
+  outline: 1px solid color-mix(in srgb, #c45c26 70%, transparent);
+}
+
+.preview-content .preview-ai-changed {
+  position: relative;
+  overflow: visible;
+  background: color-mix(in srgb, #38a169 12%, transparent);
+}
+
+.preview-content .preview-ai-changed::before {
+  content: "";
+  position: absolute;
+  top: 0.2em;
+  bottom: 0.2em;
+  left: -0.75em;
+  width: 3px;
+  border-radius: 2px;
+  background: #2f855a;
+  pointer-events: none;
+}
+
+.preview-content pre.preview-ai-changed {
+  background: linear-gradient(
+      color-mix(in srgb, #38a169 16%, transparent),
+      color-mix(in srgb, #38a169 16%, transparent)
+    ),
+    var(--ink-code-bg);
+  box-shadow: inset 3px 0 0 #2f855a;
+}
+
+.preview-content pre.preview-ai-changed::before {
+  display: none;
+}
+
+.preview-content .preview-ai-removed {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 0.28em 0 0.28em 0.2em;
+  color: #c53030;
+}
+
+.preview-content .preview-ai-removed-label {
+  flex: none;
+  font-family: var(--font-ui);
+  font-size: 0.72em;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.preview-content .preview-ai-removed-body {
+  min-width: 0;
+  font-family: var(--font-editor);
+  font-size: 0.88em;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: line-through;
+  opacity: 0.88;
 }
 
 .pdf-export-content {

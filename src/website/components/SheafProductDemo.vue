@@ -50,8 +50,8 @@ const aiPanelRef = ref<InstanceType<typeof AIPanel> | null>(null);
 const fakeCursor = ref<DemoPoint>({ x: 64, y: 18 });
 const fakeCursorVisible = ref(false);
 const fakeCursorClicking = ref(false);
-const isDemoHovered = ref(false);
 const isDemoAnimating = ref(false);
+const isPointerInside = ref(false);
 const demoCaption = ref("");
 const demoHighlight = ref("");
 
@@ -222,10 +222,15 @@ const demoScenarios = computed<Record<DemoScenarioId, DemoScenario>>(() => ({
         },
       },
       {
-        target: ".theme-card:nth-child(3)",
+        target: ".theme-card:nth-child(4)",
         click: true,
         caption: t("landing.demo.steps.export.wechatTheme2"),
-        action: () => clickTarget(".theme-card:nth-child(3)"),
+        action: async (runId) => {
+          if (!(await waitForSelector(".theme-card:nth-child(4)", runId))) {
+            return;
+          }
+          clickTarget(".theme-card:nth-child(4)");
+        },
       },
       {
         target: ".type-btn:nth-child(2)",
@@ -295,19 +300,20 @@ function waitFor(ms: number, runId: number) {
     activeTimer = setTimeout(() => {
       activeTimer = null;
       resolveActiveTimer = null;
-      resolve(animationRunId === runId && !isDemoHovered.value);
+      resolve(animationRunId === runId);
     }, ms);
   });
 }
 
 function isRunActive(runId: number) {
-  return animationRunId === runId && !isDemoHovered.value;
+  return animationRunId === runId;
 }
 
 function stopDemoAnimation() {
   animationRunId += 1;
   isDemoAnimating.value = false;
   fakeCursorClicking.value = false;
+  fakeCursorVisible.value = isPointerInside.value;
   clearActiveTimer(false);
 }
 
@@ -429,6 +435,7 @@ async function playSteps(steps: DemoStep[], runId: number) {
 
   if (isRunActive(runId)) {
     isDemoAnimating.value = false;
+    fakeCursorVisible.value = isPointerInside.value;
   }
 }
 
@@ -462,38 +469,41 @@ async function runThemeToggle() {
   );
 }
 
-function updateCursorFromPointer(event: PointerEvent) {
+function pointerToLocal(event: PointerEvent): DemoPoint | null {
   const rect = demoRoot.value?.getBoundingClientRect();
-  if (!rect) {
-    return;
-  }
+  if (!rect) return null;
   const scale = getDemoScale(rect);
   const width = rect.width / scale;
   const height = rect.height / scale;
-
-  fakeCursor.value = {
+  return {
     x: Math.min(width, Math.max(0, (event.clientX - rect.left) / scale)),
     y: Math.min(height, Math.max(0, (event.clientY - rect.top) / scale)),
   };
 }
 
-function onDemoPointerEnter(event: PointerEvent) {
-  isDemoHovered.value = true;
+function followPointer(event: PointerEvent) {
+  if (isDemoAnimating.value) return;
+  const point = pointerToLocal(event);
+  if (!point) return;
+  fakeCursor.value = point;
   fakeCursorVisible.value = true;
-  stopDemoAnimation();
-  updateCursorFromPointer(event);
+}
+
+function onDemoPointerEnter(event: PointerEvent) {
+  isPointerInside.value = true;
+  followPointer(event);
 }
 
 function onDemoPointerMove(event: PointerEvent) {
-  if (!isDemoHovered.value) {
-    return;
-  }
-  updateCursorFromPointer(event);
+  if (!isPointerInside.value) return;
+  followPointer(event);
 }
 
 function onDemoPointerLeave() {
-  isDemoHovered.value = false;
-  fakeCursorClicking.value = false;
+  isPointerInside.value = false;
+  if (!isDemoAnimating.value) {
+    fakeCursorVisible.value = false;
+  }
 }
 
 onUnmounted(() => {
@@ -509,7 +519,6 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
     class="sheaf-demo"
     :class="{
       'is-dark': isDark,
-      'is-demo-hovered': isDemoHovered,
       'is-demo-animating': isDemoAnimating,
     }"
     :data-theme="isDark ? 'dark' : undefined"
@@ -551,7 +560,7 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
         </section>
         <div v-if="viewMode === 'split'" class="divider" aria-hidden="true" />
         <section v-show="viewMode !== 'edit'" class="pane pane-preview">
-          <MarkdownPreview :source="content" />
+          <MarkdownPreview :source="content" :enable-crop="false" />
         </section>
         <AIPanel
           v-if="showAI"
@@ -584,7 +593,7 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
       :class="{
         visible: fakeCursorVisible,
         clicking: fakeCursorClicking,
-        'user-led': isDemoHovered,
+        'user-led': fakeCursorVisible && !isDemoAnimating,
       }"
       :style="{ left: `${fakeCursor.x}px`, top: `${fakeCursor.y}px` }"
       aria-hidden="true"
@@ -619,6 +628,11 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
     0 24px 48px var(--ink-shadow),
     0 0 0 1px rgba(42, 37, 32, 0.04);
   background: var(--ink-bg);
+}
+
+.sheaf-demo,
+.sheaf-demo * {
+  cursor: none !important;
 }
 
 .demo-chrome {
@@ -688,11 +702,6 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
 
 .is-demo-animating .demo-app {
   pointer-events: none;
-}
-
-.is-demo-hovered,
-.is-demo-hovered * {
-  cursor: none !important;
 }
 
 .demo-workspace {
@@ -769,9 +778,7 @@ defineExpose({ runScenario, runThemeToggle, toggleTheme, isDark });
 }
 
 .demo-fake-cursor.user-led {
-  transition:
-    opacity 0.16s ease,
-    transform 0.12s ease;
+  transition: opacity 0.16s ease;
 }
 
 .demo-fake-cursor-shape {

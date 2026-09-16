@@ -5,14 +5,22 @@ import { useLocale } from "../composables/useLocale";
 
 const { t } = useLocale();
 
-defineProps<{
-  searchText: string;
-  replaceText: string;
-  caseSensitive: boolean;
-  replaceOpen: boolean;
-  searchCountText: string;
-  hasMatches: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    searchText: string;
+    replaceText: string;
+    caseSensitive: boolean;
+    replaceOpen: boolean;
+    searchCountText: string;
+    hasMatches: boolean;
+    allowReplace?: boolean;
+    embedded?: boolean;
+  }>(),
+  {
+    allowReplace: true,
+    embedded: false,
+  },
+);
 
 const emit = defineEmits<{
   "update:searchText": [value: string];
@@ -48,6 +56,7 @@ function toggleCaseSensitive(value: boolean) {
 }
 
 function toggleReplace(value: boolean) {
+  if (!props.allowReplace) return;
   const nextValue = !value;
   emit("update:replaceOpen", nextValue);
   void nextTick(() => {
@@ -86,6 +95,7 @@ defineExpose({
 <template>
   <div
     class="search-bar"
+    :class="{ 'search-bar--embedded': embedded }"
     role="search"
     :aria-label="t('search.ariaLabel')"
     @keydown.stop
@@ -137,6 +147,7 @@ defineExpose({
         <ChevronDown :size="14" />
       </button>
       <button
+        v-if="allowReplace"
         type="button"
         class="search-btn"
         :class="{ 'search-btn--active': replaceOpen }"
@@ -157,7 +168,7 @@ defineExpose({
         ×
       </button>
     </div>
-    <div v-if="replaceOpen" class="search-row search-row--replace">
+    <div v-if="allowReplace && replaceOpen" class="search-row search-row--replace">
       <input
         ref="replaceInputRef"
         :value="replaceText"
@@ -204,6 +215,14 @@ defineExpose({
   border: 1px solid var(--ink-border-strong);
   border-radius: 10px;
   box-shadow: 0 8px 24px var(--ink-shadow);
+}
+
+.search-bar--embedded {
+  position: static;
+  top: auto;
+  right: auto;
+  z-index: auto;
+  width: min(420px, calc(100vw - 5.5rem));
 }
 
 .search-row {

@@ -63,12 +63,15 @@ export function useFile(
 ) {
   const filePath = ref<string | null>(null);
   const fileName = ref(untitledName());
+  const diskContent = ref<string | null>(null);
+  const fileOperationInProgress = ref(false);
 
   async function loadPath(path: string): Promise<boolean> {
     try {
       const content = await readTextFile(path);
       filePath.value = path;
       fileName.value = path.split(/[/\\]/).pop() ?? untitledName();
+      diskContent.value = content;
       onLoad(content);
       onPathOpened?.(path);
       return true;
@@ -78,13 +81,18 @@ export function useFile(
   }
 
   async function openFile(): Promise<boolean> {
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }],
-    });
+    fileOperationInProgress.value = true;
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }],
+      });
 
-    if (!selected) return false;
-    return loadPath(selected);
+      if (!selected) return false;
+      return loadPath(selected);
+    } finally {
+      fileOperationInProgress.value = false;
+    }
   }
 
   async function openFileAtPath(path: string): Promise<boolean> {
@@ -94,55 +102,72 @@ export function useFile(
   function newFile() {
     filePath.value = null;
     fileName.value = untitledName();
+    diskContent.value = null;
     onLoad("");
   }
 
   async function saveFile(content: string) {
-    let target = filePath.value;
+    fileOperationInProgress.value = true;
+    try {
+      let target = filePath.value;
 
-    if (!target) {
+      if (!target) {
+        const selected = await save({
+          defaultPath: getDefaultMarkdownFileName(content),
+          filters: [{ name: "Markdown", extensions: ["md"] }],
+        });
+        if (!selected) return;
+        target = selected;
+        filePath.value = selected;
+        fileName.value = selected.split(/[/\\]/).pop() ?? untitledName();
+      }
+
+      await writeTextFile(target, content);
+      diskContent.value = content;
+      onPathOpened?.(target);
+      onSaved?.();
+    } finally {
+      fileOperationInProgress.value = false;
+    }
+  }
+
+  async function saveFileAs(content: string) {
+    fileOperationInProgress.value = true;
+    try {
       const selected = await save({
         defaultPath: getDefaultMarkdownFileName(content),
         filters: [{ name: "Markdown", extensions: ["md"] }],
       });
       if (!selected) return;
-      target = selected;
+
       filePath.value = selected;
       fileName.value = selected.split(/[/\\]/).pop() ?? untitledName();
+      await writeTextFile(selected, content);
+      diskContent.value = content;
+      onPathOpened?.(selected);
+      onSaved?.();
+    } finally {
+      fileOperationInProgress.value = false;
     }
-
-    await writeTextFile(target, content);
-    onPathOpened?.(target);
-    onSaved?.();
-  }
-
-  async function saveFileAs(content: string) {
-    const selected = await save({
-      defaultPath: getDefaultMarkdownFileName(content),
-      filters: [{ name: "Markdown", extensions: ["md"] }],
-    });
-    if (!selected) return;
-
-    filePath.value = selected;
-    fileName.value = selected.split(/[/\\]/).pop() ?? untitledName();
-    await writeTextFile(selected, content);
-    onPathOpened?.(selected);
-    onSaved?.();
   }
 
   function restoreFileState(state: {
     content: string;
     fileName: string;
     filePath: string | null;
+    diskContent?: string | null;
   }) {
     filePath.value = state.filePath;
     fileName.value = state.fileName;
+    diskContent.value = state.diskContent ?? (state.filePath ? state.content : null);
     onLoad(state.content);
   }
 
   return {
     filePath,
     fileName,
+    diskContent,
+    fileOperationInProgress,
     restoreFileState,
     openFile,
     openFileAtPath,

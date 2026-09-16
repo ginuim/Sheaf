@@ -69,6 +69,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   "update:modelValue": [value: string];
   scroll: [];
+  "position-change": [];
   "add-selection-context": [context: { text: string; from: number; to: number }];
   "proofread-select": [issueId: string];
   "proofread-apply": [issueId: string];
@@ -952,6 +953,9 @@ onMounted(() => {
           if (update.docChanged || update.selectionSet) {
             closeSelectionContextMenu();
           }
+          if (update.selectionSet) {
+            emit("position-change");
+          }
         }),
       ],
     }),
@@ -1129,21 +1133,36 @@ function setEditorScrollRatio(ratio: number) {
   scroller.scrollTop = padding.top + scrollable * ratio;
 }
 
-function getScrollAnchor(): ScrollAnchor | null {
+const OUTLINE_VIEWPORT_OFFSET = 80;
+
+function getLineAtViewportOffset(offsetY = 0): number | null {
   if (!view) return null;
 
   const scroller = view.scrollDOM;
   const viewportTop = scroller.getBoundingClientRect().top;
-  const documentHeightAtTop = Math.max(0, viewportTop - view.documentTop + 1);
-  const block = view.lineBlockAtHeight(documentHeightAtTop);
-  const line = view.state.doc.lineAt(block.from);
+  const y = Math.max(0, viewportTop + offsetY - view.documentTop + 1);
+  const block = view.lineBlockAtHeight(y);
+  return view.state.doc.lineAt(block.from).number - 1;
+}
+
+function getScrollAnchor(): ScrollAnchor | null {
+  const line = getLineAtViewportOffset(0);
+  if (line == null) return null;
 
   return {
-    line: line.number - 1,
-    lineEnd: line.number - 1,
+    line,
+    lineEnd: line,
     offsetRatio: 0,
     absoluteRatio: getEditorScrollRatio(),
   };
+}
+
+function isCursorNearViewportTop(band = OUTLINE_VIEWPORT_OFFSET + 40) {
+  if (!view) return false;
+  const coords = view.coordsAtPos(view.state.selection.main.head);
+  if (!coords) return false;
+  const top = view.scrollDOM.getBoundingClientRect().top;
+  return coords.top >= top - 4 && coords.top <= top + band;
 }
 
 function scrollToSourceAnchor(anchor: ScrollAnchor) {
@@ -1170,8 +1189,19 @@ defineExpose({
   openReplace,
   closeSearch,
   isSearchOpen: () => searchOpen.value,
+  remeasure() {
+    view?.requestMeasure();
+  },
   insertDroppedImagePaths,
   getScrollAnchor,
+  getCursorLine() {
+    if (!view) return null;
+    return view.state.doc.lineAt(view.state.selection.main.head).number - 1;
+  },
+  getOutlineLine() {
+    return getLineAtViewportOffset(OUTLINE_VIEWPORT_OFFSET);
+  },
+  isCursorNearViewportTop,
   scrollToSourceAnchor,
   scrollRatio(ratio: number) {
     setEditorScrollRatio(ratio);
@@ -1183,7 +1213,11 @@ defineExpose({
     if (!view) return;
     const docLine = view.state.doc.line(Math.min(line + 1, view.state.doc.lines));
     view.dispatch({
-      effects: EditorView.scrollIntoView(docLine.from, { y: "start", yMargin: 80 }),
+      selection: EditorSelection.cursor(docLine.from),
+      effects: EditorView.scrollIntoView(docLine.from, {
+        y: "start",
+        yMargin: OUTLINE_VIEWPORT_OFFSET,
+      }),
     });
   },
   applyChanges(changes: Array<{ from: number; to: number; insert: string }>) {
@@ -1211,21 +1245,23 @@ defineExpose({
       @format-spacing="emit('format-spacing')"
       @open-settings="emit('open-format-settings')"
     />
-    <EditorSearchReplace
-      v-if="searchOpen"
-      ref="searchReplaceRef"
-      v-model:search-text="searchText"
-      v-model:replace-text="replaceText"
-      v-model:case-sensitive="caseSensitive"
-      v-model:replace-open="replaceOpen"
-      :search-count-text="searchCountText"
-      :has-matches="matchTotal > 0"
-      @find-next="runFindNext"
-      @find-previous="runFindPrevious"
-      @replace-next="runReplaceNext"
-      @replace-all="runReplaceAll"
-      @close="closeSearch"
-    />
+    <div v-if="searchOpen" class="editor-chrome">
+      <EditorSearchReplace
+        ref="searchReplaceRef"
+        v-model:search-text="searchText"
+        v-model:replace-text="replaceText"
+        v-model:case-sensitive="caseSensitive"
+        v-model:replace-open="replaceOpen"
+        embedded
+        :search-count-text="searchCountText"
+        :has-matches="matchTotal > 0"
+        @find-next="runFindNext"
+        @find-previous="runFindPrevious"
+        @replace-next="runReplaceNext"
+        @replace-all="runReplaceAll"
+        @close="closeSearch"
+      />
+    </div>
     <div v-show="!props.previewDiffItem" ref="container" class="editor-container" />
 
     <div v-if="props.previewDiffItem" class="diff-preview-container">
@@ -1318,7 +1354,24 @@ defineExpose({
   height: 100%;
 }
 
-.editor-root.has-format-bar :deep(.search-bar) {
+.editor-chrome {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 12;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.editor-chrome > * {
+  pointer-events: auto;
+}
+
+.editor-root.has-format-bar .editor-chrome {
   top: 54px;
 }
 

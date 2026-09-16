@@ -1,22 +1,151 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import ImageLightbox from "./ImageLightbox.vue";
 import { renderMermaidIn } from "../composables/useMermaid";
 import { renderMarkdown } from "../composables/useMarkdown";
+import { resolveMediaSrc } from "../composables/resolveMediaSrc";
 import { useExportTypography } from "../composables/useExportTypography";
+import {
+  applySearchHits,
+  clearSearchHits,
+  setActiveSearchHit,
+} from "../lib/domTextSearch";
+import type { PreviewAiMarks } from "../composables/useAI";
 
-const props = defineProps<{
-  source: string;
-  docFilePath?: string | null;
-}>();
+export type PreviewImageCropPayload = {
+  previewSrc: string;
+  markdownSrc: string;
+  localPath: string | null;
+  sourceLine: number;
+};
+
+const props = withDefaults(
+  defineProps<{
+    source: string;
+    docFilePath?: string | null;
+    mediaEpoch?: number;
+    searchOpen?: boolean;
+    searchText?: string;
+    searchCaseSensitive?: boolean;
+    aiMarks?: PreviewAiMarks | null;
+    aiAddedLabel?: string;
+    aiRemovedLabel?: string;
+    enableCrop?: boolean;
+  }>(),
+  {
+    searchOpen: false,
+    searchText: "",
+    searchCaseSensitive: false,
+    aiMarks: null,
+    aiAddedLabel: "",
+    aiRemovedLabel: "",
+    enableCrop: true,
+  },
+);
 
 const emit = defineEmits<{
   "open-link": [href: string];
   "layout-change": [];
+  "crop-image": [payload: PreviewImageCropPayload];
+  "search-stats": [stats: { current: number; total: number }];
 }>();
 
+type LightboxTarget = {
+  src: string;
+  alt: string;
+  svgHtml: string;
+  crop: PreviewImageCropPayload | null;
+};
+
 const articleRef = ref<HTMLElement | null>(null);
+const lightboxTarget = ref<LightboxTarget | null>(null);
 const { settings: exportTypographySettings } = useExportTypography();
 let layoutFrame = 0;
+let searchGroups: HTMLElement[][] = [];
+const searchActiveIndex = ref(0);
+
+const AI_CHANGED_CLASS = "preview-ai-changed";
+const AI_REMOVED_CLASS = "preview-ai-removed";
+
+const hasAiMarks = computed(() => {
+  const marks = props.aiMarks;
+  return Boolean(marks && (marks.addedLines.length > 0 || marks.removedHunks.length > 0));
+});
+const hasRemovedMarks = computed(() => (props.aiMarks?.removedHunks.length ?? 0) > 0);
+
+function getPreviewContentRoot() {
+  return articleRef.value?.querySelector<HTMLElement>(".preview-content") ?? null;
+}
+
+function emitSearchStats(current: number, total: number) {
+  emit("search-stats", { current, total });
+}
+
+function revealSearchMatch(index: number) {
+  if (searchGroups.length === 0) {
+    searchActiveIndex.value = 0;
+    emitSearchStats(0, 0);
+    return;
+  }
+
+  const nextIndex = ((index % searchGroups.length) + searchGroups.length) % searchGroups.length;
+  searchActiveIndex.value = nextIndex;
+  setActiveSearchHit(searchGroups, nextIndex);
+  searchGroups[nextIndex]![0]?.scrollIntoView({
+    block: "center",
+    inline: "nearest",
+  });
+  emitSearchStats(nextIndex + 1, searchGroups.length);
+}
+
+function applyPreviewSearch(scrollToActive: boolean) {
+  const root = getPreviewContentRoot();
+  if (!root) {
+    searchGroups = [];
+    searchActiveIndex.value = 0;
+    emitSearchStats(0, 0);
+    return;
+  }
+
+  if (!props.searchOpen || !props.searchText) {
+    clearSearchHits(root);
+    searchGroups = [];
+    searchActiveIndex.value = 0;
+    emitSearchStats(0, 0);
+    return;
+  }
+
+  searchGroups = applySearchHits(root, props.searchText, props.searchCaseSensitive);
+  if (searchGroups.length === 0) {
+    searchActiveIndex.value = 0;
+    emitSearchStats(0, 0);
+    return;
+  }
+
+  const nextIndex = Math.min(searchActiveIndex.value, searchGroups.length - 1);
+  if (scrollToActive) revealSearchMatch(nextIndex);
+  else {
+    searchActiveIndex.value = nextIndex;
+    setActiveSearchHit(searchGroups, nextIndex);
+    emitSearchStats(nextIndex + 1, searchGroups.length);
+  }
+}
+
+function findNextSearchMatch() {
+  if (searchGroups.length === 0) {
+    applyPreviewSearch(true);
+    return;
+  }
+  revealSearchMatch(searchActiveIndex.value + 1);
+}
+
+function findPreviousSearchMatch() {
+  if (searchGroups.length === 0) {
+    applyPreviewSearch(true);
+    return;
+  }
+  revealSearchMatch(searchActiveIndex.value - 1);
+}
 
 type ScrollAnchor = {
   line: number;
@@ -27,12 +156,20 @@ type ScrollAnchor = {
 const html = computed(() =>
   renderMarkdown(props.source, props.docFilePath ?? null, {
     chineseEnglishSpacing: exportTypographySettings.chineseEnglishSpacing,
+    resolveMedia: (docFilePath, src) => {
+      const url = resolveMediaSrc(docFilePath, src);
+      if (!props.mediaEpoch) return url;
+      const joiner = url.includes("?") ? "&" : "?";
+      return `${url}${joiner}v=${props.mediaEpoch}`;
+    },
   }),
 );
 
 async function renderDynamicBlocks() {
   await nextTick();
   if (articleRef.value) await renderMermaidIn(articleRef.value);
+  applyAiChangeMarks();
+  applyPreviewSearch(false);
   scheduleLayoutChange();
 }
 
@@ -47,6 +184,138 @@ onUnmounted(() => {
 watch(html, () => {
   void renderDynamicBlocks();
 });
+
+watch(
+  () => [props.searchOpen, props.searchText, props.searchCaseSensitive] as const,
+  () => {
+    searchActiveIndex.value = 0;
+    applyPreviewSearch(true);
+  },
+);
+
+watch(
+  () => props.aiMarks,
+  () => {
+    void nextTick().then(() => {
+      applyAiChangeMarks();
+      scheduleLayoutChange();
+    });
+  },
+);
+
+function clearAiChangeMarks(root: HTMLElement) {
+  root.querySelectorAll(`.${AI_CHANGED_CLASS}`).forEach((el) => {
+    el.classList.remove(AI_CHANGED_CLASS);
+  });
+  root.querySelectorAll(`.${AI_REMOVED_CLASS}`).forEach((el) => {
+    el.remove();
+  });
+}
+
+const PREVIEW_MARK_SKIP_TAGS = new Set([
+  "A",
+  "BR",
+  "CODE",
+  "EM",
+  "IMG",
+  "MARK",
+  "SPAN",
+  "STRONG",
+  "SVG",
+]);
+
+type PreviewSourceBlock = { element: HTMLElement; line: number; lineEnd: number };
+
+function isFenceCode(el: HTMLElement) {
+  return el.tagName === "CODE" && el.parentElement?.tagName === "PRE";
+}
+
+function isPreviewMarkTarget(el: HTMLElement) {
+  if (isFenceCode(el)) return true;
+  return !PREVIEW_MARK_SKIP_TAGS.has(el.tagName);
+}
+
+function markHost(el: HTMLElement) {
+  if (isFenceCode(el) && el.parentElement) return el.parentElement;
+  return el;
+}
+
+function blockStartsInAdded(block: PreviewSourceBlock, added: Set<number>) {
+  if (isFenceCode(block.element) || block.element.tagName === "PRE") {
+    for (let line = block.line; line <= block.lineEnd; line++) {
+      if (added.has(line)) return true;
+    }
+    return false;
+  }
+  return added.has(block.line);
+}
+
+function findStartBlock(blocks: PreviewSourceBlock[], startLine: number) {
+  const containing = blocks.filter(
+    (block) => block.line <= startLine && startLine <= block.lineEnd,
+  );
+  if (containing.length > 0) {
+    containing.sort((left, right) => {
+      const spanDiff = left.lineEnd - left.line - (right.lineEnd - right.line);
+      if (spanDiff !== 0) return spanDiff;
+      if (left.element.contains(right.element)) return 1;
+      if (right.element.contains(left.element)) return -1;
+      return 0;
+    });
+    return containing[0] ?? null;
+  }
+  return blocks.find((block) => block.line >= startLine) ?? null;
+}
+
+function applyAiChangeMarks() {
+  const root = getPreviewContentRoot();
+  if (!root) return;
+
+  clearAiChangeMarks(root);
+  const marks = props.aiMarks;
+  if (!marks) return;
+
+  const added = new Set<number>(marks.addedLines);
+  const blocks = getSourceBlocks().filter((block) => isPreviewMarkTarget(block.element));
+  const marked: HTMLElement[] = [];
+
+  for (const block of blocks) {
+    // 普通块只看起始行，避免 li/p 的 source-line-end 吃到后面的新增。
+    // fence 的 data-source-line 在内层 code 上，且 ``` 行可能没变，所以按区间命中后标到外层 pre。
+    if (!blockStartsInAdded(block, added)) continue;
+    const host = markHost(block.element);
+    if (marked.includes(host)) continue;
+    host.classList.add(AI_CHANGED_CLASS);
+    marked.push(host);
+  }
+
+  for (const el of marked) {
+    if (el.querySelector(`.${AI_CHANGED_CLASS}`)) {
+      el.classList.remove(AI_CHANGED_CLASS);
+    }
+  }
+
+  for (const hunk of marks.removedHunks) {
+    const marker = document.createElement("aside");
+    marker.className = AI_REMOVED_CLASS;
+
+    const label = document.createElement("div");
+    label.className = "preview-ai-removed-label";
+    label.textContent = props.aiRemovedLabel;
+
+    const body = document.createElement("div");
+    body.className = "preview-ai-removed-body";
+    body.textContent = hunk.preview;
+
+    marker.append(label, body);
+
+    const next =
+      findStartBlock(blocks, hunk.beforeNewLine) ??
+      blocks.find((block) => block.line >= hunk.beforeNewLine);
+    if (next) next.element.before(marker);
+    else root.append(marker);
+  }
+}
 
 function getSourceBlocks() {
   const article = articleRef.value;
@@ -79,12 +348,12 @@ function getElementTopInPane(element: HTMLElement, pane: HTMLElement) {
   );
 }
 
-function getScrollAnchor(pane: HTMLElement): ScrollAnchor | null {
+function getScrollAnchor(pane: HTMLElement, topInset = 0): ScrollAnchor | null {
   const blocks = getSourceBlocks();
   if (!blocks.length) return null;
 
   const max = pane.scrollHeight - pane.clientHeight;
-  const viewportTop = pane.scrollTop + 1;
+  const viewportTop = pane.scrollTop + Math.max(topInset, 0) + 1;
   let active = blocks[0]!;
 
   for (const block of blocks) {
@@ -137,7 +406,104 @@ function scheduleLayoutChange() {
   });
 }
 
+function isSvgCropSource(markdownSrc: string, localPath: string | null) {
+  return /\.svg(?:$|[?#])/i.test(markdownSrc) || /\.svg$/i.test(localPath ?? "");
+}
+
+function mermaidNaturalSize(svg: SVGSVGElement): { width: number; height: number } {
+  const viewBox = svg.viewBox.baseVal;
+  if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
+    return { width: viewBox.width, height: viewBox.height };
+  }
+  const rect = svg.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    return { width: rect.width, height: rect.height };
+  }
+  return { width: 800, height: 450 };
+}
+
+function cloneSvgMarkup(svg: SVGSVGElement): string {
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  const { width, height } = mermaidNaturalSize(svg);
+  clone.removeAttribute("style");
+  clone.setAttribute("width", String(width));
+  clone.setAttribute("height", String(height));
+  const rootId = svg.id;
+  let markup = clone.outerHTML;
+  if (rootId) markup = markup.split(rootId).join(`${rootId}-lightbox`);
+  return markup;
+}
+
+const lightboxCropEnabled = computed(() => {
+  const target = lightboxTarget.value;
+  if (!props.enableCrop || !target?.crop) return false;
+  return !isSvgCropSource(target.crop.markdownSrc, target.crop.localPath);
+});
+
+function openImageLightbox(image: HTMLImageElement) {
+  const markdownSrc = image.dataset.sheafMdSrc ?? "";
+  const sourceLine = Number(image.dataset.sourceLine);
+  lightboxTarget.value = {
+    src: image.currentSrc || image.src,
+    alt: image.alt,
+    svgHtml: "",
+    crop: markdownSrc
+      ? {
+          previewSrc: image.currentSrc || image.src,
+          markdownSrc,
+          localPath: image.dataset.sheafLocalSrc ?? null,
+          sourceLine: Number.isFinite(sourceLine) ? sourceLine : 0,
+        }
+      : null,
+  };
+}
+
+function openMermaidLightbox(svg: SVGSVGElement) {
+  lightboxTarget.value = {
+    src: "",
+    alt: "",
+    svgHtml: cloneSvgMarkup(svg),
+    crop: null,
+  };
+}
+
+function closeImageLightbox() {
+  if (!lightboxTarget.value) return false;
+  lightboxTarget.value = null;
+  return true;
+}
+
+function onLightboxCrop() {
+  const crop = lightboxTarget.value?.crop;
+  if (!crop) return;
+  lightboxTarget.value = null;
+  emit("crop-image", crop);
+}
+
 function onPreviewClick(e: MouseEvent) {
+  const mermaid = (e.target as HTMLElement).closest(".mermaid");
+  if (
+    mermaid instanceof HTMLElement &&
+    articleRef.value?.contains(mermaid) &&
+    !mermaid.classList.contains("mermaid-error")
+  ) {
+    const svg = mermaid.querySelector("svg");
+    if (svg instanceof SVGSVGElement) {
+      e.preventDefault();
+      e.stopPropagation();
+      openMermaidLightbox(svg);
+      return;
+    }
+  }
+
+  const image = (e.target as HTMLElement).closest("img");
+  if (image instanceof HTMLImageElement && articleRef.value?.contains(image)) {
+    e.preventDefault();
+    e.stopPropagation();
+    openImageLightbox(image);
+    return;
+  }
+
   const anchor = (e.target as HTMLElement).closest("a");
   if (!anchor) return;
 
@@ -152,6 +518,9 @@ defineExpose({
   articleEl: articleRef,
   getScrollAnchor,
   scrollToSourceAnchor,
+  findNextSearchMatch,
+  findPreviousSearchMatch,
+  closeImageLightbox,
 });
 </script>
 
@@ -159,10 +528,30 @@ defineExpose({
   <article
     ref="articleRef"
     class="preview-article"
-    @click="onPreviewClick"
+    :class="{ 'has-ai-marks': hasAiMarks }"
+    @click.capture="onPreviewClick"
     @load.capture="scheduleLayoutChange"
   >
+    <div v-if="hasAiMarks" class="preview-ai-legend">
+      <span class="preview-ai-legend-item added">
+        <span class="preview-ai-legend-swatch" aria-hidden="true" />
+        {{ aiAddedLabel }}
+      </span>
+      <span v-if="hasRemovedMarks" class="preview-ai-legend-item removed">
+        <span class="preview-ai-legend-swatch" aria-hidden="true" />
+        {{ aiRemovedLabel }}
+      </span>
+    </div>
     <div class="preview-content" v-html="html" />
+    <ImageLightbox
+      :open="Boolean(lightboxTarget)"
+      :src="lightboxTarget?.src"
+      :svg-html="lightboxTarget?.svgHtml"
+      :alt="lightboxTarget?.alt"
+      :crop-enabled="lightboxCropEnabled"
+      @close="closeImageLightbox"
+      @crop="onLightboxCrop"
+    />
   </article>
 </template>
 
@@ -171,9 +560,55 @@ defineExpose({
   min-height: 100%;
 }
 
+.preview-ai-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 2.5rem 2rem 0;
+  color: var(--ink-text-muted);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.preview-ai-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.preview-ai-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.preview-ai-legend-item.added .preview-ai-legend-swatch {
+  background: color-mix(in srgb, #38a169 42%, transparent);
+  box-shadow: inset 2px 0 0 #2f855a;
+}
+
+.preview-ai-legend-item.removed .preview-ai-legend-swatch {
+  background: color-mix(in srgb, #e53e3e 32%, transparent);
+  box-shadow: inset 2px 0 0 #c53030;
+}
+
+.preview-article.has-ai-marks .preview-content {
+  padding-top: 1rem;
+}
+
 .preview-content {
   max-width: var(--content-max);
   margin: 0 auto;
   padding: 2.5rem 2rem 4rem;
+}
+
+.preview-content :deep(img.preview-image),
+.preview-content :deep(.mermaid:not(.mermaid-error)),
+.preview-content :deep(.mermaid:not(.mermaid-error) svg) {
+  cursor: zoom-in;
 }
 </style>

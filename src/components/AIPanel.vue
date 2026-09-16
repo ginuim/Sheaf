@@ -8,6 +8,7 @@ import {
   GitCompare,
   History,
   LocateFixed,
+  MessageSquare,
   Plus,
   Send,
   SpellCheck,
@@ -15,8 +16,9 @@ import {
   Trash2,
   X,
 } from "@lucide/vue";
+import { isTauri } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  explainNoChanges,
   useAI,
   applyChangesToDoc,
   isFullDocChange,
@@ -24,13 +26,15 @@ import {
   compressDiff,
   summarizeItemDiff,
   isBlankToAiEdit,
-  buildAgentHistoryFromItems,
+  buildComposerHistoryFromItems,
+  isHistoryItemInThread,
   type AgentActivity,
   type AgentContextSnippet,
-  type AIHistoryMode,
+  type AIComposerMode,
   type EditChange,
   type AIHistoryItem,
 } from "../composables/useAI";
+import { errorMessage, isAbortError } from "../agent/errors";
 import type { ProofreadIssue } from "../types/proofreading";
 import { useDocumentVersions } from "../composables/useDocumentVersions";
 import { modelHasCapability } from "../ai-providers/capabilities";
@@ -41,10 +45,12 @@ import {
 } from "../ai-providers/catalog";
 import { useLocale } from "../composables/useLocale";
 import { renderMarkdown } from "../composables/useMarkdown";
+import { useStickToBottom } from "../composables/useStickToBottom";
 import {
   getDemoAiData,
 } from "../shared/demoAiData";
-import AgentActivityList from "./AgentActivityList.vue";
+import AgentActivityTimeline from "./agent-ui/AgentActivityTimeline.vue";
+import AgentLoadingState from "./agent-ui/AgentLoadingState.vue";
 
 type AgentModelOption = {
   providerId: string;
@@ -93,19 +99,20 @@ const {
   proofreadDocument,
   runAgent,
   historyList,
-  activeConversationId,
-  conversationSummaries,
+  getActiveConversationId,
+  listConversationSummaries,
   startNewConversation,
   switchConversation,
-  clearAllConversations,
+  clearConversations,
 } = useAI(() => resolvedDocumentKey.value);
 const documentVersions = useDocumentVersions(() => resolvedDocumentKey.value);
 
-const aiMode = ref<AIHistoryMode>("agent");
+const aiMode = ref<AIComposerMode>("agent");
+const activeConversationId = computed(() => getActiveConversationId(aiMode.value));
+const conversationSummaries = computed(() => listConversationSummaries(aiMode.value));
 const instruction = ref("");
-const listRef = ref<HTMLElement | null>(null);
+const { scroller, content: listContent, stuck, pinToBottom } = useStickToBottom();
 const expandedDiffId = ref<string | null>(null);
-const expandedMessageIds = ref(new Set<string>());
 const expandedLongMessageIds = ref(new Set<string>());
 const overflowingMessageIds = ref(new Set<string>());
 const panelWidth = ref(DEFAULT_PANEL_WIDTH);
@@ -119,11 +126,15 @@ let resizeStartWidth = DEFAULT_PANEL_WIDTH;
 let previousBodyCursor = "";
 let previousBodyUserSelect = "";
 let motionMedia: ReturnType<typeof gsap.matchMedia> | null = null;
-let lastStreamPreviewAnimation = 0;
-let previousActiveConversationId = activeConversationId.value;
 let overflowMeasureFrame = 0;
 
-const isLoading = computed(() => historyList.value.some((item: AIHistoryItem) => item.status === "loading"));
+const isLoading = computed(() =>
+  historyList.value.some(
+    (item: AIHistoryItem) =>
+      item.status === "loading" &&
+      isHistoryItemInThread(item, aiMode.value, activeConversationId.value),
+  ),
+);
 const instructionCharCount = computed(() => instruction.value.length);
 const pendingContextPreview = computed(() => {
   const text = props.pendingContext?.text.trim() ?? "";
@@ -211,7 +222,7 @@ const panelStyle = computed(() => ({
 const visibleHistoryList = computed(() =>
   historyList.value.filter(
     (item) =>
-      (item.conversationId ?? "legacy") === activeConversationId.value &&
+      isHistoryItemInThread(item, aiMode.value, activeConversationId.value) &&
       !shouldHideHistoryItem(item),
   ),
 );
@@ -222,6 +233,12 @@ const hasConversationHistory = computed(() =>
       conversation.id !== activeConversationId.value || conversation.turnCount > 0,
   ),
 );
+
+watch(aiMode, () => {
+  showConversationHistory.value = false;
+  expandedDiffId.value = null;
+  nextTick(pinToBottom);
+});
 
 watch(
   () => [props.currentProofreadItemId, props.proofreadIssues] as const,
@@ -238,9 +255,6 @@ watch(
   () => visibleHistoryList.value.map((item) => item.id).join("|"),
   () => {
     const visibleIds = new Set(visibleHistoryList.value.map((item) => item.id));
-    expandedMessageIds.value = new Set(
-      Array.from(expandedMessageIds.value).filter((id) => visibleIds.has(id)),
-    );
     expandedLongMessageIds.value = new Set(
       Array.from(expandedLongMessageIds.value).filter((id) => visibleIds.has(id)),
     );
@@ -248,10 +262,6 @@ watch(
       Array.from(overflowingMessageIds.value).filter((id) => visibleIds.has(id)),
     );
 
-    if (previousActiveConversationId !== activeConversationId.value) {
-      previousActiveConversationId = activeConversationId.value;
-      collapsePastMessages(false);
-    }
     scheduleLongMessageOverflowMeasure();
   },
   { flush: "post" },
@@ -294,44 +304,27 @@ function finalizeSuccessfulEdit(target: AIHistoryItem) {
   expandedDiffId.value = target.id;
 }
 
-function scrollToBottom() {
-  if (listRef.value) {
-    listRef.value.scrollTop = listRef.value.scrollHeight;
+function finalizeQuickReply(target: AIHistoryItem) {
+  const text = target.rawResponse.trim();
+  if (!text) {
+    target.status = "error";
+    target.errorMsg = t("ai.emptyResponse");
+    return;
   }
+  target.assistantText = text;
+  target.noChangesHint = undefined;
+  target.status = "no-changes";
 }
 
 function getHistoryCardElement(itemId: string) {
-  const list = listRef.value;
+  const list = scroller.value;
   if (!list) return null;
-  return Array.from(list.querySelectorAll<HTMLElement>(".history-card"))
+  return Array.from(list.querySelectorAll<HTMLElement>(".chat-turn"))
     .find((card) => card.dataset.historyId === itemId) ?? null;
 }
 
-function getMessageBodyElement(itemId: string) {
-  return getHistoryCardElement(itemId)?.querySelector<HTMLElement>(".history-card-body-wrap") ?? null;
-}
-
 function getMessageContentElement(itemId: string) {
-  return getHistoryCardElement(itemId)?.querySelector<HTMLElement>(".history-card-body-content") ?? null;
-}
-
-function isPastMessage(item: AIHistoryItem) {
-  const visibleIndex = visibleHistoryList.value.findIndex((entry) => entry.id === item.id);
-  return visibleIndex >= 0 && visibleIndex < visibleHistoryList.value.length - 1 && item.status !== "loading";
-}
-
-function isMessageExpanded(item: AIHistoryItem) {
-  return !isPastMessage(item) || expandedMessageIds.value.has(item.id);
-}
-
-function setMessageExpandedState(itemId: string, expanded: boolean) {
-  const next = new Set(expandedMessageIds.value);
-  if (expanded) {
-    next.add(itemId);
-  } else {
-    next.delete(itemId);
-  }
-  expandedMessageIds.value = next;
+  return getHistoryCardElement(itemId)?.querySelector<HTMLElement>(".assistant-content") ?? null;
 }
 
 function setLongMessageExpandedState(itemId: string, expanded: boolean) {
@@ -355,19 +348,18 @@ function hasLongMessageOverflow(item: AIHistoryItem) {
 function shouldClampLongMessage(item: AIHistoryItem) {
   return hasLongMessageOverflow(item) &&
     !isLongMessageExpanded(item) &&
-    !isPastMessage(item) &&
     item.status !== "loading";
 }
 
 function shouldShowLongMessageToggle(item: AIHistoryItem) {
-  return hasLongMessageOverflow(item) && !isPastMessage(item) && item.status !== "loading";
+  return hasLongMessageOverflow(item) && item.status !== "loading";
 }
 
 function measureLongMessageOverflow() {
   overflowMeasureFrame = 0;
   const next = new Set<string>();
   for (const item of visibleHistoryList.value) {
-    if (isPastMessage(item) || item.status === "loading") continue;
+    if (item.status === "loading") continue;
     const content = getMessageContentElement(item.id);
     if (!content) continue;
     const wasClamped = content.classList.contains("is-long-clamped");
@@ -391,39 +383,6 @@ function scheduleLongMessageOverflowMeasure() {
   overflowMeasureFrame = requestAnimationFrame(measureLongMessageOverflow);
 }
 
-function animateMessageBody(itemId: string, expanded: boolean) {
-  if (reduceMotion.value) return;
-  const body = getMessageBodyElement(itemId);
-  if (!body) return;
-
-  gsap.killTweensOf(body);
-  if (expanded) {
-    gsap.fromTo(
-      body,
-      { height: 0, autoAlpha: 0, y: -4 },
-      {
-        height: "auto",
-        autoAlpha: 1,
-        y: 0,
-        duration: 0.22,
-        ease: "power1.out",
-        overwrite: "auto",
-        clearProps: "height,opacity,visibility,transform",
-      },
-    );
-    return;
-  }
-
-  gsap.to(body, {
-    height: 0,
-    autoAlpha: 0,
-    y: -4,
-    duration: 0.2,
-    ease: "power1.in",
-    overwrite: "auto",
-  });
-}
-
 function animateHistoryCard(itemId: string) {
   if (reduceMotion.value) return;
   const card = getHistoryCardElement(itemId);
@@ -444,67 +403,8 @@ function animateHistoryCard(itemId: string) {
   );
 }
 
-function animateStreamPreview() {
-  if (reduceMotion.value) return;
-  const now = performance.now();
-  if (now - lastStreamPreviewAnimation < 320) return;
-  lastStreamPreviewAnimation = now;
-
-  const preview = listRef.value?.querySelector<HTMLElement>(
-    ".agent-stream-preview, .demo-stream-preview",
-  );
-  if (!preview) return;
-
-  gsap.fromTo(
-    preview,
-    { autoAlpha: 0.78, y: 2 },
-    {
-      autoAlpha: 1,
-      y: 0,
-      duration: 0.18,
-      ease: "power1.out",
-      overwrite: "auto",
-      clearProps: "transform,opacity,visibility",
-    },
-  );
-}
-
-async function toggleMessage(item: AIHistoryItem) {
-  const nextExpanded = !isMessageExpanded(item);
-  if (!nextExpanded) {
-    animateMessageBody(item.id, false);
-    if (reduceMotion.value) {
-      setMessageExpandedState(item.id, false);
-      return;
-    }
-    window.setTimeout(() => {
-      setMessageExpandedState(item.id, false);
-    }, 200);
-    return;
-  }
-
-  setMessageExpandedState(item.id, nextExpanded);
-  await nextTick();
-  animateMessageBody(item.id, true);
-}
-
 function toggleLongMessage(item: AIHistoryItem) {
   setLongMessageExpandedState(item.id, !isLongMessageExpanded(item));
-}
-
-function collapsePastMessages(shouldAnimate = true) {
-  const pastIds = visibleHistoryList.value
-    .filter((item) => isPastMessage(item))
-    .map((item) => item.id);
-
-  expandedMessageIds.value = new Set();
-  if (!shouldAnimate || reduceMotion.value) return;
-
-  nextTick(() => {
-    for (const id of pastIds) {
-      animateMessageBody(id, false);
-    }
-  });
 }
 
 function upsertAgentActivity(item: AIHistoryItem, activity: AgentActivity) {
@@ -539,9 +439,6 @@ async function runDemoQuickEdit(
     }
     target.rawResponse += char;
     await new Promise((resolve) => setTimeout(resolve, charDelayMs));
-    await nextTick();
-    scrollToBottom();
-    animateStreamPreview();
   }
 
   return changes;
@@ -551,6 +448,7 @@ async function submit() {
   const text = instruction.value.trim();
   if (!text || isLoading.value) return;
   const contextForRequest = props.pendingContext ? { ...props.pendingContext } : null;
+  showConversationHistory.value = false;
 
   const id = Math.random().toString(36).slice(2, 9);
   const newItem: AIHistoryItem = {
@@ -567,13 +465,12 @@ async function submit() {
   };
 
   historyList.value.push(newItem);
-  collapsePastMessages();
   instruction.value = "";
   if (contextForRequest) emit("clear-context");
   activeAbortController = new AbortController();
 
   await nextTick();
-  scrollToBottom();
+  pinToBottom();
   animateHistoryCard(id);
 
   try {
@@ -588,7 +485,11 @@ async function submit() {
         documentPath: props.documentPath ?? props.documentKey ?? null,
         workspacePaths: props.workspacePaths ?? [],
         readWorkspaceFile,
-        history: buildAgentHistoryFromItems(historyList.value, id, activeConversationId.value),
+        history: buildComposerHistoryFromItems(historyList.value, {
+          excludeId: id,
+          conversationId: activeConversationId.value,
+          mode: "agent",
+        }),
         context: contextForRequest,
         signal: activeAbortController.signal,
         onTextDelta: (assistantText) => {
@@ -596,16 +497,11 @@ async function submit() {
           if (!target) return;
           target.rawResponse = assistantText;
           target.assistantText = assistantText;
-          nextTick(() => {
-            scrollToBottom();
-            animateStreamPreview();
-          });
         },
         onActivity: (activity) => {
           const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
           if (!target) return;
           upsertAgentActivity(target, activity);
-          nextTick(scrollToBottom);
         },
       });
 
@@ -641,54 +537,51 @@ async function submit() {
         }
       }
     } else {
-      const changes = await streamEdit(
+      const changes = (await streamEdit(
         newItem.instruction,
         newItem.originalDoc,
         (delta) => {
           const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
-          if (target) {
-            target.rawResponse += delta;
-            nextTick(() => {
-              scrollToBottom();
-              animateStreamPreview();
-            });
-          }
+          if (target) target.rawResponse += delta;
         },
         activeAbortController.signal,
         contextForRequest,
-      );
+        buildComposerHistoryFromItems(historyList.value, {
+          excludeId: id,
+          conversationId: activeConversationId.value,
+          mode: "quick",
+        }),
+      )) ?? [];
 
       const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
       if (target) {
-        if (changes.length === 0) {
-          target.noChangesHint = explainNoChanges(target.originalDoc, target.rawResponse);
-          target.status = "no-changes";
-        } else {
+        if (changes.length > 0) {
           target.changes = changes;
           target.resultDoc = applyChangesToDoc(target.originalDoc, changes);
           finalizeSuccessfulEdit(target);
+        } else {
+          finalizeQuickReply(target);
         }
       }
     }
   } catch (e: unknown) {
     const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
     if (target) {
-      if ((e as Error).name === "AbortError") {
-        target.status = "discarded";
+      if (isAbortError(e) || activeAbortController?.signal.aborted) {
+        target.status = "cancelled";
       } else {
-        target.errorMsg = (e as Error).message;
+        target.errorMsg = errorMessage(e);
         target.status = "error";
       }
     }
   } finally {
     activeAbortController = null;
-    await nextTick();
-    scrollToBottom();
   }
 }
 
 async function proofread() {
   if (!canProofread.value) return;
+  showConversationHistory.value = false;
 
   const id = Math.random().toString(36).slice(2, 9);
   const newItem: AIHistoryItem = {
@@ -696,23 +589,31 @@ async function proofread() {
     timestamp: Date.now(),
     instruction: t("ai.proofreadInstruction"),
     status: "loading",
-    mode: "quick",
+    mode: "proofread",
     conversationId: activeConversationId.value,
     originalDoc: props.doc,
     changes: [],
     rawResponse: "",
+    agentActivities: [],
   };
 
   historyList.value.push(newItem);
-  collapsePastMessages();
   activeAbortController = new AbortController();
 
   await nextTick();
-  scrollToBottom();
+  pinToBottom();
   animateHistoryCard(id);
 
   try {
-    const result = await proofreadDocument(props.doc, activeAbortController.signal);
+    const result = await proofreadDocument(
+      props.doc,
+      activeAbortController.signal,
+      (activity) => {
+        const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
+        if (!target) return;
+        upsertAgentActivity(target, activity);
+      },
+    );
     const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
     if (!target) return;
 
@@ -731,17 +632,15 @@ async function proofread() {
   } catch (e: unknown) {
     const target = historyList.value.find((item: AIHistoryItem) => item.id === id);
     if (target) {
-      if ((e as Error).name === "AbortError") {
-        target.status = "discarded";
+      if (isAbortError(e) || activeAbortController?.signal.aborted) {
+        target.status = "cancelled";
       } else {
-        target.errorMsg = (e as Error).message;
+        target.errorMsg = errorMessage(e);
         target.status = "error";
       }
     }
   } finally {
     activeAbortController = null;
-    await nextTick();
-    scrollToBottom();
   }
 }
 
@@ -779,45 +678,64 @@ function discardItem(item: AIHistoryItem) {
 }
 
 function toggleConversationHistory() {
-  if (isLoading.value) return;
   showConversationHistory.value = !showConversationHistory.value;
 }
 
 function handleStartNewConversation() {
   if (isLoading.value) return;
-  startNewConversation();
+  startNewConversation(aiMode.value);
   showConversationHistory.value = false;
   expandedDiffId.value = null;
-  expandedMessageIds.value = new Set();
   expandedLongMessageIds.value = new Set();
 }
 
 function clearHistory() {
   if (isLoading.value) return;
-  clearAllConversations();
-  documentVersions.clearSnapshots();
+  clearConversations(aiMode.value);
   expandedDiffId.value = null;
-  expandedMessageIds.value = new Set();
   expandedLongMessageIds.value = new Set();
 }
 
 function selectConversation(conversationId: string) {
-  if (isLoading.value) return;
   if (conversationId === activeConversationId.value) {
     showConversationHistory.value = false;
     return;
   }
-  switchConversation(conversationId);
+  if (isLoading.value) return;
+  switchConversation(aiMode.value, conversationId);
   showConversationHistory.value = false;
   expandedDiffId.value = null;
-  nextTick(() => {
-    collapsePastMessages(false);
-    scrollToBottom();
-  });
+  nextTick(pinToBottom);
 }
 
 function stop() {
   activeAbortController?.abort();
+}
+
+function isHttpHref(href: string) {
+  return /^https?:\/\//i.test(href);
+}
+
+async function openHttpInSystemBrowser(href: string) {
+  if (isTauri()) {
+    await openUrl(href);
+    return;
+  }
+  window.open(href, "_blank", "noopener,noreferrer");
+}
+
+function onHistoryClick(event: MouseEvent) {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const anchor = target.closest("a");
+  if (!anchor) return;
+
+  const href = anchor.getAttribute("href")?.trim();
+  if (!href || href.startsWith("#")) return;
+
+  event.preventDefault();
+  if (!isHttpHref(href)) return;
+  void openHttpInSystemBrowser(href);
 }
 
 function toggleDiff(item: AIHistoryItem) {
@@ -851,16 +769,110 @@ function conversationTurnLabel(count: number) {
   return count === 0 ? t("ai.noRounds") : t("ai.roundCount", { count });
 }
 
-function formatTime(timestamp: number): string {
-  const d = new Date(timestamp);
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
 function renderAgentMarkdown(source: string | undefined) {
   const text = source?.trim();
   if (!text) return "";
   return renderMarkdown(text, props.documentPath ?? props.documentKey ?? null);
+}
+
+function assistantBodySource(item: AIHistoryItem) {
+  if (item.status === "no-changes" && item.noChangesHint?.trim()) {
+    return item.noChangesHint.trim();
+  }
+
+  const text = (
+    item.assistantText
+    || (item.mode === "agent" || item.mode === "quick" || item.status === "loading"
+      ? item.rawResponse
+      : "")
+  ).trim();
+  if (text && !/\bNO_CHANGES\b/.test(text)) return text;
+
+  if (item.status === "loading") return "";
+  if (item.status === "no-changes") return t("ai.noChangesDefault");
+  if (item.mode === "proofread") return "";
+  return item.rawResponse.trim();
+}
+
+type AssistantTimelineSegment =
+  | { key: string; type: "markdown"; html: string }
+  | { key: string; type: "activities"; activities: AgentActivity[] };
+
+/** 按活动首次发生时的正文偏移，重建“正文 → 思考/工具 → 正文”的消息时间线。 */
+function assistantTimelineSegments(item: AIHistoryItem): AssistantTimelineSegment[] {
+  const source = assistantBodySource(item);
+  const activities = (item.agentActivities ?? [])
+    .map((activity, index) => ({ activity, index }))
+    .sort((left, right) => {
+      const leftOffset = left.activity.contentOffset ?? 0;
+      const rightOffset = right.activity.contentOffset ?? 0;
+      if (leftOffset !== rightOffset) return leftOffset - rightOffset;
+      return (left.activity.timelineSeq ?? left.index) - (right.activity.timelineSeq ?? right.index);
+    });
+  const segments: AssistantTimelineSegment[] = [];
+  let cursor = 0;
+  let index = 0;
+
+  while (index < activities.length) {
+    const offset = Math.max(
+      cursor,
+      Math.min(source.length, activities[index].activity.contentOffset ?? 0),
+    );
+    if (offset > cursor) {
+      segments.push({
+        key: `markdown-${cursor}`,
+        type: "markdown",
+        html: renderAgentMarkdown(source.slice(cursor, offset)),
+      });
+    }
+
+    const atOffset: AgentActivity[] = [];
+    while (index < activities.length) {
+      const candidateOffset = Math.max(
+        cursor,
+        Math.min(source.length, activities[index].activity.contentOffset ?? 0),
+      );
+      if (candidateOffset !== offset) break;
+      atOffset.push(activities[index].activity);
+      index += 1;
+    }
+    segments.push({
+      key: `activities-${offset}-${atOffset[0]?.id ?? index}`,
+      type: "activities",
+      activities: atOffset,
+    });
+    cursor = offset;
+  }
+
+  if (cursor < source.length) {
+    segments.push({
+      key: `markdown-${cursor}`,
+      type: "markdown",
+      html: renderAgentMarkdown(source.slice(cursor)),
+    });
+  }
+
+  return segments;
+}
+
+function showAgentLoading(item: AIHistoryItem) {
+  if (item.status !== "loading") return false;
+  if (assistantBodySource(item)) return false;
+  if (item.agentActivities?.some((activity) => activity.status === "running")) return false;
+  return true;
+}
+
+function pendingStatusText(item: AIHistoryItem) {
+  if (item.status !== "loading") return "";
+  if (item.mode === "proofread") return t("ai.proofreading");
+  const latestTool = [...(item.agentActivities ?? [])]
+    .reverse()
+    .find((activity) => activity.kind !== "thinking" && activity.tool !== "thinking" && activity.status === "running");
+  if (latestTool) return t("ai.callingTool", { name: latestTool.tool });
+  if (item.agentActivities?.some((activity) => activity.kind === "thinking" && activity.status === "running")) {
+    return t("ai.thinkingRunning");
+  }
+  return t("ai.waitingModel");
 }
 
 function getFullDocDiff(item: AIHistoryItem) {
@@ -873,17 +885,6 @@ function getChangeDiff(change: EditChange, originalDoc: string) {
   const oldStr = originalDoc.slice(change.from, change.to);
   const newStr = change.insert;
   return lineDiff(oldStr, newStr);
-}
-
-function statusLabel(item: AIHistoryItem) {
-  if (item.status === "applied") return t("ai.statusApplied");
-  if (item.status === "done") return t("ai.statusDone");
-  if (item.status === "proofread") return t("ai.statusProofread");
-  if (item.status === "no-changes") return t("ai.statusNoChanges");
-  if (item.status === "error") return t("ai.statusError");
-  if (item.status === "discarded") return t("ai.statusDiscarded");
-  if (item.status === "loading") return t("ai.statusLoading");
-  return "";
 }
 
 function proofreadSummaryLabel(item: AIHistoryItem) {
@@ -1013,10 +1014,9 @@ function onResizeKeydown(event: KeyboardEvent) {
 
 function resetDemoState() {
   instruction.value = "";
-  clearAllConversations();
+  clearConversations();
   documentVersions.clearSnapshots();
   expandedDiffId.value = null;
-  expandedMessageIds.value = new Set();
   expandedLongMessageIds.value = new Set();
 }
 
@@ -1040,7 +1040,7 @@ onMounted(() => {
       reduceMotion.value = Boolean(context.conditions?.reduceMotion);
     },
   );
-  scrollToBottom();
+  pinToBottom();
   nextTick(scheduleLongMessageOverflowMeasure);
 });
 
@@ -1096,7 +1096,7 @@ onUnmounted(() => {
           :disabled="isLoading"
           @click="aiMode = 'quick'"
         >
-          <GitCompare :size="12" aria-hidden="true" />
+          <MessageSquare :size="12" aria-hidden="true" />
           {{ t("ai.quick") }}
         </button>
       </div>
@@ -1105,8 +1105,7 @@ onUnmounted(() => {
           type="button"
           class="ai-header-btn"
           :class="{ active: showConversationHistory }"
-          :title="t('ai.openHistory')"
-          :disabled="isLoading"
+          :title="showConversationHistory ? t('ai.closeHistory') : t('ai.openHistory')"
           :aria-pressed="showConversationHistory"
           @click="toggleConversationHistory"
         >
@@ -1134,7 +1133,13 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <div ref="listRef" class="ai-history-list">
+    <div class="ai-history-wrap">
+      <div ref="scroller" class="ai-history-list" @click="onHistoryClick">
+        <div
+          ref="listContent"
+          class="ai-history-content"
+          :class="{ 'ai-history-content--stuck': stuck }"
+        >
       <section v-if="!demoMode && showConversationHistory" class="conversation-history-panel">
         <div class="conversation-history-panel-header">
           <div class="conversation-history-panel-title">
@@ -1145,7 +1150,6 @@ onUnmounted(() => {
             type="button"
             class="ai-header-btn"
             :title="t('ai.closeHistory')"
-            :disabled="isLoading"
             @click="showConversationHistory = false"
           >
             <X :size="iconSize" aria-hidden="true" />
@@ -1163,7 +1167,7 @@ onUnmounted(() => {
           type="button"
           class="conversation-history-item"
           :class="{ active: conversation.id === activeConversationId }"
-          :disabled="isLoading"
+          :disabled="isLoading && conversation.id !== activeConversationId"
           @click="selectConversation(conversation.id)"
         >
           <span class="conversation-history-item-row">
@@ -1190,96 +1194,57 @@ onUnmounted(() => {
       <div
         v-for="item in visibleHistoryList"
         :key="item.id"
-        class="history-card"
+        class="chat-turn"
         :data-history-id="item.id"
-        :class="[`status-${item.status}`, { 'is-diff-expanded': expandedDiffId === item.id }]"
+        :class="[`status-${item.status}`]"
       >
-        <div class="card-header">
-          <div class="card-header-row">
-            <span class="user-tag">{{ t("ai.instruction") }}</span>
-            <div class="card-meta">
-              <span class="card-status" :class="`status-tag-${item.status}`">{{ statusLabel(item) }}</span>
-              <span class="card-time">{{ formatTime(item.timestamp) }}</span>
-            </div>
-          </div>
-          <p
-            class="card-instruction-text"
-            :class="{ 'is-long-clamped': shouldClampLongMessage(item) }"
-          >
-            {{ item.instruction }}
-          </p>
-          <button
-            v-if="isPastMessage(item)"
-            type="button"
-            class="message-collapse-toggle"
-            :aria-expanded="isMessageExpanded(item)"
-            @click="toggleMessage(item)"
-          >
-            <span>{{ isMessageExpanded(item) ? t("ai.collapseMessage") : t("ai.expandMessage") }}</span>
-            <span class="diff-toggle-chevron" :class="{ expanded: isMessageExpanded(item) }">›</span>
-          </button>
+        <div class="row-user">
+          <div class="msg-user">{{ item.instruction }}</div>
         </div>
 
-        <div
-          class="history-card-body-wrap"
-          :class="{
-            'is-old-collapsed': !isMessageExpanded(item),
-            'is-long-clamped': shouldClampLongMessage(item),
-          }"
-        >
+        <div class="row-assistant">
+          <AgentLoadingState
+            v-if="showAgentLoading(item)"
+            :label="pendingStatusText(item)"
+            :started-at="item.timestamp"
+          />
+
           <div
-            class="history-card-body-content"
+            v-if="item.agentActivities?.length || assistantBodySource(item)"
+            class="assistant-content"
             :class="{ 'is-long-clamped': shouldClampLongMessage(item) }"
           >
-          <div class="card-body">
-            <div v-if="item.status === 'loading'" class="ai-loading-box">
-            <span class="ai-loading-text">
-              {{ item.mode === 'agent' ? t('ai.agentRunning') : t('ai.generating') }}
-            </span>
-            <AgentActivityList
-              v-if="item.agentActivities?.length"
-              :activities="item.agentActivities"
-            />
-            <div
-              v-else-if="item.mode === 'agent' && item.rawResponse"
-              class="agent-stream-preview agent-markdown"
-              v-html="renderAgentMarkdown(item.rawResponse)"
-            />
-            <div
-              v-else-if="demoMode && item.rawResponse"
-              class="demo-stream-preview"
-            >{{ item.rawResponse }}</div>
-            <button class="ai-btn ai-btn-stop" type="button" @click="stop">
-              <Square :size="12" aria-hidden="true" />
-              {{ t("ai.stop") }}
-            </button>
-            </div>
+            <template
+              v-for="segment in assistantTimelineSegments(item)"
+              :key="segment.key"
+            >
+              <AgentActivityTimeline
+                v-if="segment.type === 'activities'"
+                :activities="segment.activities"
+                :document-path="props.documentPath ?? props.documentKey"
+              />
+              <div
+                v-else-if="segment.html"
+                class="assistant-markdown agent-markdown"
+                v-html="segment.html"
+              />
+            </template>
+          </div>
 
-            <div v-else-if="item.status === 'error'" class="ai-error-box">
+          <div v-if="item.status === 'error'" class="ai-error-inline">
             <span class="error-label">{{ t("ai.error") }}</span>
             <div class="error-msg">{{ item.errorMsg }}</div>
-            </div>
+          </div>
 
-            <div v-else-if="item.status === 'no-changes'" class="ai-muted-box">
-            <span class="muted-label">
-              {{ item.assistantText && item.mode === 'agent' ? t('ai.reply') : t('ai.noChangesNeeded') }}
-            </span>
-            <div
-              class="muted-msg agent-reply-text agent-markdown"
-              v-html="renderAgentMarkdown(item.assistantText || item.noChangesHint || t('ai.noChangesDefault'))"
-            />
-            <AgentActivityList
-              v-if="item.agentActivities?.length"
-              :activities="item.agentActivities"
-              done
-            />
-            </div>
+          <div v-else-if="item.status === 'cancelled'" class="ai-muted-inline">
+            {{ t("ai.cancelled") }}
+          </div>
 
-            <div v-else-if="item.status === 'discarded'" class="ai-muted-box">
-            <span class="muted-label">{{ t("ai.discarded") }}</span>
-            </div>
+          <div v-else-if="item.status === 'discarded'" class="ai-muted-inline">
+            {{ t("ai.discarded") }}
+          </div>
 
-            <div v-else-if="item.status === 'proofread'" class="ai-proofread-box">
+          <div v-if="item.status === 'proofread'" class="ai-proofread-box">
             <button
               class="proofread-toggle"
               type="button"
@@ -1355,15 +1320,12 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-            </div>
+          </div>
 
-            <div v-else-if="item.status === 'done' || item.status === 'applied'" class="ai-diff-box">
-            <AgentActivityList
-              v-if="item.mode === 'agent' && item.agentActivities?.length"
-              :activities="item.agentActivities"
-              done
-            />
-
+          <div
+            v-if="(item.status === 'done' || item.status === 'applied') && item.changes.length"
+            class="ai-diff-box"
+          >
             <button
               class="diff-toggle"
               type="button"
@@ -1418,8 +1380,7 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
-          </div>
-          </div>
+
           <button
             v-if="shouldShowLongMessageToggle(item)"
             type="button"
@@ -1452,6 +1413,18 @@ onUnmounted(() => {
         </div>
       </div>
       </template>
+        </div>
+      </div>
+      <button
+        v-if="!stuck && !showConversationHistory && visibleHistoryList.length > 0"
+        type="button"
+        class="ai-scroll-bottom"
+        :title="t('ai.scrollToBottom')"
+        :aria-label="t('ai.scrollToBottom')"
+        @click="pinToBottom"
+      >
+        <ChevronDown :size="14" aria-hidden="true" />
+      </button>
     </div>
 
     <div class="ai-input-area">
@@ -1521,15 +1494,23 @@ onUnmounted(() => {
           {{ t("ai.proofread") }}
         </button>
         <button
+          v-if="isLoading"
+          class="ai-btn ai-btn-stop ai-btn-composer-stop"
+          type="button"
+          @click="stop"
+        >
+          <Square :size="13" aria-hidden="true" />
+          {{ t("ai.stop") }}
+        </button>
+        <button
+          v-else
           class="ai-btn ai-btn-primary"
-          :class="{ 'is-loading': isLoading }"
+          type="button"
           :disabled="!canSubmit"
-          :aria-busy="isLoading"
           @click="submit"
         >
-          <span v-if="isLoading" class="ai-send-spinner" aria-hidden="true" />
-          <Send v-else :size="13" aria-hidden="true" />
-          {{ isLoading ? t("ai.sending") : t("ai.send") }}
+          <Send :size="13" aria-hidden="true" />
+          {{ t("ai.send") }}
         </button>
       </div>
     </div>
@@ -1717,31 +1698,55 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
-.ai-history-list {
+.ai-history-wrap {
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 12px;
+  min-height: 0;
+}
+
+.ai-history-list {
+  flex: 1;
   min-height: 0;
   padding: 12px;
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
 
-.ai-history-list::-webkit-scrollbar,
-.diff-lines::-webkit-scrollbar,
-.agent-stream-preview::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+.ai-history-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 100%;
 }
 
-.ai-history-list::-webkit-scrollbar-thumb,
-.diff-lines::-webkit-scrollbar-thumb,
-.agent-stream-preview::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ink-text-muted) 26%, transparent);
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background-clip: padding-box;
+.ai-history-content--stuck {
+  overflow-anchor: none;
+}
+
+.ai-scroll-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--ink-text);
+  border: 1px solid var(--ink-border);
+  border-radius: 9999px;
+  background: var(--ink-surface);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ink-shadow) 42%, transparent);
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+
+.ai-scroll-bottom:hover {
+  background: color-mix(in srgb, var(--ink-text) 5%, var(--ink-surface));
 }
 
 .ai-empty {
@@ -1885,177 +1890,79 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.conversation-history-item-meta,
-.card-time {
+.conversation-history-item-meta {
   color: var(--ink-text-muted);
   font-size: 10px;
 }
 
-.history-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--ink-border);
-  border-radius: var(--ai-radius);
-  background: var(--ai-surface-raised);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--ink-inset) 76%, transparent);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
-}
-
-.history-card::before {
-  content: "";
-  position: absolute;
-  inset: 10px auto 10px 0;
-  width: 2px;
-  border-radius: 999px;
-  background: transparent;
-}
-
-.history-card.is-diff-expanded {
-  border-color: var(--ink-border-strong);
-  box-shadow: var(--ai-shadow-soft);
-}
-
-.status-loading {
-  border-color: color-mix(in srgb, var(--ink-accent) 34%, var(--ink-border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink-accent-soft) 72%, transparent);
-}
-
-.status-loading::before {
-  background: var(--ink-accent);
-}
-
-.status-error {
-  border-color: color-mix(in srgb, #e53e3e 34%, var(--ink-border));
-}
-
-.status-applied {
-  border-color: color-mix(in srgb, #38a169 26%, var(--ink-border));
-}
-
-.status-proofread {
-  border-color: color-mix(in srgb, #e53e3e 26%, var(--ink-border));
-}
-
-.status-discarded {
-  opacity: 0.68;
-}
-
-.card-header {
+.chat-turn {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.card-header-row {
+.row-user {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-end;
 }
 
-.card-instruction-text {
-  margin: 0;
+.msg-user {
+  width: fit-content;
+  max-width: 92%;
+  margin: 2px 0 4px;
+  padding: 7px 10px;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ai-radius);
+  background: color-mix(in srgb, var(--ink-accent-soft) 70%, var(--ink-surface));
   color: var(--ink-text);
   font-size: 12px;
   font-weight: 600;
   line-height: 1.5;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
-.card-instruction-text.is-long-clamped {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-}
-
-.user-tag {
-  flex-shrink: 0;
-  padding: 2px 5px;
-  color: var(--ink-accent);
-  font-size: 9px;
-  font-weight: 750;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  border: 1px solid color-mix(in srgb, var(--ink-accent) 18%, var(--ink-border));
-  border-radius: 4px;
-  background: var(--ink-accent-soft);
-}
-
-.card-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.card-status {
-  padding: 2px 6px;
-  font-size: 9px;
-  font-weight: 750;
-  line-height: 1.35;
-  border-radius: 999px;
-}
-
-.status-tag-done {
-  color: var(--ink-accent);
-  background: var(--ink-accent-soft);
-}
-
-.status-tag-applied,
-.applied-badge {
-  color: #2f855a;
-  background: color-mix(in srgb, #38a169 13%, transparent);
-}
-
-.status-tag-proofread {
-  color: #c53030;
-  background: color-mix(in srgb, #e53e3e 11%, transparent);
-}
-
-.status-tag-loading,
-.status-tag-no-changes,
-.status-tag-discarded {
-  color: var(--ink-text-muted);
-  background: var(--ink-inset);
-}
-
-.status-tag-error {
-  color: #e53e3e;
-  background: color-mix(in srgb, #e53e3e 11%, transparent);
-}
-
-.card-body {
+.row-assistant {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-width: 100%;
+  padding: 2px 0 4px;
 }
 
-.history-card-body-wrap {
+.status-discarded,
+.status-cancelled {
+  opacity: 0.68;
+}
+
+.applied-badge {
+  padding: 3px 7px;
+  color: #2f855a;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 999px;
+  background: color-mix(in srgb, #38a169 13%, transparent);
+}
+
+.assistant-content {
   position: relative;
-  overflow: hidden;
 }
 
-.history-card-body-wrap.is-old-collapsed {
-  height: 0;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
+.assistant-markdown {
+  color: var(--ink-text);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
-.history-card-body-content {
-  position: relative;
-}
-
-.history-card-body-content.is-long-clamped {
+.assistant-content.is-long-clamped {
   max-height: 320px;
   overflow: hidden;
 }
 
-.history-card-body-content.is-long-clamped::after {
+.assistant-content.is-long-clamped::after {
   content: "";
   position: absolute;
   right: 0;
@@ -2063,10 +1970,9 @@ onUnmounted(() => {
   left: 0;
   height: 56px;
   pointer-events: none;
-  background: linear-gradient(180deg, transparent, var(--ai-surface-raised));
+  background: linear-gradient(180deg, transparent, var(--ink-surface));
 }
 
-.message-collapse-toggle,
 .message-expand-toggle {
   display: inline-flex;
   align-items: center;
@@ -2081,119 +1987,46 @@ onUnmounted(() => {
   background: var(--ink-surface);
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.message-collapse-toggle {
-  align-self: flex-start;
-  padding: 5px 8px;
-}
-
-.message-expand-toggle {
   position: relative;
   z-index: 1;
   width: 100%;
-  margin-top: 8px;
+  margin-top: 4px;
   padding: 6px 8px;
 }
 
-.message-collapse-toggle:hover,
 .message-expand-toggle:hover {
   color: var(--ink-text);
   border-color: var(--ink-border-strong);
   background: var(--ink-accent-soft);
 }
 
-.ai-loading-box,
-.ai-error-box,
-.ai-muted-box {
+.ai-error-inline,
+.ai-muted-inline {
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.ai-error-inline {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding: 10px;
-  border-radius: var(--ai-radius-sm);
-  border: 1px solid var(--ink-border);
-  background: var(--ink-inset);
+  gap: 4px;
+  color: var(--ink-text);
 }
 
-.ai-loading-box {
-  position: relative;
+.ai-muted-inline {
+  color: var(--ink-text-muted);
 }
 
-.ai-loading-box::before {
-  content: "";
-  width: 100%;
-  height: 2px;
-  border-radius: 999px;
-  background:
-    linear-gradient(90deg, transparent, var(--ink-accent), transparent)
-    0 0 / 72px 100% no-repeat,
-    color-mix(in srgb, var(--ink-accent) 12%, transparent);
-  animation: ai-progress 1.45s ease-in-out infinite;
-}
-
-.ai-loading-text,
-.muted-label,
 .error-label {
   font-size: 10px;
   font-weight: 750;
   letter-spacing: 0.04em;
-}
-
-.ai-loading-text,
-.muted-label {
-  color: var(--ink-text-muted);
-}
-
-.ai-error-box {
-  background: color-mix(in srgb, #e53e3e 7%, transparent);
-  border-color: color-mix(in srgb, #e53e3e 19%, transparent);
-}
-
-.error-label {
   color: #e53e3e;
 }
 
-.error-msg,
-.muted-msg {
+.error-msg {
   color: var(--ink-text);
-  font-size: 11px;
-  line-height: 1.55;
   overflow-wrap: anywhere;
-}
-
-.muted-msg {
-  color: var(--ink-text-muted);
-}
-
-.agent-reply-text {
-  color: var(--ink-text-muted);
-}
-
-.agent-stream-preview {
-  max-height: 138px;
-  margin: 2px 0 0;
-  padding: 9px 10px;
-  overflow: auto;
-  color: var(--ink-text);
-  font-size: 11px;
-  line-height: 1.55;
-  border: 1px solid var(--ink-border);
-  border-radius: var(--ai-radius-sm);
-  background: var(--ai-surface-subtle);
-}
-
-.demo-stream-preview {
-  max-height: 88px;
-  margin: 8px 0 0;
-  padding: 8px 10px;
-  overflow: auto;
-  white-space: pre-wrap;
-  color: var(--ink-text-muted);
-  font-size: 12px;
-  line-height: 1.6;
-  border: 1px solid var(--ink-border);
-  border-radius: var(--ai-radius-sm);
-  background: var(--ink-bg);
 }
 
 .ai-panel-demo {
@@ -2289,6 +2122,8 @@ onUnmounted(() => {
   border: 1px solid var(--ink-border);
   border-radius: var(--ai-radius-sm);
   background: color-mix(in srgb, var(--ink-bg) 76%, var(--ink-surface));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .agent-markdown :deep(pre code) {
@@ -2296,7 +2131,8 @@ onUnmounted(() => {
   padding: 0;
   border: 0;
   background: transparent;
-  white-space: pre;
+  white-space: inherit;
+  overflow-wrap: anywhere;
 }
 
 .agent-markdown :deep(blockquote) {
@@ -2311,20 +2147,46 @@ onUnmounted(() => {
 }
 
 .agent-markdown :deep(table) {
-  display: block;
-  overflow-x: auto;
-  border-collapse: collapse;
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--ink-border);
 }
 
 .agent-markdown :deep(th),
 .agent-markdown :deep(td) {
   padding: 4px 6px;
-  border: 1px solid var(--ink-border);
+  border: 0;
+  border-right: 1px solid var(--ink-border);
+  border-bottom: 1px solid var(--ink-border);
+  overflow-wrap: anywhere;
+  word-break: normal;
+  word-wrap: break-word;
+  box-sizing: border-box;
+}
+
+.agent-markdown :deep(th:last-child),
+.agent-markdown :deep(td:last-child) {
+  border-right: 0;
+}
+
+.agent-markdown :deep(tr:last-child th),
+.agent-markdown :deep(tr:last-child td) {
+  border-bottom: 0;
 }
 
 .agent-markdown :deep(img) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
   height: auto;
-  border-radius: var(--ai-radius-sm);
+  object-fit: contain;
+  border-radius: 8px;
 }
 
 .ai-diff-box {
@@ -2641,6 +2503,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 7px;
+  margin-top: 2px;
 }
 
 .card-actions-split {
@@ -2651,13 +2514,6 @@ onUnmounted(() => {
 .card-actions-main {
   display: flex;
   gap: 7px;
-}
-
-.applied-badge {
-  padding: 3px 7px;
-  font-size: 10px;
-  font-weight: 700;
-  border-radius: 999px;
 }
 
 .ai-btn {
@@ -2703,26 +2559,17 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--ink-accent) 88%, #000);
 }
 
-.ai-btn-primary.is-loading:disabled {
-  opacity: 1;
-  cursor: wait;
-}
-
-.ai-send-spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: ai-send-spin 0.8s linear infinite;
-}
-
 .ai-btn-stop {
   align-self: flex-start;
   color: #c53030;
   background: color-mix(in srgb, #e53e3e 9%, transparent);
   border-color: color-mix(in srgb, #e53e3e 18%, transparent);
+}
+
+.ai-btn-composer-stop {
+  align-self: auto;
+  min-width: 76px;
+  padding-inline: 12px;
 }
 
 .ai-btn-stop:hover:not(:disabled) {
@@ -2997,28 +2844,7 @@ onUnmounted(() => {
   font-size: 10px;
 }
 
-@keyframes ai-send-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes ai-progress {
-  0% {
-    background-position: -80px 0, 0 0;
-  }
-
-  100% {
-    background-position: calc(100% + 80px) 0, 0 0;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .ai-loading-box::before,
-  .ai-send-spinner {
-    animation: none;
-  }
-
   .ai-btn,
   .conversation-history-item {
     transition: none;

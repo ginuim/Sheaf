@@ -1,5 +1,6 @@
 import { renderMarkdown } from "../composables/useMarkdown";
 import { renderMermaidIn } from "../composables/useMermaid";
+import { applyMacTerminalCodeFrames } from "./wechatTerminalFrame";
 import { getWechatTheme, type WechatThemeId } from "./wechatThemes";
 import { toPng } from "html-to-image";
 
@@ -52,16 +53,24 @@ export function splitLeadingH1Title(source: string): WechatMarkdownTitleSplit {
   };
 }
 
+function skipWechatTagStyle(el: Element): boolean {
+  return Boolean(
+    el.closest(".math-block-error, .math-block, .katex, .katex-display, .mermaid"),
+  );
+}
+
 function applyInlineStyles(root: HTMLElement, styles: Record<string, string>) {
   for (const tag of STYLED_TAGS) {
     const style = styles[tag];
     if (!style) continue;
     root.querySelectorAll(tag).forEach((el) => {
+      if ((tag === "pre" || tag === "code") && skipWechatTagStyle(el)) return;
       el.setAttribute("style", style);
     });
   }
 
   root.querySelectorAll("pre code").forEach((el) => {
+    if (skipWechatTagStyle(el)) return;
     el.setAttribute("style", styles.codeInPre ?? styles.code);
   });
 
@@ -145,6 +154,7 @@ function glueColonIntoStyledLabelSpan(root: HTMLElement) {
 /** 将容器内多个行内子节点包进同一 span，减少公众号在 li/p 下按子节点拆 section */
 function wrapInlineChildren(root: HTMLElement, selector: string) {
   root.querySelectorAll(selector).forEach((container) => {
+    if (container.closest("[data-sheaf-code-body]")) return;
     const nodes = Array.from(container.childNodes);
     if (nodes.length <= 1) return;
     const hasBlockChild = nodes.some(
@@ -315,8 +325,13 @@ export function markdownToWechatHtml(
   const wrapper = document.createElement("div");
   wrapper.innerHTML = renderMarkdown(source, docFilePath);
   applyInlineStyles(wrapper, theme.styles);
+  applyMacTerminalCodeFrames(wrapper, theme.styles);
   adaptHtmlForWechatPaste(wrapper);
-  return `<section style="${theme.styles.section}">${wrapper.innerHTML}</section>`;
+
+  const section = document.createElement("section");
+  section.setAttribute("style", theme.styles.section);
+  while (wrapper.firstChild) section.appendChild(wrapper.firstChild);
+  return section.outerHTML;
 }
 
 /** Markdown → 公众号 HTML，并把 Mermaid 与块级公式转成图片 */

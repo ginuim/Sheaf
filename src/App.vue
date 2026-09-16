@@ -2,6 +2,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
@@ -10,16 +11,20 @@ import AIPanel from "./components/AIPanel.vue";
 import AIVersionViewer from "./components/AIVersionViewer.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
 import MarkdownPreview from "./components/MarkdownPreview.vue";
+import EditorSearchReplace from "./components/EditorSearchReplace.vue";
+import PaneZenButton from "./components/PaneZenButton.vue";
+import DocumentSwitcher from "./components/DocumentSwitcher.vue";
 import ExportStudio from "./components/ExportStudio.vue";
 import OutlinePanel from "./components/OutlinePanel.vue";
 import AboutPanel from "./components/AboutPanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import UpdateDialog from "./components/UpdateDialog.vue";
+import ImageCropDialog from "./components/ImageCropDialog.vue";
 import StartPage from "./components/StartPage.vue";
 import Toolbar from "./components/Toolbar.vue";
 import type { ViewMode } from "./components/Toolbar.vue";
 import type { AgentContextSnippet, EditChange, AIHistoryItem } from "./composables/useAI";
-import { migrateAiHistoryKey, applyChangesToDoc } from "./composables/useAI";
+import { applyChangesToDoc, buildPreviewAiMarks, migrateAiHistoryKey } from "./composables/useAI";
 import type { ProofreadIssue } from "./types/proofreading";
 import { migrateDocumentVersionsKey, useDocumentVersions } from "./composables/useDocumentVersions";
 import { refreshRecentMenu, setupAppMenu, type AppMenuHandlers } from "./composables/useAppMenu";
@@ -29,7 +34,7 @@ import { useAutoUpdater } from "./composables/useAutoUpdater";
 import { buildWechatHtmlForCopy, copyWechatHtml } from "./composables/useWechatExport";
 import { resolveLinkHref } from "./composables/resolveMediaSrc";
 import { useFile } from "./composables/useFile";
-import { parseOutline, type OutlineItem } from "./composables/useOutline";
+import { findActiveOutlineItem, parseOutline, type OutlineItem } from "./composables/useOutline";
 import {
   addRecent,
   clearRecent,
@@ -39,11 +44,21 @@ import {
 import { useTheme } from "./composables/useTheme";
 import { translate, useLocale } from "./composables/useLocale";
 import { useAppPreferences } from "./composables/useAppPreferences";
+import { useContentZoom } from "./composables/useContentZoom";
+import { contentZoomActionFromKeyboard } from "./lib/contentZoom";
 import {
   applyChineseEnglishSpacingToMarkdownSource,
   needsChineseEnglishSpacingFormatting,
 } from "./lib/cjkSpacing";
-import { filterDocumentPaths, filterImagePaths } from "./lib/dropped-paths";
+import { filterImagePaths } from "./lib/dropped-paths";
+import { mimeTypeFromPath, extensionFromMimeType, extensionFromSrc, sourceNameFromSrc, isExternalImageSrc } from "./lib/crop-image";
+import { replaceImageSrc, findImageBySrc } from "./lib/markdown-image";
+import {
+  isImageHostingProviderConfigured,
+  uploadToConfiguredImageHost,
+} from "./lib/imageHosting";
+import type { PreviewImageCropPayload } from "./components/MarkdownPreview.vue";
+import { readTextFile, writeFile } from "@tauri-apps/plugin-fs";
 import {
   clearUnsavedDraft,
   hasRecoverableDraft,
@@ -67,11 +82,24 @@ const needsFormatSpacing = computed(() =>
   needsChineseEnglishSpacingFormatting(content.value),
 );
 const viewMode = ref<ViewMode>("split");
+const zenMode = ref(false);
+const zenRestoreViewMode = ref<ViewMode | null>(null);
 const showOutline = ref(parseOutline(DEFAULT_CONTENT).length > 0);
 const showExport = ref(false);
 const editorRef = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 const previewRef = ref<InstanceType<typeof MarkdownPreview> | null>(null);
 const previewPaneRef = ref<HTMLElement | null>(null);
+const previewSearchReplaceRef = ref<InstanceType<typeof EditorSearchReplace> | null>(null);
+const previewSearchOpen = ref(false);
+const previewSearchText = ref("");
+const previewSearchCaseSensitive = ref(false);
+const previewMatchTotal = ref(0);
+const previewMatchCurrent = ref(0);
+const previewMediaEpoch = ref(0);
+const imageCropOpen = ref(false);
+const imageCropTarget = ref<PreviewImageCropPayload | null>(null);
+const imageCropPreviewSrc = ref("");
+const imageCropObjectUrl = ref<string | null>(null);
 const workspaceRef = ref<HTMLElement | null>(null);
 const exporting = ref(false);
 const exportingPdf = ref(false);
@@ -102,6 +130,7 @@ const pendingAiContext = ref<AgentContextSnippet | null>(null);
 const previewingDiffItem = ref<AIHistoryItem | null>(null);
 const showStartPage = ref(true);
 const recentFiles = ref<string[]>(loadRecent());
+const workspaceDocuments = ref<string[]>([]);
 const pendingDraft = ref<UnsavedDraft | null>(loadUnsavedDraft());
 const recoverableDraft = computed(() =>
   hasRecoverableDraft(pendingDraft.value) ? pendingDraft.value : null
@@ -124,9 +153,19 @@ const docHistory = ref<DocHistoryEntry[]>([]);
 const canGoBack = computed(() => docHistory.value.length > 0);
 const splitEditorPercent = shallowRef(loadSplitEditorPercent());
 const isSplitResizing = shallowRef(false);
+const {
+  percent: contentZoomPercent,
+  cssZoom: contentCssZoom,
+  hudVisible: contentZoomHudVisible,
+  zoomIn: zoomContentIn,
+  zoomOut: zoomContentOut,
+  resetZoom: resetContentZoom,
+  zoomByWheel: zoomContentByWheel,
+} = useContentZoom();
 const splitLayoutStyle = computed(() => ({
   "--editor-pane-grow": String(splitEditorPercent.value),
   "--preview-pane-grow": String(100 - splitEditorPercent.value),
+  "--content-text-zoom": String(contentCssZoom.value),
 }));
 
 function createDraftSessionId() {
@@ -165,6 +204,35 @@ function setSplitEditorPercent(value: number, persist = true) {
 const draftSessionId = ref(createDraftSessionId());
 
 const outlineItems = computed(() => parseOutline(content.value));
+const outlineSourceLine = ref(0);
+const activeOutlineId = computed(
+  () => findActiveOutlineItem(outlineItems.value, outlineSourceLine.value)?.id ?? null,
+);
+
+function setOutlineSourceLine(line: number | null | undefined) {
+  if (typeof line !== "number" || !Number.isFinite(line)) return;
+  outlineSourceLine.value = Math.max(0, line);
+}
+
+function syncOutlineFromEditor(preferCursor: boolean) {
+  if (preferCursor || editorRef.value?.isCursorNearViewportTop()) {
+    setOutlineSourceLine(editorRef.value?.getCursorLine());
+    return;
+  }
+  setOutlineSourceLine(
+    editorRef.value?.getOutlineLine() ?? editorRef.value?.getScrollAnchor()?.line,
+  );
+}
+
+function syncOutlineFromPreview(pane?: HTMLElement | null) {
+  const el = pane ?? previewPaneRef.value;
+  if (!el) return;
+  setOutlineSourceLine(previewRef.value?.getScrollAnchor(el, 32)?.line);
+}
+
+function onEditorPositionChange() {
+  if (showOutline.value) syncOutlineFromEditor(true);
+}
 
 const { theme, toggleTheme } = useTheme();
 const isDark = computed(() => theme.value === "dark");
@@ -220,6 +288,9 @@ function onPathOpened(path: string) {
 const allowedAiReadPaths = computed(() => {
   const paths = new Set<string>();
   if (filePath.value) paths.add(filePath.value);
+  for (const path of workspaceDocuments.value) {
+    paths.add(path);
+  }
   for (const path of recentFiles.value) {
     paths.add(path);
   }
@@ -234,7 +305,7 @@ async function readAiWorkspaceFile(path: string): Promise<string> {
   return readTextFile(path);
 }
 
-const { filePath, fileName, openFile, openFileAtPath, newFile, saveFile, saveFileAs, restoreFileState } =
+const { filePath, fileName, diskContent, fileOperationInProgress, openFile, openFileAtPath, newFile, saveFile, saveFileAs, restoreFileState } =
   useFile(
     (loaded) => {
       content.value = loaded;
@@ -342,7 +413,8 @@ function recoverUnsavedDraft() {
   restoreFileState({
     content: draft.content,
     fileName: draft.fileName,
-    filePath: draft.filePath
+    filePath: draft.filePath,
+    diskContent: draft.baselineContent,
   });
   baselineContent.value = draft.baselineContent;
   showOutline.value = parseOutline(draft.content).length > 0;
@@ -355,12 +427,91 @@ function discardUnsavedDraft() {
   pendingDraft.value = null;
 }
 
+let nativePromptOpen = false;
+
 async function confirmDiscardChanges(): Promise<boolean> {
   if (!isDirty.value) return true;
-  return ask(t("app.unsavedChanges"), {
-    title: t("app.title"),
-    kind: "warning",
-  });
+  nativePromptOpen = true;
+  try {
+    return await ask(t("app.unsavedChanges"), {
+      title: t("app.title"),
+      kind: "warning",
+    });
+  } finally {
+    nativePromptOpen = false;
+  }
+}
+
+let checkingExternalFile = false;
+
+async function checkCurrentFileForExternalChanges() {
+  const checkedPath = filePath.value;
+  if (
+    !checkedPath ||
+    showStartPage.value ||
+    checkingExternalFile ||
+    nativePromptOpen ||
+    fileOperationInProgress.value
+  ) return;
+
+  checkingExternalFile = true;
+  try {
+    const nextDiskContent = await readTextFile(checkedPath);
+    if (filePath.value !== checkedPath || showStartPage.value) return;
+    if (diskContent.value === null) {
+      diskContent.value = nextDiskContent;
+      return;
+    }
+    if (nextDiskContent === diskContent.value) return;
+
+    // Record the observed version before opening the native prompt so focus
+    // events caused by the prompt cannot enqueue the same change again.
+    diskContent.value = nextDiskContent;
+
+    if (nextDiskContent === content.value) {
+      baselineContent.value = nextDiskContent;
+      clearUnsavedDraft();
+      pendingDraft.value = null;
+      return;
+    }
+
+    const shouldRefresh = await ask(
+      t(isDirty.value ? "app.externalFileChangedDirty" : "app.externalFileChanged"),
+      { title: t("app.title"), kind: "warning" },
+    );
+    if (filePath.value !== checkedPath || showStartPage.value) return;
+
+    // The current editor contents are compared with the latest disk version.
+    // Declining therefore keeps the editor contents and marks them as dirty.
+    baselineContent.value = nextDiskContent;
+    if (!shouldRefresh) return;
+
+    content.value = nextDiskContent;
+    showOutline.value = parseOutline(nextDiskContent).length > 0;
+    clearUnsavedDraft();
+    pendingDraft.value = null;
+  } catch {
+    // A temporarily unavailable or deleted file cannot be refreshed. Existing
+    // content remains intact and normal open/save errors continue to handle it.
+  } finally {
+    checkingExternalFile = false;
+  }
+}
+
+async function closeCurrentDocument() {
+  if (showStartPage.value) return;
+  if (!(await confirmDiscardChanges())) return;
+
+  newFile();
+  draftSessionId.value = createDraftSessionId();
+  workspaceDocuments.value = [];
+  showStartPage.value = true;
+  showExport.value = false;
+  showAI.value = false;
+  closeVersionHistory();
+  clearDocHistory();
+  clearUnsavedDraft();
+  pendingDraft.value = null;
 }
 
 async function newFileWithConfirm() {
@@ -376,6 +527,7 @@ async function openFileWithConfirm() {
   if (!(await confirmDiscardChanges())) return;
   const opened = await openFile();
   if (opened) {
+    workspaceDocuments.value = filePath.value ? [filePath.value] : [];
     showStartPage.value = false;
     clearDocHistory();
   }
@@ -394,6 +546,7 @@ async function openRecentFile(path: string) {
   }
 
   showStartPage.value = false;
+  workspaceDocuments.value = [path];
   clearDocHistory();
 }
 
@@ -442,6 +595,127 @@ async function handleOpenLink(href: string) {
   await restoreScrollRatio(0);
 }
 
+function revokeImageCropObjectUrl() {
+  if (!imageCropObjectUrl.value) return;
+  URL.revokeObjectURL(imageCropObjectUrl.value);
+  imageCropObjectUrl.value = null;
+}
+
+function closeImageCropDialog() {
+  imageCropOpen.value = false;
+  imageCropTarget.value = null;
+  imageCropPreviewSrc.value = "";
+  revokeImageCropObjectUrl();
+}
+
+async function handleCropImageRequest(payload: PreviewImageCropPayload) {
+  if (/\.svg(?:$|[?#])/i.test(payload.markdownSrc) || /\.svg$/i.test(payload.localPath ?? "")) {
+    showToast("info", t("editor.imageCrop.svgUnsupported"));
+    return;
+  }
+
+  if (isExternalImageSrc(payload.markdownSrc)) {
+    if (!isImageHostingProviderConfigured(appPreferences.imageHosting)) {
+      showToast("info", t("editor.imageCrop.uploadNotConfigured"));
+      return;
+    }
+
+    try {
+      const response = await fetch(payload.previewSrc);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image (${response.status}).`);
+      }
+      const blob = await response.blob();
+      revokeImageCropObjectUrl();
+      const objectUrl = URL.createObjectURL(blob);
+      imageCropObjectUrl.value = objectUrl;
+      imageCropPreviewSrc.value = objectUrl;
+    } catch {
+      showToast("error", t("editor.imageCrop.loadFailed"));
+      return;
+    }
+  } else {
+    revokeImageCropObjectUrl();
+    const joiner = payload.previewSrc.includes("?") ? "&" : "?";
+    imageCropPreviewSrc.value = `${payload.previewSrc}${joiner}crop=${Date.now()}`;
+  }
+
+  imageCropTarget.value = payload;
+  imageCropOpen.value = true;
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function handleImageCropConfirm(blob: Blob) {
+  const target = imageCropTarget.value;
+  if (!target) return;
+
+  try {
+    if (target.localPath && isTauri()) {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      await writeFile(target.localPath, bytes);
+      previewMediaEpoch.value += 1;
+      closeImageCropDialog();
+      showToast("success", t("editor.imageCrop.saved"));
+      return;
+    }
+
+    if (isExternalImageSrc(target.markdownSrc)) {
+      const mimeType = blob.type || mimeTypeFromPath(`image.${extensionFromSrc(target.markdownSrc)}`);
+      const hosted = await uploadToConfiguredImageHost(appPreferences.imageHosting, {
+        bytes: new Uint8Array(await blob.arrayBuffer()),
+        extension: extensionFromMimeType(mimeType),
+        mimeType,
+        sourceName: sourceNameFromSrc(target.markdownSrc),
+      });
+      const match = findImageBySrc(content.value, target.markdownSrc);
+      if (!match) {
+        showToast("error", t("editor.imageCrop.saveFailed"));
+        return;
+      }
+      content.value = replaceImageSrc(content.value, match, hosted.src);
+      previewMediaEpoch.value += 1;
+      closeImageCropDialog();
+      showToast("success", t("editor.imageCrop.saved"));
+      return;
+    }
+
+    if (target.markdownSrc.startsWith("data:")) {
+      const dataUrl = await blobToDataUrl(blob);
+      const match = findImageBySrc(content.value, target.markdownSrc);
+      if (!match) {
+        showToast("error", t("editor.imageCrop.saveFailed"));
+        return;
+      }
+      content.value = replaceImageSrc(content.value, match, dataUrl);
+      closeImageCropDialog();
+      showToast("success", t("editor.imageCrop.saved"));
+      return;
+    }
+
+    showToast("error", t("editor.imageCrop.saveFailed"));
+  } catch {
+    showToast("error", t("editor.imageCrop.saveFailed"));
+  }
+}
+
+const imageCropOutputMimeType = computed(() => {
+  const target = imageCropTarget.value;
+  if (!target) return "image/png";
+  if (target.localPath) return mimeTypeFromPath(target.localPath);
+  if (isExternalImageSrc(target.markdownSrc)) {
+    return mimeTypeFromPath(`image.${extensionFromSrc(target.markdownSrc)}`);
+  }
+  return "image/png";
+});
+
 async function goBackDocument() {
   const previous = docHistory.value[docHistory.value.length - 1];
   if (!previous) return;
@@ -454,13 +728,41 @@ async function goBackDocument() {
 }
 
 async function handleOpenedFiles(paths: string[]) {
-  let opened = false;
-  for (const path of paths) {
-    opened = (await openAssociatedFile(path)) || opened;
+  const uniquePaths = [...new Set(paths)];
+  if (uniquePaths.length === 0) return;
+
+  const nextDocuments = workspaceDocuments.value.length > 1
+    ? [...new Set([...workspaceDocuments.value, ...uniquePaths])]
+    : uniquePaths;
+  const targetPath = uniquePaths[0];
+
+  if (targetPath !== filePath.value && !(await confirmDiscardChanges())) return;
+
+  const opened = targetPath === filePath.value || await openFileAtPath(targetPath);
+  if (!opened) {
+    await message(t("app.fileReadError"), {
+      title: t("app.title"),
+      kind: "error",
+    });
+    return;
   }
-  if (opened) {
-    showStartPage.value = false;
-    clearDocHistory();
+
+  workspaceDocuments.value = nextDocuments;
+  showStartPage.value = false;
+  clearDocHistory();
+}
+
+async function switchWorkspaceDocument(path: string) {
+  if (path === filePath.value) return;
+  if (!(await confirmDiscardChanges())) return;
+
+  const opened = await openFileAtPath(path);
+  if (!opened) {
+    workspaceDocuments.value = workspaceDocuments.value.filter((item) => item !== path);
+    await message(t("app.fileReadError"), {
+      title: t("app.title"),
+      kind: "error",
+    });
   }
 }
 
@@ -477,15 +779,117 @@ function handleRemoveRecent(path: string) {
 
 let unlistenOpened: UnlistenFn | null = null;
 let unlistenDragDrop: UnlistenFn | null = null;
+let unlistenWindowFocus: UnlistenFn | null = null;
 
 const showEditor = computed(() => viewMode.value !== "preview");
 const showPreview = computed(() => viewMode.value !== "edit");
+const previewSource = computed(() => {
+  const item = previewingDiffItem.value;
+  if (!item) return content.value;
+  if (typeof item.resultDoc === "string") return item.resultDoc;
+  return applyChangesToDoc(item.originalDoc, item.changes);
+});
+const previewAiMarks = computed(() => {
+  const item = previewingDiffItem.value;
+  if (!item) return null;
+  return buildPreviewAiMarks(item.originalDoc, previewSource.value);
+});
 const showEditorFormatBar = computed(
   () =>
     showEditor.value &&
+    !zenMode.value &&
     appPreferences.markdownFormatBarEnabled &&
     !previewingDiffItem.value,
 );
+const previewSearchCountText = computed(() => {
+  if (previewMatchTotal.value === 0) return t("search.noMatch");
+  const current = previewMatchCurrent.value > 0 ? previewMatchCurrent.value : 0;
+  return t("search.matchCount", { current, total: previewMatchTotal.value });
+});
+
+function onPreviewSearchStats(stats: { current: number; total: number }) {
+  previewMatchCurrent.value = stats.current;
+  previewMatchTotal.value = stats.total;
+}
+
+function selectedSearchSeed() {
+  const selected = window.getSelection()?.toString() ?? "";
+  if (selected && !/[\n\r]/.test(selected) && selected.length <= 200) {
+    return selected;
+  }
+  return "";
+}
+
+function closePreviewSearch() {
+  previewSearchOpen.value = false;
+  previewSearchText.value = "";
+  previewMatchTotal.value = 0;
+  previewMatchCurrent.value = 0;
+}
+
+function openPreviewSearch() {
+  const alreadyOpen = previewSearchOpen.value;
+  previewSearchOpen.value = true;
+  if (!alreadyOpen) {
+    const seed = selectedSearchSeed();
+    if (seed) previewSearchText.value = seed;
+  }
+
+  void nextTick(() => {
+    previewSearchReplaceRef.value?.focusSearch();
+    if (!previewSearchText.value) return;
+    if (alreadyOpen) previewRef.value?.findNextSearchMatch();
+  });
+}
+
+function enterZen(target: "edit" | "preview") {
+  if (!zenMode.value) {
+    zenRestoreViewMode.value = viewMode.value;
+  }
+  zenMode.value = true;
+  viewMode.value = target;
+}
+
+function exitZen() {
+  if (!zenMode.value) return;
+  zenMode.value = false;
+  if (zenRestoreViewMode.value) {
+    viewMode.value = zenRestoreViewMode.value;
+  }
+  zenRestoreViewMode.value = null;
+}
+
+function toggleZen(target: "edit" | "preview") {
+  if (zenMode.value && viewMode.value === target) {
+    exitZen();
+    return;
+  }
+  enterZen(target);
+}
+
+watch(viewMode, (mode) => {
+  if (mode === "preview") {
+    editorRef.value?.closeSearch();
+    return;
+  }
+  closePreviewSearch();
+});
+
+watch(
+  [showOutline, viewMode],
+  () => {
+    if (!showOutline.value) return;
+    void nextTick(() => {
+      if (showEditor.value) syncOutlineFromEditor(true);
+      else syncOutlineFromPreview();
+    });
+  },
+  { immediate: true },
+);
+
+watch(aiDocumentKey, () => {
+  outlineSourceLine.value = 0;
+});
 
 function isScrollAtStart(ratio: number) {
   return ratio <= 0.001;
@@ -510,6 +914,7 @@ function releaseScrollSyncLock() {
 }
 
 function onEditorScroll() {
+  if (showOutline.value && !scrollSyncing) syncOutlineFromEditor(false);
   if (scrollSyncing || viewMode.value !== "split") return;
   lastScrollSource = "editor";
   const anchor = editorRef.value?.getScrollAnchor();
@@ -530,6 +935,7 @@ function onEditorScroll() {
 }
 
 function onPreviewScroll(e: Event) {
+  if (showOutline.value && !scrollSyncing) syncOutlineFromPreview(e.target as HTMLElement);
   if (scrollSyncing || viewMode.value !== "split") return;
   lastScrollSource = "preview";
   const el = e.target as HTMLElement;
@@ -847,6 +1253,7 @@ function restoreDocumentVersion(versionContent: string) {
 }
 
 function navigateToHeading(item: OutlineItem) {
+  setOutlineSourceLine(item.line);
   scrollSyncing = true;
 
   if (showEditor.value) {
@@ -863,7 +1270,7 @@ function navigateToHeading(item: OutlineItem) {
         pane.getBoundingClientRect().top +
         pane.scrollTop -
         24;
-      pane.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+        pane.scrollTo({ top: Math.max(0, top) });
     }
   }
 
@@ -876,8 +1283,24 @@ function navigateToHeading(item: OutlineItem) {
 
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") {
+    if (imageCropOpen.value) {
+      closeImageCropDialog();
+      return;
+    }
+    if (previewRef.value?.closeImageLightbox()) {
+      e.preventDefault();
+      return;
+    }
+    if (!showStartPage.value && previewSearchOpen.value) {
+      closePreviewSearch();
+      return;
+    }
     if (!showStartPage.value && editorRef.value?.isSearchOpen()) {
       editorRef.value.closeSearch();
+      return;
+    }
+    if (zenMode.value) {
+      exitZen();
       return;
     }
     if (showSettings.value) {
@@ -893,17 +1316,30 @@ function handleKeydown(e: KeyboardEvent) {
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
 
+  const zoomAction = contentZoomActionFromKeyboard(e);
+  if (zoomAction) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (showStartPage.value) return;
+    if (zoomAction === "in") zoomContentIn();
+    else if (zoomAction === "out") zoomContentOut();
+    else resetContentZoom();
+    return;
+  }
+
   if (e.key === "f" && !e.shiftKey && !showStartPage.value) {
     e.preventDefault();
     e.stopImmediatePropagation();
-    editorRef.value?.openSearch();
+    if (viewMode.value === "preview") openPreviewSearch();
+    else editorRef.value?.openSearch();
     return;
   }
 
   if (e.key === "h" && !e.shiftKey && !showStartPage.value) {
     e.preventDefault();
     e.stopImmediatePropagation();
-    editorRef.value?.openReplace();
+    if (viewMode.value === "preview") openPreviewSearch();
+    else editorRef.value?.openReplace();
     return;
   }
 
@@ -920,6 +1356,9 @@ function handleKeydown(e: KeyboardEvent) {
   } else if (e.key === "o") {
     e.preventDefault();
     void openFileWithConfirm();
+  } else if (e.key === "w" && !e.shiftKey && !showStartPage.value) {
+    e.preventDefault();
+    void closeCurrentDocument();
   } else if (e.key === "[" && canGoBack.value) {
     e.preventDefault();
     void goBackDocument();
@@ -939,6 +1378,7 @@ const appMenuHandlers: AppMenuHandlers = {
   onOpenRecent: (path) => void openRecentFile(path),
   onSave: () => void saveFile(content.value),
   onSaveAs: () => void saveFileAs(content.value),
+  onClose: () => void closeCurrentDocument(),
   onFormatSpacing: formatChineseEnglishSpacing,
   onExportPdf: () => void handleExportPdf(),
   onCopyWechatHtml: () => void handleCopyWechatHtml(),
@@ -967,11 +1407,27 @@ watch(locale, () => {
   void refreshAppMenu();
 });
 
+watch(contentZoomPercent, async () => {
+  await nextTick();
+  editorRef.value?.remeasure();
+});
+
+function handleZoomWheel(e: WheelEvent) {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey || showStartPage.value) return;
+  e.preventDefault();
+  zoomContentByWheel(e.deltaY);
+}
+
 onMounted(async () => {
   window.addEventListener("keydown", handleKeydown, true);
+  window.addEventListener("wheel", handleZoomWheel, { capture: true, passive: false });
 
   if (hasTauriRuntime()) {
     await refreshAppMenu();
+
+    unlistenWindowFocus = await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) void checkCurrentFileForExternalChanges();
+    });
 
     const pending = await invoke<string[]>("take_opened_files");
     if (pending.length > 0) {
@@ -987,14 +1443,16 @@ onMounted(async () => {
         if (event.payload.type !== "drop") return;
 
         const imagePaths = filterImagePaths(event.payload.paths);
-        const documentPaths = filterDocumentPaths(event.payload.paths);
+        const documentSources = event.payload.paths.filter(
+          (path) => !imagePaths.includes(path),
+        );
 
         if (imagePaths.length > 0) {
           void handleDroppedImagePaths(imagePaths);
         }
 
-        if (documentPaths.length > 0) {
-          void invoke("open_dropped_files", { paths: documentPaths });
+        if (documentSources.length > 0) {
+          void invoke("open_dropped_files", { paths: documentSources });
         }
       });
     } catch (error) {
@@ -1005,6 +1463,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown, true);
+  window.removeEventListener("wheel", handleZoomWheel, true);
   window.removeEventListener("pointermove", handleSplitResize);
   window.removeEventListener("pointerup", stopSplitResize);
   if (isSplitResizing.value) {
@@ -1013,13 +1472,14 @@ onUnmounted(() => {
   }
   unlistenOpened?.();
   unlistenDragDrop?.();
+  unlistenWindowFocus?.();
 });
 </script>
 
 <template>
   <div class="app">
     <Toolbar
-      v-if="!showStartPage"
+      v-if="!showStartPage && !zenMode"
       class="editor-enter"
       :file-name="fileName"
       :file-path="filePath"
@@ -1035,6 +1495,7 @@ onUnmounted(() => {
       @new-doc="newFileWithConfirm"
       @open="openFileWithConfirm"
       @save="saveFile(content)"
+      @close-doc="closeCurrentDocument"
       @reveal-in-folder="revealCurrentFileInFolder"
       @export-pdf="handleExportPdf"
       @toggle-theme="toggleTheme"
@@ -1062,6 +1523,14 @@ onUnmounted(() => {
       @cancel="dismissPendingUpdate"
     />
 
+    <ImageCropDialog
+      :open="imageCropOpen"
+      :image-src="imageCropPreviewSrc"
+      :output-mime-type="imageCropOutputMimeType"
+      @close="closeImageCropDialog"
+      @confirm="handleImageCropConfirm"
+    />
+
     <StartPage
       v-if="showStartPage"
       :recent-files="recentFiles"
@@ -1084,12 +1553,20 @@ onUnmounted(() => {
         {
           'is-split-resizing': isSplitResizing,
           'has-editor-format-bar': showEditorFormatBar,
+          'is-zen': zenMode,
         },
       ]"
       :style="splitLayoutStyle"
     >
+      <DocumentSwitcher
+        v-if="workspaceDocuments.length > 1 && !zenMode"
+        :paths="workspaceDocuments"
+        :active-path="filePath"
+        @select="switchWorkspaceDocument"
+      />
+
       <button
-        v-if="canGoBack"
+        v-if="canGoBack && !zenMode"
         class="doc-back"
         :title="t('app.backToPreviousDocTitle')"
         @click="goBackDocument"
@@ -1098,7 +1575,25 @@ onUnmounted(() => {
         <span>{{ t("app.backToPreviousDoc") }}</span>
       </button>
 
+      <Transition name="content-zoom-badge">
+        <div
+          v-if="contentZoomHudVisible"
+          class="content-zoom-badge"
+          role="status"
+          aria-live="polite"
+          :aria-label="t('editor.zoomAria', { percent: contentZoomPercent })"
+        >
+          {{ t("editor.zoomPercent", { percent: contentZoomPercent }) }}
+        </div>
+      </Transition>
+
       <section v-show="showEditor" class="pane pane-editor">
+        <div v-if="viewMode !== 'split'" class="pane-chrome pane-chrome--editor">
+          <PaneZenButton
+            :active="zenMode && viewMode === 'edit'"
+            @toggle="toggleZen('edit')"
+          />
+        </div>
         <MarkdownEditor
           ref="editorRef"
           v-model="content"
@@ -1107,12 +1602,13 @@ onUnmounted(() => {
           :proofread-issues="proofreadIssues"
           :active-proofread-issue-id="activeProofreadIssueId"
           :preview-diff-item="previewingDiffItem"
-          :format-bar-enabled="appPreferences.markdownFormatBarEnabled"
+          :format-bar-enabled="appPreferences.markdownFormatBarEnabled && !zenMode"
           :format-bar-tools="appPreferences.markdownFormatBarTools"
           :format-bar-tool-order="appPreferences.markdownFormatBarToolOrder"
           :image-hosting="appPreferences.imageHosting"
           :needs-format-spacing="needsFormatSpacing"
           @scroll="onEditorScroll"
+          @position-change="onEditorPositionChange"
           @add-selection-context="handleAddSelectionContext"
           @format-spacing="formatChineseEnglishSpacing"
           @open-format-settings="openFormatBarSettings"
@@ -1141,25 +1637,60 @@ onUnmounted(() => {
 
       <section
         v-show="showPreview"
-        ref="previewPaneRef"
         class="pane pane-preview"
-        @scroll="onPreviewScroll"
       >
-        <MarkdownPreview
-          ref="previewRef"
-          :source="content"
-          :doc-file-path="filePath"
-          @open-link="handleOpenLink"
-          @layout-change="handlePreviewLayoutChange"
-        />
+        <div class="pane-chrome">
+          <EditorSearchReplace
+            v-if="previewSearchOpen"
+            ref="previewSearchReplaceRef"
+            v-model:search-text="previewSearchText"
+            replace-text=""
+            v-model:case-sensitive="previewSearchCaseSensitive"
+            :replace-open="false"
+            embedded
+            :allow-replace="false"
+            :search-count-text="previewSearchCountText"
+            :has-matches="previewMatchTotal > 0"
+            @find-next="previewRef?.findNextSearchMatch()"
+            @find-previous="previewRef?.findPreviousSearchMatch()"
+            @close="closePreviewSearch"
+          />
+          <PaneZenButton
+            v-if="viewMode !== 'split'"
+            :active="zenMode && viewMode === 'preview'"
+            @toggle="toggleZen('preview')"
+          />
+        </div>
+        <div
+          ref="previewPaneRef"
+          class="pane-preview-scroll"
+          @scroll="onPreviewScroll"
+        >
+          <MarkdownPreview
+            ref="previewRef"
+            :source="previewSource"
+            :doc-file-path="filePath"
+            :media-epoch="previewMediaEpoch"
+            :search-open="previewSearchOpen"
+            :search-text="previewSearchText"
+            :search-case-sensitive="previewSearchCaseSensitive"
+            :ai-marks="previewAiMarks"
+            :ai-added-label="t('ai.previewAiAdded')"
+            :ai-removed-label="t('ai.previewAiRemoved')"
+            @open-link="handleOpenLink"
+            @crop-image="handleCropImageRequest"
+            @layout-change="handlePreviewLayoutChange"
+            @search-stats="onPreviewSearchStats"
+          />
+        </div>
       </section>
 
       <AIPanel
-        v-if="showAI"
+        v-if="showAI && !zenMode"
         :doc="content"
         :document-key="aiDocumentKey"
         :document-path="filePath"
-        :workspace-paths="recentFiles"
+        :workspace-paths="workspaceDocuments.length > 1 ? workspaceDocuments : recentFiles"
         :read-workspace-file="readAiWorkspaceFile"
         :pending-context="pendingAiContext"
         :proofread-issues="proofreadIssues"
@@ -1177,8 +1708,9 @@ onUnmounted(() => {
       />
 
       <OutlinePanel
-        v-if="showOutline"
+        v-if="showOutline && !zenMode"
         :items="outlineItems"
+        :active-id="activeOutlineId"
         @navigate="navigateToHeading"
       />
 
@@ -1284,11 +1816,56 @@ onUnmounted(() => {
   top: 56px;
 }
 
+.content-zoom-badge {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 11;
+  padding: 6px 10px;
+  color: var(--ink-text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  background: color-mix(in srgb, var(--ink-surface) 88%, transparent);
+  border: 1px solid var(--ink-border);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px var(--ink-shadow);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.content-zoom-badge-enter-active,
+.content-zoom-badge-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.content-zoom-badge-enter-from,
+.content-zoom-badge-leave-to {
+  opacity: 0;
+}
+
+.mode-edit .content-zoom-badge,
+.mode-preview .content-zoom-badge {
+  right: 56px;
+}
+
+.workspace.has-editor-format-bar.mode-edit .content-zoom-badge {
+  top: 54px;
+}
+
+.pane-editor :deep(.editor-container),
+.pane-editor :deep(.diff-preview-body),
+.pane-preview :deep(.preview-article) {
+  zoom: var(--content-text-zoom, 1);
+}
+
 .doc-back-arrow {
   color: var(--ink-text-muted);
 }
 
 .pane {
+  position: relative;
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1308,7 +1885,6 @@ onUnmounted(() => {
 
 .mode-preview .pane-preview {
   flex: 1;
-  overflow: auto;
 }
 
 .divider {
@@ -1352,12 +1928,51 @@ onUnmounted(() => {
 }
 
 .pane-preview {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane-preview-scroll {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
+}
+
+.pane-chrome {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 12;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.pane-chrome > * {
+  pointer-events: auto;
+}
+
+.workspace.has-editor-format-bar .pane-chrome--editor {
+  top: 54px;
+}
+
+.mode-edit .pane-editor :deep(.editor-chrome) {
+  right: 56px;
+  max-width: calc(100% - 4.5rem);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .editor-enter {
     animation: none;
+  }
+
+  .content-zoom-badge-enter-active,
+  .content-zoom-badge-leave-active {
+    transition: none;
   }
 
   .export-pdf-spinner {

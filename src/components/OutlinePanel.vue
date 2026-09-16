@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { OutlineItem } from "../composables/useOutline";
 import { useLocale } from "../composables/useLocale";
 
@@ -10,8 +10,9 @@ const PANEL_WIDTH_STORAGE_KEY = "sheaf:outline-panel-width";
 
 const { t } = useLocale();
 
-defineProps<{
+const props = defineProps<{
   items: OutlineItem[];
+  activeId?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -20,6 +21,7 @@ const emit = defineEmits<{
 
 const panelWidth = ref(DEFAULT_PANEL_WIDTH);
 const isResizing = ref(false);
+const navRef = ref<HTMLElement | null>(null);
 const panelStyle = computed(() => ({
   width: `${panelWidth.value}px`,
 }));
@@ -104,6 +106,16 @@ function onResizeKeydown(event: KeyboardEvent) {
   }
 }
 
+watch(
+  () => props.activeId,
+  async (id) => {
+    if (!id) return;
+    await nextTick();
+    const el = navRef.value?.querySelector<HTMLElement>(`[data-outline-id="${CSS.escape(id)}"]`);
+    el?.scrollIntoView({ block: "nearest" });
+  },
+);
+
 onMounted(() => {
   loadPanelWidth();
 });
@@ -129,12 +141,14 @@ onUnmounted(() => {
       @keydown="onResizeKeydown"
     />
     <header class="outline-header">{{ t("outline.title") }}</header>
-    <nav v-if="items.length" class="outline-nav" :aria-label="t('outline.title')">
+    <nav v-if="items.length" ref="navRef" class="outline-nav" :aria-label="t('outline.title')">
       <button
         v-for="item in items"
         :key="`${item.line}-${item.id}`"
         class="outline-item"
-        :class="`level-${item.level}`"
+        :class="[`level-${item.level}`, { 'is-active': item.id === activeId }]"
+        :data-outline-id="item.id"
+        :aria-current="item.id === activeId ? 'location' : undefined"
         :title="item.text"
         @click="emit('navigate', item)"
       >
@@ -225,9 +239,14 @@ onUnmounted(() => {
   transition: color 0.15s, background 0.15s;
 }
 
-.outline-item:hover {
+.outline-item:hover,
+.outline-item.is-active {
   color: var(--ink-text);
   background: var(--ink-accent-soft);
+}
+
+.outline-item.is-active {
+  box-shadow: inset 3px 0 0 var(--ink-accent);
 }
 
 .outline-item.level-1 {

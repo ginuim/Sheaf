@@ -9,6 +9,92 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.35",
+    date: "2026-09",
+    title: "预览图片与 Mermaid 大图",
+    items: [
+      "点击预览中的图片或 Mermaid 图可全屏查看并缩放拖动",
+      "图片裁剪改到大图工具栏，不再一点击就进入裁剪",
+      "大图里可把 Mermaid 复制为 PNG，快捷键 ⌘C",
+    ],
+  },
+  {
+    version: "0.2.34",
+    date: "2026-09",
+    title: "编辑区文字缩放",
+    items: [
+      "⌘+ / ⌘- 缩放编辑区和预览文字，⌘0 恢复 100%；档位与 Chrome 相同，范围 25%–500%",
+      "缩放时内容区右上角短暂显示当前比例，随后自动消失",
+    ],
+  },
+  {
+    version: "0.2.33",
+    date: "2026-09",
+    title: "AI 修改同步到预览",
+    items: [
+      "预览 AI 建议时，预览区显示改后正文，新增块浅绿底、删除处显示摘要",
+      "代码块会软换行，长行不再被裁掉",
+      "停止生成只保留在输入框，消息下方不再重复按钮",
+    ],
+  },
+  {
+    version: "0.2.32",
+    date: "2026-09",
+    title: "大纲定位更准",
+    items: [
+      "大纲高亮跟随视口内实际标题，不再被分屏同步滚动带偏",
+      "点击大纲标题会把光标落到对应行，并与预览定位使用同一套偏移",
+    ],
+  },
+  {
+    version: "0.2.31",
+    date: "2026-09",
+    title: "专注模式、预览搜索与对话贴底",
+    items: [
+      "新增专注模式：只保留编辑或预览，隐藏工具栏、文档栏、侧栏和 AI 面板",
+      "预览区支持搜索，可高亮匹配、区分大小写、跳转上一项/下一项，并从当前选区带入关键词",
+      "大纲随编辑/预览位置高亮当前标题",
+      "AI 执行时自动滚到最新消息；向上翻看时不再被流式输出拽回底部",
+    ],
+  },
+  {
+    version: "0.2.30",
+    date: "2026-09",
+    title: "对话模式与 Agent 执行体验",
+    items: [
+      "对话模式改为纯聊天，不调用搜索、抓网页或改文档；这些能力请用 Agent",
+      "Agent 执行过程展示思考与工具调用，执行中可随时停止，历史列表也能回到当前对话",
+      "对话消息中的表格和图片铺满宽度并使用圆角；http 链接用系统浏览器打开",
+    ],
+  },
+  {
+    version: "0.2.29",
+    date: "2026-09",
+    title: "多文档工作流与图片裁剪",
+    items: [
+      "支持拖入文件夹展开为 Markdown 文档列表，并在文档切换栏中快速切换",
+      "预览区点击图片可直接裁剪，结果可保存到本地或上传图床",
+      "支持关闭当前文档（菜单 / 工具栏 / ⌘W），窗口重新聚焦时检测外部文件变更并提示刷新",
+    ],
+  },
+  {
+    version: "0.2.28",
+    date: "2026-07",
+    title: "小红书卡片分页优化",
+    items: [
+      "改用 DOM Range 精确保留文本边界的卡片分页切分",
+      "移除标题块合并和高度缓冲，避免导出空白页",
+    ],
+  },
+  {
+    version: "0.2.27",
+    date: "2026-06",
+    title: "全局滚动条样式优化",
+    items: [
+      "新增全局自定义滚动条，Windows 下更窄，并适配浅色/深色主题",
+    ],
+  },
+  {
     version: "0.2.26",
     date: "2026-06",
     title: "Windows 标题栏主题同步修复",
@@ -270,6 +356,92 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.35",
+    date: "2026-09",
+    title: "Preview image and Mermaid lightbox",
+    items: [
+      "Click preview images or Mermaid diagrams to view them full-screen, zoom, and pan",
+      "Image crop is in the lightbox toolbar instead of opening on click",
+      "Copy a Mermaid diagram as PNG from the lightbox, shortcut ⌘C",
+    ],
+  },
+  {
+    version: "0.2.34",
+    date: "2026-09",
+    title: "Zoom editor and preview text",
+    items: [
+      "Zoom editor and preview text with ⌘+ / ⌘-, reset with ⌘0; Chrome-style steps from 25% to 500%",
+      "A zoom percentage briefly appears at the top-right of the content area, then fades away",
+    ],
+  },
+  {
+    version: "0.2.33",
+    date: "2026-09",
+    title: "AI edits in the preview pane",
+    items: [
+      "Previewing an AI suggestion shows the proposed document, with added blocks and compact deleted snippets",
+      "Code blocks wrap long lines instead of clipping",
+      "Stop generation from the composer only; the extra button under messages is gone",
+    ],
+  },
+  {
+    version: "0.2.32",
+    date: "2026-09",
+    title: "More accurate outline tracking",
+    items: [
+      "Outline highlight follows the heading in view and no longer drifts during split-pane scroll sync",
+      "Clicking an outline heading moves the caret to that line and uses the same offset as preview jump",
+    ],
+  },
+  {
+    version: "0.2.31",
+    date: "2026-09",
+    title: "Zen mode, preview search, and chat stick-to-bottom",
+    items: [
+      "Add zen mode: keep only the editor or preview, hiding the toolbar, document bar, side panels, and AI panel",
+      "Search in the preview pane with highlighting, case-sensitive matching, next/previous, and a query from the current selection",
+      "Outline highlights the heading at the current editor or preview position",
+      "AI chat follows the latest message while running, and stops following when you scroll up",
+    ],
+  },
+  {
+    version: "0.2.30",
+    date: "2026-09",
+    title: "Chat mode and Agent activity",
+    items: [
+      "Chat mode is text-only: no web search, page fetch, or document edits; use Agent for those",
+      "Agent runs show thinking and tool calls; stop anytime, and leave history to return to the current thread",
+      "Chat tables and images fill the message width with rounded corners; http links open in the system browser",
+    ],
+  },
+  {
+    version: "0.2.29",
+    date: "2026-09",
+    title: "Multi-document workflow and image cropping",
+    items: [
+      "Drop folders to expand into a Markdown document list and switch quickly from the document bar",
+      "Crop images directly from the preview pane; save locally or upload to the configured image host",
+      "Close the current document via menu, toolbar, or Cmd/Ctrl+W; detect external file changes on focus and offer reload",
+    ],
+  },
+  {
+    version: "0.2.28",
+    date: "2026-07",
+    title: "Xiaohongshu card pagination improvements",
+    items: [
+      "Use DOM range-based card pagination for accurate text boundaries",
+      "Remove heading block compaction and height buffer to prevent empty pages",
+    ],
+  },
+  {
+    version: "0.2.27",
+    date: "2026-06",
+    title: "Global scrollbar styling",
+    items: [
+      "Add app-wide custom scrollbars that are slimmer on Windows and follow light/dark theme",
+    ],
+  },
   {
     version: "0.2.26",
     date: "2026-06",

@@ -1,7 +1,14 @@
-import { reactive, watch, ref, computed } from "vue";
-import { createAiFetch } from "../agent/ai-transport";
+import { reactive, watch, ref } from "vue";
+import { streamText } from "ai";
+import {
+  createAgentLanguageModel,
+  createReasoningProviderOptions,
+  selectedModelSupportsReasoning,
+} from "../agent/model";
 import { runSheafAgent } from "../agent/run-agent";
 import type { AgentActivity, AgentContextSnippet, AgentHistoryMessage } from "../agent/types";
+import { throwIfAborted, throwUserFacingError } from "../agent/errors";
+import { buildAgentHistoryMessages } from "../agent/messages";
 import { resolveAgentModel } from "../ai-providers/resolve";
 import {
   loadAiSettings,
@@ -38,13 +45,15 @@ export function isBlankToAiEdit(item: { originalDoc: string; changes: EditChange
   return isBlankDocument(item.originalDoc) && item.changes.length > 0;
 }
 
-export type AIHistoryMode = "quick" | "agent";
+export type AIComposerMode = "quick" | "agent";
+export type AIHistoryMode = AIComposerMode | "proofread";
+export type ActiveConversationMap = Record<AIComposerMode, string>;
 
 export interface AIHistoryItem {
   id: string;
   timestamp: number;
   instruction: string;
-  status: "loading" | "done" | "no-changes" | "error" | "applied" | "discarded" | "proofread";
+  status: "loading" | "done" | "no-changes" | "error" | "applied" | "discarded" | "cancelled" | "proofread";
   mode?: AIHistoryMode;
   conversationId?: string;
   errorMsg?: string;
@@ -73,19 +82,13 @@ function saveSettings(s: AISettings) {
   saveAiSettings(s);
 }
 
-const SYSTEM_PROMPT = `你是 Markdown 文档编辑助手。根据用户指令修改文档，只输出修改内容，不要解释、不要前言后记。
-禁止用 \`\`\` 代码块包裹输出。
-
-对于局部修改，必须使用 SEARCH/REPLACE 块（SEARCH 必须是文档里存在的连续原文，一字不差）：
-
-<<<<<<< SEARCH
-原文片段
-=======
-新文本
->>>>>>> REPLACE
-
-若需替换全文或修改幅度极大，请不要使用 SEARCH/REPLACE 块，直接输出修改后的完整新文档。
-若确实无需改动，只输出：NO_CHANGES`;
+const CHAT_SYSTEM_PROMPT = `你是 Sheaf 的对话助手，在用户的本地 Markdown 编辑器中运行。
+当前是对话模式：只能用文字回答，没有任何工具可调用。
+不能使用 web_search、fetch_url、grep、read、edit、write、list_notes、generate_image，也不能执行命令或访问网络。
+不要假装已经搜索过网页、抓取过链接或修改过文档。
+附带的当前文档只是只读上下文，用来理解用户在写什么；不要输出 SEARCH/REPLACE，不要把回复当成要写入编辑器的新文档。
+若用户要求改文档、联网查资料、打开网页或生成图片，直接说明对话模式做不到，请切换到 Agent 模式。
+用用户使用的语言回复，简洁务实。`;
 
 const PROOFREAD_SYSTEM_PROMPT = `你是中文 Markdown 文档校对助手。只检查明确的错别字、别字、重复字、漏字、明显误用词，不做风格润色，不改写句式。
 必须只输出 JSON，不要输出 Markdown、解释、前言或代码块。
@@ -111,84 +114,6 @@ type RawProofreadIssue = {
   line?: unknown;
 };
 
-function cleanDocumentMarkers(text: string): string {
-  let lines = text.split("\n");
-
-  while (lines.length > 0) {
-    const firstLine = lines[0].trim();
-    if (/^[-\u2014\u2013_*~\s]*(文档开始|DOCUMENT_START|START_OF_DOC)\s*[-\u2014\u2013_*~\s]*$/i.test(firstLine)) {
-      lines.shift();
-    } else {
-      break;
-    }
-  }
-
-  while (lines.length > 0) {
-    const lastLine = lines[lines.length - 1].trim();
-    if (/^[-\u2014\u2013_*~\s]*(文档结束|DOCUMENT_END|END_OF_DOC)\s*[-\u2014\u2013_*~\s]*$/i.test(lastLine)) {
-      lines.pop();
-    } else {
-      break;
-    }
-  }
-
-  return lines.join("\n").trim();
-}
-
-function extractResponseBody(text: string): string {
-  let body = text.replace(/\r\n/g, "\n").trim();
-  if (!body || /\bNO_CHANGES\b/.test(body)) return "";
-
-  // 严格剥离最外层包裹的 ```markdown、```md 或 ``` 包裹，不干扰正文内部的代码块
-  const outerFenceMatch = body.match(/^```(?:markdown|md|text)?\n([\s\S]*?)\n```$/i);
-  if (outerFenceMatch) {
-    body = outerFenceMatch[1].trim();
-  }
-
-  return cleanDocumentMarkers(body);
-}
-
-function isDiffFormat(body: string): boolean {
-  return body.includes("<<<<<<< SEARCH") || /\n=======\n/.test(body);
-}
-
-function parseBlocks(text: string): Array<{ search: string; replace: string }> {
-  const body = extractResponseBody(text);
-  if (!body) return [];
-
-  const blocks: Array<{ search: string; replace: string }> = [];
-  const separator = /\n=======\n/;
-
-  if (body.includes("<<<<<<< SEARCH")) {
-    const parts = body.split(/<<<<<<< SEARCH\n/);
-    for (let i = 1; i < parts.length; i++) {
-      const chunk = parts[i];
-      const sep = chunk.search(separator);
-      if (sep === -1) continue;
-      const afterSep = sep + chunk.slice(sep).match(separator)![0].length;
-      const endIdx = chunk.indexOf("\n>>>>>>> REPLACE", afterSep);
-      const search = chunk.slice(0, sep);
-      const replace = endIdx === -1 ? chunk.slice(afterSep) : chunk.slice(afterSep, endIdx);
-      if (search.length > 0) blocks.push({ search, replace });
-    }
-    if (blocks.length > 0) return blocks;
-  }
-
-  const segments = body.split(separator);
-  if (segments.length < 2) return blocks;
-
-  for (let i = 0; i < segments.length - 1; i += 2) {
-    const search = segments[i].replace(/^<<<<<<< SEARCH\n?/, "").replace(/\n$/, "");
-    const replace = segments[i + 1]
-      .replace(/\n>>>>>>> REPLACE$/, "")
-      .replace(/^>>>>>>> REPLACE\n?/, "")
-      .trim();
-    if (search.length > 0) blocks.push({ search, replace });
-  }
-
-  return blocks;
-}
-
 export function formatEditPreview(
   doc: string,
   changes: EditChange[],
@@ -211,49 +136,6 @@ export function formatEditPreview(
       return `${i + 1}. 「${clip(oldText)}」→「${clip(newText)}」`;
     })
     .join("\n");
-}
-
-function findSearchInDoc(doc: string, search: string): { index: number; length: number } | null {
-  const candidates = [search, search.replace(/\r\n/g, "\n"), search.trimEnd(), search.trim()];
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    if (!candidate || seen.has(candidate)) continue;
-    seen.add(candidate);
-    const idx = doc.indexOf(candidate);
-    if (idx !== -1) return { index: idx, length: candidate.length };
-  }
-  return null;
-}
-
-function blocksToChanges(doc: string, blocks: Array<{ search: string; replace: string }>): EditChange[] {
-  const changes: EditChange[] = [];
-  for (const block of blocks) {
-    const found = findSearchInDoc(doc, block.search);
-    if (!found) continue;
-    changes.push({
-      from: found.index,
-      to: found.index + found.length,
-      insert: block.replace,
-    });
-  }
-  changes.sort((a, b) => a.from - b.from);
-  return changes;
-}
-
-function fullDocumentChange(doc: string, body: string): EditChange[] {
-  if (!body || isDiffFormat(body)) return [];
-  if (body.trimEnd() === doc.trimEnd()) return [];
-  const insert = doc.endsWith("\n") && !body.endsWith("\n") ? `${body}\n` : body;
-  return [{ from: 0, to: doc.length, insert }];
-}
-
-function resolveChanges(doc: string, accumulated: string): EditChange[] {
-  if (/\bNO_CHANGES\b/.test(accumulated)) return [];
-
-  const blockChanges = blocksToChanges(doc, parseBlocks(accumulated));
-  if (blockChanges.length > 0) return blockChanges;
-
-  return fullDocumentChange(doc, extractResponseBody(accumulated));
 }
 
 function formatInlineContext(context: AgentContextSnippet | null | undefined): string {
@@ -400,16 +282,6 @@ function normalizeProofreadIssues(doc: string, rawResponse: string): ProofreadIs
   return issues.sort((left, right) => left.from - right.from);
 }
 
-export function explainNoChanges(doc: string, accumulated: string): string {
-  const body = extractResponseBody(accumulated);
-  if (!body.trim()) return "AI 未返回可解析的内容，请重试";
-  if (body.trimEnd() === doc.trimEnd()) return "AI 返回的正文与原文相同";
-  if (parseBlocks(accumulated).length > 0) {
-    return "未能匹配原文片段，请重试或改用更具体的修改描述";
-  }
-  return "无法解析 AI 返回格式，请重试";
-}
-
 export function applyChangesToDoc(doc: string, changes: EditChange[]): string {
   let result = "";
   let lastIdx = 0;
@@ -480,6 +352,61 @@ export function lineDiff(oldStr: string, newStr: string): DiffLine[] {
   return result;
 }
 
+export type PreviewAiRemovedHunk = {
+  beforeNewLine: number;
+  preview: string;
+};
+
+export type PreviewAiMarks = {
+  addedLines: number[];
+  removedHunks: PreviewAiRemovedHunk[];
+};
+
+function firstPreviewLine(lines: string[]) {
+  const line = lines.find((item) => item.trim().length > 0) ?? lines[0] ?? "";
+  const text = line.trim();
+  return text.length > 72 ? `${text.slice(0, 72)}…` : text;
+}
+
+/** 记下所有新增行，以及每段删除的起始摘要。预览里按区块开头标记，不铺满整段。 */
+export function buildPreviewAiMarks(oldStr: string, newStr: string): PreviewAiMarks | null {
+  const addedLines: number[] = [];
+  const removedHunks: PreviewAiRemovedHunk[] = [];
+  let newLine = 0;
+  let pendingRemoved: string[] = [];
+  let firstAddedLine: number | null = null;
+
+  const flushHunk = () => {
+    if (pendingRemoved.length > 0) {
+      removedHunks.push({
+        beforeNewLine: firstAddedLine ?? newLine,
+        preview: firstPreviewLine(pendingRemoved),
+      });
+    }
+    pendingRemoved = [];
+    firstAddedLine = null;
+  };
+
+  for (const line of lineDiff(oldStr, newStr)) {
+    if (line.type === "removed") {
+      pendingRemoved.push(line.text);
+      continue;
+    }
+    if (line.type === "added") {
+      if (firstAddedLine === null) firstAddedLine = newLine;
+      addedLines.push(newLine);
+      newLine += 1;
+      continue;
+    }
+    flushHunk();
+    newLine += 1;
+  }
+  flushHunk();
+
+  if (addedLines.length === 0 && removedHunks.length === 0) return null;
+  return { addedLines, removedHunks };
+}
+
 export function compressDiff(lines: DiffLine[], contextLines = 2): CompressedDiffLine[] {
   const result: CompressedDiffLine[] = [];
   const n = lines.length;
@@ -543,6 +470,13 @@ function createConversationId() {
   return Math.random().toString(36).slice(2, 11);
 }
 
+function createActiveConversations(): ActiveConversationMap {
+  return {
+    agent: createConversationId(),
+    quick: createConversationId(),
+  };
+}
+
 function truncateConversationTitle(text: string, max = 28) {
   const line = text.split("\n").map((part) => part.trim()).find((part) => part.length > 0) ?? "";
   if (!line) return "新对话";
@@ -554,6 +488,23 @@ function resolveConversationId(item: AIHistoryItem) {
   return item.conversationId?.trim() || LEGACY_CONVERSATION_ID;
 }
 
+export function resolveHistoryMode(item: AIHistoryItem): AIHistoryMode {
+  if (item.mode === "agent" || item.mode === "quick" || item.mode === "proofread") {
+    return item.mode;
+  }
+  return "agent";
+}
+
+export function isHistoryItemInThread(
+  item: AIHistoryItem,
+  mode: AIComposerMode,
+  conversationId: string,
+) {
+  if (resolveConversationId(item) !== conversationId) return false;
+  const itemMode = resolveHistoryMode(item);
+  return itemMode === mode || itemMode === "proofread";
+}
+
 function normalizeHistoryConversationIds(items: AIHistoryItem[]) {
   return items.map((item) => ({
     ...item,
@@ -561,59 +512,111 @@ function normalizeHistoryConversationIds(items: AIHistoryItem[]) {
   }));
 }
 
-function conversationIdsInHistory(items: AIHistoryItem[]) {
-  return new Set(items.map(resolveConversationId));
+function conversationIdsInHistory(items: AIHistoryItem[], mode: AIComposerMode) {
+  return new Set(
+    items
+      .filter((item) => resolveHistoryMode(item) === mode)
+      .map(resolveConversationId),
+  );
 }
 
-function latestConversationId(items: AIHistoryItem[]) {
-  const latestByConversation = new Map<string, number>();
-  for (const item of items) {
-    const conversationId = resolveConversationId(item);
-    const current = latestByConversation.get(conversationId) ?? 0;
-    if (item.timestamp >= current) {
-      latestByConversation.set(conversationId, item.timestamp);
-    }
-  }
-
-  let latestId = LEGACY_CONVERSATION_ID;
+function latestConversationId(items: AIHistoryItem[], mode: AIComposerMode) {
+  let latestId: string | null = null;
   let latestTimestamp = 0;
-  for (const [conversationId, timestamp] of latestByConversation) {
-    if (timestamp >= latestTimestamp) {
-      latestTimestamp = timestamp;
-      latestId = conversationId;
+  for (const item of items) {
+    if (resolveHistoryMode(item) !== mode) continue;
+    if (item.timestamp >= latestTimestamp) {
+      latestTimestamp = item.timestamp;
+      latestId = resolveConversationId(item);
     }
   }
   return latestId;
 }
 
-function loadActiveConversationId(documentKey: string, items: AIHistoryItem[]) {
-  try {
-    const stored = localStorage.getItem(activeConversationStorageKey(documentKey))?.trim();
-    if (stored) {
-      if (items.length === 0 || conversationIdsInHistory(items).has(stored)) {
-        return stored;
-      }
-    }
-  } catch {
-    // ignore invalid storage
-  }
-
-  if (items.length === 0) return createConversationId();
-  return latestConversationId(items);
+function otherComposerMode(mode: AIComposerMode): AIComposerMode {
+  return mode === "agent" ? "quick" : "agent";
 }
 
-function saveActiveConversationId(documentKey: string, conversationId: string) {
-  safeSetLocalStorageItem(activeConversationStorageKey(documentKey), conversationId);
+function pickActiveConversationId(
+  stored: string | undefined,
+  items: AIHistoryItem[],
+  mode: AIComposerMode,
+) {
+  const ids = conversationIdsInHistory(items, mode);
+  if (stored) {
+    if (ids.has(stored)) return stored;
+    if (ids.size === 0 && !conversationIdsInHistory(items, otherComposerMode(mode)).has(stored)) {
+      return stored;
+    }
+  }
+  return latestConversationId(items, mode) ?? createConversationId();
+}
+
+function parseStoredActiveConversations(raw: string | null): Partial<ActiveConversationMap> | string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") return null;
+      return {
+        agent: typeof parsed.agent === "string" ? parsed.agent.trim() : undefined,
+        quick: typeof parsed.quick === "string" ? parsed.quick.trim() : undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+  return trimmed;
+}
+
+function loadActiveConversations(documentKey: string, items: AIHistoryItem[]): ActiveConversationMap {
+  let stored: Partial<ActiveConversationMap> | string | null = null;
+  try {
+    stored = parseStoredActiveConversations(
+      localStorage.getItem(activeConversationStorageKey(documentKey)),
+    );
+  } catch {
+    stored = null;
+  }
+
+  if (typeof stored === "string") {
+    return {
+      agent: pickActiveConversationId(stored, items, "agent"),
+      quick: pickActiveConversationId(stored, items, "quick"),
+    };
+  }
+
+  return {
+    agent: pickActiveConversationId(stored?.agent, items, "agent"),
+    quick: pickActiveConversationId(stored?.quick, items, "quick"),
+  };
+}
+
+function saveActiveConversations(documentKey: string, conversations: ActiveConversationMap) {
+  safeSetLocalStorageItem(
+    activeConversationStorageKey(documentKey),
+    JSON.stringify(conversations),
+  );
 }
 
 function buildConversationSummaries(
   items: AIHistoryItem[],
   activeConversationId: string,
+  mode: AIComposerMode,
 ): AIConversationSummary[] {
+  const modeConversationIds = conversationIdsInHistory(items, mode);
+  modeConversationIds.add(activeConversationId);
   const groups = new Map<string, AIConversationSummary>();
 
   for (const item of items) {
+    const itemMode = resolveHistoryMode(item);
     const conversationId = resolveConversationId(item);
+    const include =
+      itemMode === mode ||
+      (itemMode === "proofread" && modeConversationIds.has(conversationId));
+    if (!include) continue;
+
     const existing = groups.get(conversationId);
     if (!existing) {
       groups.set(conversationId, {
@@ -715,6 +718,7 @@ function normalizeStoredHistoryItem(value: unknown): AIHistoryItem | null {
     item.status !== "error" &&
     item.status !== "applied" &&
     item.status !== "discarded" &&
+    item.status !== "cancelled" &&
     item.status !== "proofread"
   ) {
     return null;
@@ -760,7 +764,9 @@ function normalizeStoredHistoryItem(value: unknown): AIHistoryItem | null {
           }))
       : undefined,
     rawResponse: item.rawResponse,
-    mode: item.mode === "agent" || item.mode === "quick" ? item.mode : undefined,
+    mode: item.mode === "agent" || item.mode === "quick" || item.mode === "proofread"
+      ? item.mode
+      : undefined,
     conversationId: typeof item.conversationId === "string" ? item.conversationId : undefined,
     assistantText: typeof item.assistantText === "string" ? item.assistantText : undefined,
     agentActivities: Array.isArray(item.agentActivities)
@@ -774,6 +780,7 @@ function normalizeStoredHistoryItem(value: unknown): AIHistoryItem | null {
           )
           .map((activity) => ({
             ...activity,
+            kind: activity.kind === "thinking" ? "thinking" : "tool",
             detail: typeof activity.detail === "string" ? activity.detail : undefined,
           }))
       : undefined,
@@ -841,18 +848,21 @@ function formatAgentHistoryEditSummary(changes: EditChange[]): string {
     .join("\n");
 }
 
-export function buildAgentHistoryFromItems(
+export function buildComposerHistoryFromItems(
   items: AIHistoryItem[],
-  excludeId?: string,
-  conversationId?: string,
+  options: {
+    excludeId?: string;
+    conversationId?: string;
+    mode: AIComposerMode;
+  },
 ): AgentHistoryMessage[] {
   const messages: AgentHistoryMessage[] = [];
 
   for (const item of items) {
-    if (item.id === excludeId) continue;
-    if (conversationId && resolveConversationId(item) !== conversationId) continue;
-    if (item.mode !== "agent") continue;
-    if (item.status === "loading") continue;
+    if (item.id === options.excludeId) continue;
+    if (options.conversationId && resolveConversationId(item) !== options.conversationId) continue;
+    if (resolveHistoryMode(item) !== options.mode) continue;
+    if (item.status === "loading" || item.status === "cancelled") continue;
 
     const instruction = item.instruction.trim();
     if (instruction) {
@@ -862,7 +872,7 @@ export function buildAgentHistoryFromItems(
     const assistantParts: string[] = [];
     const assistantText = (item.assistantText ?? item.rawResponse).trim();
     if (assistantText) assistantParts.push(assistantText);
-    if (item.changes.length > 0) {
+    if ((item.changes?.length ?? 0) > 0) {
       assistantParts.push(formatAgentHistoryEditSummary(item.changes));
     }
 
@@ -901,11 +911,8 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
   const historyList = ref<AIHistoryItem[]>(
     normalizeHistoryConversationIds(loadHistoryList(getDocumentKey())),
   );
-  const activeConversationId = ref(
-    loadActiveConversationId(getDocumentKey(), historyList.value),
-  );
-  const conversationSummaries = computed(() =>
-    buildConversationSummaries(historyList.value, activeConversationId.value),
+  const activeConversations = ref<ActiveConversationMap>(
+    loadActiveConversations(getDocumentKey(), historyList.value),
   );
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -913,13 +920,17 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     () => getDocumentKey(),
     (documentKey) => {
       historyList.value = normalizeHistoryConversationIds(loadHistoryList(documentKey));
-      activeConversationId.value = loadActiveConversationId(documentKey, historyList.value);
+      activeConversations.value = loadActiveConversations(documentKey, historyList.value);
     },
   );
 
-  watch(activeConversationId, (conversationId) => {
-    saveActiveConversationId(getDocumentKey(), conversationId);
-  });
+  watch(
+    activeConversations,
+    (conversations) => {
+      saveActiveConversations(getDocumentKey(), conversations);
+    },
+    { deep: true },
+  );
 
   watch(
     historyList,
@@ -932,18 +943,49 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     { deep: true },
   );
 
-  function startNewConversation() {
-    activeConversationId.value = createConversationId();
+  function getActiveConversationId(mode: AIComposerMode) {
+    return activeConversations.value[mode];
   }
 
-  function switchConversation(conversationId: string) {
+  function listConversationSummaries(mode: AIComposerMode) {
+    return buildConversationSummaries(
+      historyList.value,
+      activeConversations.value[mode],
+      mode,
+    );
+  }
+
+  function startNewConversation(mode: AIComposerMode) {
+    activeConversations.value = {
+      ...activeConversations.value,
+      [mode]: createConversationId(),
+    };
+  }
+
+  function switchConversation(mode: AIComposerMode, conversationId: string) {
     if (!conversationId.trim()) return;
-    activeConversationId.value = conversationId;
+    activeConversations.value = {
+      ...activeConversations.value,
+      [mode]: conversationId,
+    };
   }
 
-  function clearAllConversations() {
-    historyList.value = [];
-    activeConversationId.value = createConversationId();
+  function clearConversations(mode?: AIComposerMode) {
+    if (!mode) {
+      historyList.value = [];
+      activeConversations.value = createActiveConversations();
+      return;
+    }
+
+    const ids = conversationIdsInHistory(historyList.value, mode);
+    ids.add(activeConversations.value[mode]);
+    historyList.value = historyList.value.filter((item) => {
+      const itemMode = resolveHistoryMode(item);
+      if (itemMode === mode) return false;
+      if (itemMode === "proofread") return !ids.has(resolveConversationId(item));
+      return true;
+    });
+    startNewConversation(mode);
   }
 
   async function streamEdit(
@@ -952,110 +994,136 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     onChunk: (delta: string) => void,
     signal: AbortSignal,
     context?: AgentContextSnippet | null,
+    history: AgentHistoryMessage[] = [],
   ): Promise<EditChange[]> {
-    const resolved = resolveAgentModel(settings);
-    if (!resolved) throw new Error("请先在设置中启用服务商并填写 API Key");
-
-    const url = `${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`;
-    const res = await createAiFetch()(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resolved.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: resolved.model,
-        stream: true,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: [
-              `---文档开始---\n${doc}\n---文档结束---`,
-              formatInlineContext(context),
-              `修改指令: ${instruction}`,
-            ].filter(Boolean).join("\n\n"),
-          },
-        ],
-      }),
-      signal,
+    const result = streamText({
+      model: createAgentLanguageModel(settings),
+      system: CHAT_SYSTEM_PROMPT,
+      messages: [
+        ...buildAgentHistoryMessages(history),
+        {
+          role: "user",
+          content: [
+            doc.trim()
+              ? `当前文档（只读参考，不是要修改的稿件）:\n---文档开始---\n${doc}\n---文档结束---`
+              : "",
+            formatInlineContext(context),
+            `用户消息:\n${instruction}`,
+          ].filter(Boolean).join("\n\n"),
+        },
+      ],
+      abortSignal: signal,
+      providerOptions: createReasoningProviderOptions(settings),
     });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`API 错误 ${res.status}: ${errText}`);
-    }
-
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let accumulated = "";
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const data = line.slice(6).trim();
-        if (data === "[DONE]") continue;
-        try {
-          const parsed = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> };
-          const delta = parsed.choices?.[0]?.delta?.content;
-          if (delta) {
-            accumulated += delta;
-            onChunk(delta);
-          }
-        } catch {
-          // 忽略不完整的 JSON chunk
-        }
+    for await (const part of result.fullStream) {
+      if (part.type === "abort") {
+        throw new DOMException("Aborted", "AbortError");
+      }
+      if (part.type === "error") {
+        throwUserFacingError(part.error);
+      }
+      if (part.type === "text-delta") {
+        onChunk(part.text);
       }
     }
-
-    return resolveChanges(doc, accumulated);
+    throwIfAborted(signal);
+    return [];
   }
 
   async function proofreadDocument(
     doc: string,
     signal: AbortSignal,
+    onActivity?: (activity: AgentActivity) => void,
   ): Promise<ProofreadResult> {
-    const resolved = resolveAgentModel(settings);
-    if (!resolved) throw new Error("请先在设置中启用服务商并填写 API Key");
-
-    const url = `${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`;
-    const res = await createAiFetch()(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resolved.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: resolved.model,
-        temperature: 0,
-        messages: [
-          { role: "system", content: PROOFREAD_SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: `---文档开始---\n${doc}\n---文档结束---\n\n请检查这篇 Markdown 文档中的明确错别字，并按指定 JSON 格式返回。`,
-          },
-        ],
-      }),
-      signal,
+    const result = streamText({
+      model: createAgentLanguageModel(settings),
+      system: PROOFREAD_SYSTEM_PROMPT,
+      prompt: `---文档开始---\n${doc}\n---文档结束---\n\n请检查这篇 Markdown 文档中的明确错别字，并按指定 JSON 格式返回。`,
+      temperature: 0,
+      abortSignal: signal,
+      providerOptions: createReasoningProviderOptions(settings),
     });
+    const reasoning = new Map<string, AgentActivity>();
+    let timelineSeq = 0;
+    let rawResponse = "";
+    const reasoningId = "proofread-thinking";
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`API 错误 ${res.status}: ${errText}`);
+    const publish = (activity: AgentActivity) => {
+      reasoning.set(activity.id, activity);
+      onActivity?.({ ...activity });
+    };
+
+    if (selectedModelSupportsReasoning(settings)) {
+      publish({
+        id: reasoningId,
+        kind: "thinking",
+        tool: "thinking",
+        status: "running",
+        detail: "",
+        contentOffset: 0,
+        timelineSeq: ++timelineSeq,
+      });
     }
 
-    const payload = await res.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const rawResponse = payload.choices?.[0]?.message?.content?.trim() ?? "";
+    try {
+      for await (const part of result.fullStream) {
+        if (part.type === "abort") {
+          throw new DOMException("Aborted", "AbortError");
+        }
+        if (part.type === "text-delta") {
+          rawResponse += part.text;
+          continue;
+        }
+
+        if (part.type === "reasoning-start") {
+          if (!reasoning.has(reasoningId)) {
+            publish({
+              id: reasoningId,
+              kind: "thinking",
+              tool: "thinking",
+              status: "running",
+              detail: "",
+              contentOffset: 0,
+              timelineSeq: ++timelineSeq,
+            });
+          }
+          continue;
+        }
+
+        if (part.type === "reasoning-delta") {
+          const existing = reasoning.get(reasoningId);
+          publish({
+            id: reasoningId,
+            kind: "thinking",
+            tool: "thinking",
+            status: "running",
+            detail: `${existing?.detail ?? ""}${part.text}`,
+            contentOffset: existing?.contentOffset ?? 0,
+            timelineSeq: existing?.timelineSeq ?? ++timelineSeq,
+          });
+          continue;
+        }
+
+        if (part.type === "reasoning-end") {
+          const existing = reasoning.get(reasoningId);
+          if (existing) {
+            publish({
+              ...existing,
+              status: "done",
+              summary: existing.detail?.replace(/\s+/g, " ").trim().slice(0, 80),
+            });
+          }
+        }
+      }
+    } finally {
+      for (const activity of reasoning.values()) {
+        if (activity.status === "running") publish({ ...activity, status: "done" });
+      }
+    }
+    throwIfAborted(signal);
+
+    rawResponse = rawResponse.trim();
     return {
       issues: normalizeProofreadIssues(doc, rawResponse),
       rawResponse,
@@ -1105,10 +1173,10 @@ export function useAI(getDocumentKey: () => string = () => "__untitled__") {
     proofreadDocument,
     runAgent,
     historyList,
-    activeConversationId,
-    conversationSummaries,
+    getActiveConversationId,
+    listConversationSummaries,
     startNewConversation,
     switchConversation,
-    clearAllConversations,
+    clearConversations,
   };
 }
