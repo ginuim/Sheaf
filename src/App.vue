@@ -13,6 +13,7 @@ import MarkdownEditor from "./components/MarkdownEditor.vue";
 import MarkdownPreview from "./components/MarkdownPreview.vue";
 import EditorSearchReplace from "./components/EditorSearchReplace.vue";
 import PaneZenButton from "./components/PaneZenButton.vue";
+import AdhdReadingButton from "./components/AdhdReadingButton.vue";
 import DocumentSwitcher from "./components/DocumentSwitcher.vue";
 import ExportStudio from "./components/ExportStudio.vue";
 import OutlinePanel from "./components/OutlinePanel.vue";
@@ -74,7 +75,10 @@ const MIN_SPLIT_PANE_PERCENT = 25;
 const SPLIT_KEYBOARD_STEP = 2;
 
 const { t, locale } = useLocale();
-const { preferences: appPreferences } = useAppPreferences();
+const {
+  preferences: appPreferences,
+  updateAppPreferences,
+} = useAppPreferences();
 const content = ref(DEFAULT_CONTENT);
 const baselineContent = ref(DEFAULT_CONTENT);
 const isDirty = computed(() => content.value !== baselineContent.value);
@@ -867,6 +871,10 @@ function toggleZen(target: "edit" | "preview") {
   enterZen(target);
 }
 
+function toggleAdhdReadingMode() {
+  updateAppPreferences({ adhdReadingMode: !appPreferences.adhdReadingMode });
+}
+
 watch(viewMode, (mode) => {
   if (mode === "preview") {
     editorRef.value?.closeSearch();
@@ -1655,6 +1663,10 @@ onUnmounted(() => {
             @find-previous="previewRef?.findPreviousSearchMatch()"
             @close="closePreviewSearch"
           />
+          <AdhdReadingButton
+            :active="appPreferences.adhdReadingMode"
+            @toggle="toggleAdhdReadingMode"
+          />
           <PaneZenButton
             v-if="viewMode !== 'split'"
             :active="zenMode && viewMode === 'preview'"
@@ -1675,6 +1687,7 @@ onUnmounted(() => {
             :search-text="previewSearchText"
             :search-case-sensitive="previewSearchCaseSensitive"
             :ai-marks="previewAiMarks"
+            :adhd-reading-mode="appPreferences.adhdReadingMode"
             :ai-added-label="t('ai.previewAiAdded')"
             :ai-removed-label="t('ai.previewAiRemoved')"
             @open-link="handleOpenLink"

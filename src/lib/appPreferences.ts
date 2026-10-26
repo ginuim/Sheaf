@@ -9,6 +9,7 @@ const DEFAULT_IMAGE_FILE_NAME_TEMPLATE = "{timestamp}-{random}.{ext}";
 
 export type AppPreferences = {
   autoUpdateEnabled: boolean;
+  adhdReadingMode: boolean;
   markdownFormatBarEnabled: boolean;
   markdownFormatBarTools: Record<MarkdownFormatToolId, boolean>;
   markdownFormatBarToolOrder: MarkdownFormatToolId[];
@@ -91,6 +92,7 @@ function createDefaultFormatBarTools(): Record<MarkdownFormatToolId, boolean> {
 
 const defaults: AppPreferences = {
   autoUpdateEnabled: true,
+  adhdReadingMode: false,
   markdownFormatBarEnabled: true,
   markdownFormatBarTools: createDefaultFormatBarTools(),
   markdownFormatBarToolOrder: [...markdownFormatToolIds],
@@ -141,6 +143,7 @@ const defaults: AppPreferences = {
 function defaultPreferences(): AppPreferences {
   return {
     autoUpdateEnabled: defaults.autoUpdateEnabled,
+    adhdReadingMode: defaults.adhdReadingMode,
     markdownFormatBarEnabled: defaults.markdownFormatBarEnabled,
     markdownFormatBarTools: { ...defaults.markdownFormatBarTools },
     markdownFormatBarToolOrder: [...defaults.markdownFormatBarToolOrder],
@@ -287,6 +290,10 @@ export function loadAppPreferences(): AppPreferences {
         typeof parsed.autoUpdateEnabled === "boolean"
           ? parsed.autoUpdateEnabled
           : defaults.autoUpdateEnabled,
+      adhdReadingMode:
+        typeof parsed.adhdReadingMode === "boolean"
+          ? parsed.adhdReadingMode
+          : defaults.adhdReadingMode,
       markdownFormatBarEnabled:
         typeof parsed.markdownFormatBarEnabled === "boolean"
           ? parsed.markdownFormatBarEnabled

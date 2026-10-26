@@ -209,6 +209,8 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
     checkForUpdates: "Check for Updates…",
   },
   editor: {
+    adhdReadingEnter: "Enable ADHD reading mode",
+    adhdReadingExit: "Disable ADHD reading mode",
     imageRequiresSavedDocument: "Save the document before inserting images.",
     imageInsertFailed: "Could not save the image. Please try again.",
     imageUploadFailed: "Could not upload the image. Check the image hosting settings and try again.",

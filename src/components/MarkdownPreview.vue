@@ -11,6 +11,7 @@ import {
   setActiveSearchHit,
 } from "../lib/domTextSearch";
 import type { PreviewAiMarks } from "../composables/useAI";
+import { enhanceHtmlForAdhdReading } from "../lib/adhdReading";
 
 export type PreviewImageCropPayload = {
   previewSrc: string;
@@ -31,6 +32,7 @@ const props = withDefaults(
     aiAddedLabel?: string;
     aiRemovedLabel?: string;
     enableCrop?: boolean;
+    adhdReadingMode?: boolean;
   }>(),
   {
     searchOpen: false,
@@ -40,6 +42,7 @@ const props = withDefaults(
     aiAddedLabel: "",
     aiRemovedLabel: "",
     enableCrop: true,
+    adhdReadingMode: false,
   },
 );
 
@@ -164,6 +167,9 @@ const html = computed(() =>
     },
   }),
 );
+const displayedHtml = computed(() =>
+  props.adhdReadingMode ? enhanceHtmlForAdhdReading(html.value) : html.value,
+);
 
 async function renderDynamicBlocks() {
   await nextTick();
@@ -181,7 +187,7 @@ onUnmounted(() => {
   if (layoutFrame) cancelAnimationFrame(layoutFrame);
 });
 
-watch(html, () => {
+watch(displayedHtml, () => {
   void renderDynamicBlocks();
 });
 
@@ -528,7 +534,10 @@ defineExpose({
   <article
     ref="articleRef"
     class="preview-article"
-    :class="{ 'has-ai-marks': hasAiMarks }"
+    :class="{
+      'has-ai-marks': hasAiMarks,
+      'adhd-reading': adhdReadingMode,
+    }"
     @click.capture="onPreviewClick"
     @load.capture="scheduleLayoutChange"
   >
@@ -542,7 +551,7 @@ defineExpose({
         {{ aiRemovedLabel }}
       </span>
     </div>
-    <div class="preview-content" v-html="html" />
+    <div class="preview-content" v-html="displayedHtml" />
     <ImageLightbox
       :open="Boolean(lightboxTarget)"
       :src="lightboxTarget?.src"
@@ -604,6 +613,24 @@ defineExpose({
   max-width: var(--content-max);
   margin: 0 auto;
   padding: 2.5rem 2rem 4rem;
+}
+
+.preview-article.adhd-reading .preview-content {
+  max-width: 42rem;
+  line-height: 2.05;
+  letter-spacing: 0.018em;
+}
+
+.preview-article.adhd-reading .preview-content :deep(p + p) {
+  margin-top: 1.75em;
+}
+
+.preview-article.adhd-reading .preview-content :deep(li + li) {
+  margin-top: 0.6em;
+}
+
+.preview-article.adhd-reading .preview-content :deep(.adhd-reading-anchor) {
+  font-weight: 750;
 }
 
 .preview-content :deep(img.preview-image),

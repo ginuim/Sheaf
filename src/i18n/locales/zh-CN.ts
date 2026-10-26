@@ -209,6 +209,8 @@ console.log(greeting);
     checkForUpdates: "检查更新…",
   },
   editor: {
+    adhdReadingEnter: "开启 ADHD 阅读模式",
+    adhdReadingExit: "关闭 ADHD 阅读模式",
     imageRequiresSavedDocument: "请先保存文档，再插入图片。",
     imageInsertFailed: "无法保存图片，请重试。",
     imageUploadFailed: "图片上传到图床失败，请检查图床配置后重试。",
