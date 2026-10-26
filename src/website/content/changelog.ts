@@ -9,6 +9,18 @@ export type ChangelogEntry = {
 
 const CHANGELOG_ZH: ChangelogEntry[] = [
   {
+    version: "0.2.36",
+    date: "2026-09",
+    title: "Mermaid 大图更清晰、Windows 双击打开",
+    items: [
+      "Mermaid 大图打开即铺满窗口并居中，拖拽可平移、范围受限不会拖丢",
+      "大图用纯矢量 SVG 重绘，放大到 800% 文字依然锐利不发糊",
+      "舞台任意位置都能拖动，方向键微调位置，滚轮以光标为锚点缩放",
+      "新增 ADHD 阅读模式：预览正文按词加粗前半段并放宽行距与行宽，在预览区右上角切换",
+      "修复 Windows 上双击 .md 文件只打开 Sheaf 却不载入文档的问题",
+    ],
+  },
+  {
     version: "0.2.35",
     date: "2026-09",
     title: "预览图片与 Mermaid 大图",
@@ -356,6 +368,18 @@ const CHANGELOG_ZH: ChangelogEntry[] = [
 ];
 
 const CHANGELOG_EN: ChangelogEntry[] = [
+  {
+    version: "0.2.36",
+    date: "2026-09",
+    title: "Sharper Mermaid viewer, Windows file opening",
+    items: [
+      "Mermaid diagrams open fitted to the window and centered; drag to pan with bounds that keep the diagram in view",
+      "The viewer re-renders diagrams as pure vector SVG, so text stays sharp at up to 800%",
+      "Drag anywhere on the stage, nudge with arrow keys, and zoom at the pointer with the wheel",
+      "New ADHD reading mode: bolds the leading syllables of preview text and widens line height and measure, toggled at the top right of the preview pane",
+      "Fixed Windows launching Sheaf from a double-clicked .md file without opening that document",
+    ],
+  },
   {
     version: "0.2.35",
     date: "2026-09",
