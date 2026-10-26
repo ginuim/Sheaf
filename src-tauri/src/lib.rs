@@ -120,27 +120,97 @@ fn allow_dropped_paths(app: AppHandle, paths: Vec<String>) {
     }
 }
 
+/// Resolves one command-line argument to a file path.
+///
+/// Windows and Linux hand associated files over as plain path arguments, e.g.
+/// `Sheaf.exe "C:\notes\todo.md"`, while some launchers pass `file://` URLs.
+///
+/// Plain Windows paths must never go through `Url::parse`: `C:\notes\todo.md`
+/// parses as a URL with the scheme `c`, and `to_file_path()` then fails, which
+/// would silently drop the argument and leave the app on the start page.
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
+fn path_from_argument(argument: &str) -> Option<PathBuf> {
+    let trimmed = argument.trim().trim_matches('"');
+    if trimmed.is_empty() || trimmed.starts_with('-') {
+        return None;
+    }
+
+    let is_file_url = trimmed
+        .get(..5)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:"));
+    if is_file_url {
+        // `to_file_path` also percent-decodes and maps drive letters on Windows.
+        return url::Url::parse(trimmed).ok()?.to_file_path().ok();
+    }
+
+    Some(PathBuf::from(trimmed))
+}
+
 #[cfg(any(windows, target_os = "linux"))]
 fn paths_from_args() -> Vec<PathBuf> {
-    std::env::args()
+    std::env::args_os()
         .skip(1)
-        .filter_map(|arg| {
-            if arg.starts_with('-') {
-                return None;
+        .filter_map(|argument| {
+            // `args_os` keeps non-UTF-8 file names intact on Linux; only fall back
+            // to the trimmed string when the argument was actually modified.
+            let raw = argument.to_string_lossy();
+            let path = path_from_argument(&raw)?;
+            if path.as_os_str() == raw.as_ref() {
+                Some(PathBuf::from(argument))
+            } else {
+                Some(path)
             }
-            if let Ok(url) = url::Url::parse(&arg) {
-                return url.to_file_path().ok();
-            }
-            Some(PathBuf::from(arg))
         })
         .collect()
 }
 
 #[cfg(any(windows, target_os = "linux"))]
 fn handle_launch_files(app: &tauri::App) {
-    let files = paths_from_args();
+    let files = expand_document_paths(paths_from_args());
     if !files.is_empty() {
         handle_opened_files(&app.handle(), files);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_windows_paths_verbatim() {
+        assert_eq!(
+            path_from_argument(r"C:\Users\tao\notes\todo.md"),
+            Some(PathBuf::from(r"C:\Users\tao\notes\todo.md"))
+        );
+        assert_eq!(
+            path_from_argument(r"\\server\share\todo.md"),
+            Some(PathBuf::from(r"\\server\share\todo.md"))
+        );
+    }
+
+    #[test]
+    fn keeps_plain_paths_and_strips_quotes() {
+        assert_eq!(
+            path_from_argument("/home/tao/notes/todo.md"),
+            Some(PathBuf::from("/home/tao/notes/todo.md"))
+        );
+        assert_eq!(
+            path_from_argument(r#""/tmp/a b.md""#),
+            Some(PathBuf::from("/tmp/a b.md"))
+        );
+    }
+
+    #[test]
+    fn decodes_file_urls() {
+        let path = path_from_argument("file:///home/tao/a%20b.md");
+        assert_eq!(path, Some(PathBuf::from("/home/tao/a b.md")));
+        assert!(path_from_argument("FILE:///home/tao/a.md").is_some());
+    }
+
+    #[test]
+    fn ignores_flags_and_empty_arguments() {
+        assert_eq!(path_from_argument("--inspect"), None);
+        assert_eq!(path_from_argument("   "), None);
     }
 }
 
