@@ -57,6 +57,7 @@ type LightboxTarget = {
   src: string;
   alt: string;
   svgHtml: string;
+  mermaidSource: string;
   crop: PreviewImageCropPayload | null;
 };
 
@@ -453,6 +454,7 @@ function openImageLightbox(image: HTMLImageElement) {
     src: image.currentSrc || image.src,
     alt: image.alt,
     svgHtml: "",
+    mermaidSource: "",
     crop: markdownSrc
       ? {
           previewSrc: image.currentSrc || image.src,
@@ -468,7 +470,9 @@ function openMermaidLightbox(svg: SVGSVGElement) {
   lightboxTarget.value = {
     src: "",
     alt: "",
+    // Shown immediately while the viewer re-renders the diagram as pure SVG.
     svgHtml: cloneSvgMarkup(svg),
+    mermaidSource: svg.closest(".mermaid")?.getAttribute("data-mermaid-source") ?? "",
     crop: null,
   };
 }
@@ -556,6 +560,7 @@ defineExpose({
       :open="Boolean(lightboxTarget)"
       :src="lightboxTarget?.src"
       :svg-html="lightboxTarget?.svgHtml"
+      :mermaid-source="lightboxTarget?.mermaidSource"
       :alt="lightboxTarget?.alt"
       :crop-enabled="lightboxCropEnabled"
       @close="closeImageLightbox"

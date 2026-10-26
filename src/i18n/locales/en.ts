@@ -241,6 +241,7 @@ Use **New** for a blank document, **Open** to read a local file, and **Save** to
       copied: "Copied to clipboard",
       copyFailed: "Could not copy the image. Please try again.",
       loadFailed: "Could not load the image. Please try again.",
+      renderFailed: "Could not render the diagram. Please try again.",
     },
     addSelectionToAiContext: "Add to conversation context",
     resizeSplit: "Resize editor and preview panes",

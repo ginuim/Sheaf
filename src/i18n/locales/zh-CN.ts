@@ -241,6 +241,7 @@ console.log(greeting);
       copied: "已复制到剪贴板",
       copyFailed: "无法复制图片，请重试。",
       loadFailed: "无法加载图片，请重试。",
+      renderFailed: "无法渲染图表，请重试。",
     },
     addSelectionToAiContext: "添加到对话上下文",
     resizeSplit: "调整编辑区和预览区宽度",

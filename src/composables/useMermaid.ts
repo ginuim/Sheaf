@@ -4,6 +4,12 @@ let renderSeq = 0;
 
 type MermaidThemeId = "light" | "dark";
 
+export type MermaidVector = {
+  markup: string;
+  width: number;
+  height: number;
+};
+
 function resolveIsDark(isDark?: boolean): boolean {
   if (typeof isDark === "boolean") return isDark;
   return document.documentElement.dataset.theme === "dark";
@@ -85,18 +91,65 @@ const SHEAF_THEME_VARS: Record<MermaidThemeId, Record<string, string | boolean>>
   },
 };
 
-function initMermaid(themeId: MermaidThemeId): void {
+function initMermaid(themeId: MermaidThemeId, htmlLabels: boolean): void {
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "strict",
     theme: "base",
     themeVariables: SHEAF_THEME_VARS[themeId],
     fontFamily: '"IBM Plex Sans", system-ui, sans-serif',
+    htmlLabels,
   });
 }
 
 function getMermaidSource(el: Element): string {
   return el.getAttribute("data-mermaid-source") ?? el.textContent ?? "";
+}
+
+function normalizeVectorSvg(markup: string): MermaidVector {
+  const doc = new DOMParser().parseFromString(markup, "image/svg+xml");
+  const svg = doc.documentElement;
+  const viewBox = (svg.getAttribute("viewBox") ?? "")
+    .split(/[\s,]+/)
+    .map((part) => Number.parseFloat(part));
+  const hasViewBox = viewBox.length === 4 && viewBox.every(Number.isFinite);
+  const width = hasViewBox ? viewBox[2] : 800;
+  const height = hasViewBox ? viewBox[3] : 450;
+
+  svg.setAttribute("width", String(width));
+  svg.setAttribute("height", String(height));
+  // mermaid writes an inline `max-width`, which would fight the viewer's own
+  // fit-to-window sizing.
+  const style = svg.getAttribute("style");
+  if (style) {
+    const cleaned = style.replace(/max-width\s*:[^;]*;?/gi, "").trim();
+    if (cleaned) svg.setAttribute("style", cleaned);
+    else svg.removeAttribute("style");
+  }
+
+  return {
+    markup: new XMLSerializer().serializeToString(svg),
+    width,
+    height,
+  };
+}
+
+/**
+ * Renders a diagram as a standalone, resolution-independent SVG.
+ *
+ * Mermaid's default `htmlLabels` wraps every label in a `<foreignObject>` with
+ * regular HTML inside, which the browser rasterizes as a composited layer and
+ * turns blurry once the viewer scales it up. Rendering labels as real `<text>`
+ * keeps the whole diagram vector, so it stays sharp at any zoom level.
+ */
+export async function renderMermaidSvg(
+  source: string,
+  isDark?: boolean,
+): Promise<MermaidVector> {
+  initMermaid(currentTheme(isDark), false);
+  const id = `sheaf-mermaid-vector-${Date.now()}-${renderSeq++}`;
+  const { svg } = await mermaid.render(id, source);
+  return normalizeVectorSvg(svg);
 }
 
 export async function renderMermaidIn(
@@ -107,7 +160,7 @@ export async function renderMermaidIn(
   if (!nodes.length) return;
 
   const themeId = currentTheme(isDark);
-  initMermaid(themeId);
+  initMermaid(themeId, true);
 
   for (const node of nodes) {
     const source = getMermaidSource(node).trim();
